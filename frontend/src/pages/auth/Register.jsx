@@ -23,7 +23,7 @@ const Register = () => {
     password: "",
     confirmPassword: "",
     phone: "",
-    role: "reseller",
+    role: "distributor",
   });
 
   const [showPassword, setShowPassword] = useState(false);
@@ -36,16 +36,6 @@ const Register = () => {
 
   const roles = [
     {
-      value: "reseller",
-      label: "Reseller",
-      desc: "Sell products to customers",
-      color: "from-emerald-500 to-teal-600",
-      bgColor: "bg-emerald-50",
-      borderColor: "border-emerald-200",
-      textColor: "text-emerald-700",
-      icon: Store,
-    },
-    {
       value: "distributor",
       label: "Distributor",
       desc: "Manage supply and distribution",
@@ -54,16 +44,6 @@ const Register = () => {
       borderColor: "border-blue-200",
       textColor: "text-blue-700",
       icon: Package,
-    },
-    {
-      value: "admin",
-      label: "Admin",
-      desc: "Full system management",
-      color: "from-purple-500 to-pink-600",
-      bgColor: "bg-purple-50",
-      borderColor: "border-purple-200",
-      textColor: "text-purple-700",
-      icon: Shield,
     },
   ];
 
@@ -116,9 +96,7 @@ const Register = () => {
       await register(registrationData);
 
       const redirectPaths = {
-        admin: "/admin/dashboard",
         distributor: "/distributor/dashboard",
-        reseller: "/reseller/dashboard",
       };
       navigate(redirectPaths[formData.role] || "/dashboard");
     } catch (error) {
