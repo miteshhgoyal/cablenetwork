@@ -367,7 +367,7 @@ const Login = () => {
                   </button>
 
                   {/* Footer */}
-                  <div className="text-center pt-4 border-t border-gray-200">
+                  {/* <div className="text-center pt-4 border-t border-gray-200">
                     <p className="text-sm text-gray-600">
                       Don't have an account?{" "}
                       <Link
@@ -377,7 +377,7 @@ const Login = () => {
                         Create one
                       </Link>
                     </p>
-                  </div>
+                  </div> */}
                 </form>
               </div>
             </div>

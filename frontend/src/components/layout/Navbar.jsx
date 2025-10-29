@@ -20,6 +20,7 @@ import {
   ShoppingCart,
   CircleDollarSign,
   User2,
+  Building2, // ADD THIS IMPORT
 } from "lucide-react";
 
 const Navbar = () => {
@@ -186,14 +187,19 @@ const Navbar = () => {
               icon: Users,
               links: [
                 {
-                  name: "Subscribers",
-                  href: "/admin/subscribers",
-                  icon: UserCheck,
+                  name: "Distributors", // ADD THIS
+                  href: "/admin/distributors",
+                  icon: Building2,
                 },
                 {
                   name: "Resellers",
                   href: "/admin/resellers",
                   icon: ShoppingCart,
+                },
+                {
+                  name: "Subscribers",
+                  href: "/admin/subscribers",
+                  icon: UserCheck,
                 },
               ],
             },

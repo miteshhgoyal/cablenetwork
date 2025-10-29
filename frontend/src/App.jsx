@@ -25,6 +25,7 @@ import Resellers from "./pages/Resellers.jsx";
 import Ott from "./pages/Ott.jsx";
 import Credit from "./pages/Credit.jsx";
 import Profile from "./pages/Profile.jsx";
+import Distributors from "./pages/Distributors.jsx";
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles = [] }) => {
@@ -257,6 +258,14 @@ const App = () => {
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <Resellers />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/distributors"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <Distributors />
                 </ProtectedRoute>
               }
             />
