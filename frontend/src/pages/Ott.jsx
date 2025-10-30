@@ -212,11 +212,20 @@ const Ott = () => {
                     Type
                   </label>
                   <select
-                    value={typeFilter}
-                    onChange={(e) => setTypeFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    value={formData.type}
+                    onChange={(e) => {
+                      const newType = e.target.value;
+                      setFormData({
+                        ...formData,
+                        type: newType,
+                        // Clear seasonsCount when switching to Movie
+                        seasonsCount:
+                          newType === "Movie" ? "" : formData.seasonsCount,
+                      });
+                    }}
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    required
                   >
-                    <option value="">All Types</option>
                     <option value="Movie">Movie</option>
                     <option value="Web Series">Web Series</option>
                   </select>

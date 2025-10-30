@@ -124,11 +124,12 @@ router.post('/', authenticateToken, async (req, res) => {
         if (type === 'Web Series' && (!seasonsCount || seasonsCount < 1)) {
             return res.status(400).json({
                 success: false,
-                message: 'Seasons count is required for Web Series'
+                message: 'Seasons count is required for Web Series and must be at least 1'
             });
         }
 
-        const ott = new Ott({
+        // Create the document
+        const ottData = {
             type,
             title: title.trim(),
             genre,
@@ -136,9 +137,10 @@ router.post('/', authenticateToken, async (req, res) => {
             mediaUrl: mediaUrl.trim(),
             horizontalUrl: horizontalUrl.trim(),
             verticalUrl: verticalUrl.trim(),
-            seasonsCount: type === 'Web Series' ? seasonsCount : 0
-        });
+            seasonsCount: type === 'Web Series' ? parseInt(seasonsCount) : 0
+        };
 
+        const ott = new Ott(ottData);
         await ott.save();
 
         // Populate before sending response
@@ -155,7 +157,7 @@ router.post('/', authenticateToken, async (req, res) => {
         console.error('Create OTT content error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to create OTT content'
+            message: error.message || 'Failed to create OTT content'
         });
     }
 });
@@ -203,7 +205,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         if (type === 'Web Series' && (!seasonsCount || seasonsCount < 1)) {
             return res.status(400).json({
                 success: false,
-                message: 'Seasons count is required for Web Series'
+                message: 'Seasons count is required for Web Series and must be at least 1'
             });
         }
 
@@ -214,7 +216,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         ott.mediaUrl = mediaUrl.trim();
         ott.horizontalUrl = horizontalUrl.trim();
         ott.verticalUrl = verticalUrl.trim();
-        ott.seasonsCount = type === 'Web Series' ? seasonsCount : 0;
+        ott.seasonsCount = type === 'Web Series' ? parseInt(seasonsCount) : 0;
 
         await ott.save();
 
@@ -232,7 +234,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         console.error('Update OTT content error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to update OTT content'
+            message: error.message || 'Failed to update OTT content'
         });
     }
 });

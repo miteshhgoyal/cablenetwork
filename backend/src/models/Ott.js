@@ -35,11 +35,26 @@ const ottSchema = new mongoose.Schema({
     seasonsCount: {
         type: Number,
         default: 0,
-        required: () => this.type === 'Web Series'
-
+        validate: {
+            validator: function (value) {
+                // Use regular function, NOT arrow function, to access 'this'
+                if (this.type === 'Web Series') {
+                    return value && value > 0;
+                }
+                return true;
+            },
+            message: 'Seasons count is required and must be greater than 0 for Web Series'
+        }
     }
 }, {
     timestamps: true
+});
+
+ottSchema.pre('save', function (next) {
+    if (this.type === 'Movie') {
+        this.seasonsCount = 0;
+    }
+    next();
 });
 
 export default mongoose.model('Ott', ottSchema);
