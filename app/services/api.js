@@ -2,12 +2,12 @@
 import axios from 'axios';
 import { tokenService } from './tokenService.js';
 
-// const API_BASE_URL = 'http://192.168.1.66:8000/api';
-const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
+const API_BASE_URL = 'http://192.168.1.66:8000/api';
+// const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
-    timeout: 10000,
+    timeout: 30000,
     headers: {
         'Content-Type': 'application/json',
     },

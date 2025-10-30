@@ -2,7 +2,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import axios from 'axios';
+import api from "../services/api";
 import * as Device from 'expo-device';
 
 export const AuthContext = createContext();
@@ -14,9 +14,6 @@ export const useAuth = () => {
     }
     return context;
 };
-
-// API Configuration
-const API_BASE_URL = 'http://192.168.1.66:8000/api'; // CHANGE TO YOUR BACKEND URL
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
@@ -55,7 +52,7 @@ export const AuthProvider = ({ children }) => {
             const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
             const deviceName = Device.deviceName || 'User Device';
 
-            const response = await axios.post(`${API_BASE_URL}/customer/login`, {
+            const response = await api.post(`/customer/login`, {
                 partnerCode: partnerCode.trim(),
                 macAddress,
                 deviceName
