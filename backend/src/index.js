@@ -26,7 +26,7 @@ connectDB();
 
 // Middleware
 const corsOptions = {
-    origin: process.env.CORS_ORIGIN,
+    origin: '*',
     methods: ['GET', 'POST', 'DELETE', 'PATCH', 'PUT', 'OPTIONS'],
     credentials: true
 };
