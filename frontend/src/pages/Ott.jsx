@@ -1,4 +1,3 @@
-// frontend/src/pages/ott/Ott.jsx
 import React, { useState, useEffect } from "react";
 import api from "../services/api.js";
 import {
@@ -11,6 +10,11 @@ import {
   Film,
   Filter,
   Tv,
+  Upload,
+  FileText,
+  Download,
+  AlertCircle,
+  CheckCircle,
 } from "lucide-react";
 
 const Ott = () => {
@@ -23,6 +27,7 @@ const Ott = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedOtt, setSelectedOtt] = useState(null);
   const [formData, setFormData] = useState({
@@ -36,6 +41,10 @@ const Ott = () => {
     seasonsCount: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [importFile, setImportFile] = useState(null);
+  const [importError, setImportError] = useState("");
+  const [importPreview, setImportPreview] = useState([]);
+  const [importSuccess, setImportSuccess] = useState("");
 
   useEffect(() => {
     fetchOttContent();
@@ -146,6 +155,177 @@ const Ott = () => {
     }
   };
 
+  // Import Modal Functions
+  const handleOpenImportModal = () => {
+    setShowImportModal(true);
+    setImportFile(null);
+    setImportError("");
+    setImportPreview([]);
+    setImportSuccess("");
+  };
+
+  const handleCloseImportModal = () => {
+    setShowImportModal(false);
+    setImportFile(null);
+    setImportError("");
+    setImportPreview([]);
+    setImportSuccess("");
+  };
+
+  const parseCSV = (csvText) => {
+    try {
+      const lines = csvText.trim().split("\n");
+      if (lines.length < 2) {
+        setImportError("CSV file is empty or has no data rows");
+        return;
+      }
+
+      const headers = lines[0].split(",").map((h) => h.trim().toLowerCase());
+
+      // Validate required headers
+      const requiredHeaders = [
+        "type",
+        "title",
+        "genre",
+        "language",
+        "mediaurl",
+        "horizontalurl",
+        "verticalurl",
+      ];
+
+      const missingHeaders = requiredHeaders.filter(
+        (h) => !headers.includes(h)
+      );
+
+      if (missingHeaders.length > 0) {
+        setImportError(
+          `Missing required columns: ${missingHeaders.join(", ")}`
+        );
+        return;
+      }
+
+      // Parse data rows
+      const parsedData = [];
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const values = line.split(",").map((v) => v.trim());
+        const row = {};
+
+        headers.forEach((header, index) => {
+          row[header] = values[index] || "";
+        });
+
+        // Validate row data
+        if (!row.type || !row.title || !row.genre || !row.language) {
+          setImportError(`Row ${i}: Missing required fields`);
+          return;
+        }
+
+        // Find genre and language IDs
+        const genreMatch = genres.find(
+          (g) => g.name.toLowerCase() === row.genre.toLowerCase()
+        );
+        const languageMatch = languages.find(
+          (l) => l.name.toLowerCase() === row.language.toLowerCase()
+        );
+
+        if (!genreMatch) {
+          setImportError(`Row ${i}: Genre "${row.genre}" not found`);
+          return;
+        }
+
+        if (!languageMatch) {
+          setImportError(`Row ${i}: Language "${row.language}" not found`);
+          return;
+        }
+
+        parsedData.push({
+          type: row.type,
+          title: row.title,
+          genre: genreMatch._id,
+          language: languageMatch._id,
+          mediaUrl: row.mediaurl,
+          horizontalUrl: row.horizontalurl,
+          verticalUrl: row.verticalurl,
+          seasonsCount: row.seasonscount || "",
+        });
+      }
+
+      setImportPreview(parsedData);
+      setImportError("");
+      setImportSuccess(`Successfully parsed ${parsedData.length} rows`);
+    } catch (error) {
+      setImportError(`Error parsing CSV: ${error.message}`);
+    }
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Check file type
+    const fileType = file.name.split(".").pop().toLowerCase();
+    if (!["csv"].includes(fileType)) {
+      setImportError("Please upload a CSV file");
+      return;
+    }
+
+    setImportFile(file);
+    setImportError("");
+    setImportSuccess("");
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const csvData = event.target.result;
+      parseCSV(csvData);
+    };
+    reader.readAsText(file);
+  };
+
+  const handleImportSubmit = async () => {
+    if (importPreview.length === 0) {
+      setImportError("No data to import");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Import each row
+      for (const item of importPreview) {
+        await api.post("/ott", item);
+      }
+
+      setImportSuccess(`Successfully imported ${importPreview.length} items!`);
+      fetchOttContent();
+
+      setTimeout(() => {
+        handleCloseImportModal();
+      }, 2000);
+    } catch (error) {
+      setImportError(error.response?.data?.message || "Failed to import data");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const downloadSampleCSV = () => {
+    const sampleData = [
+      "type,title,genre,language,mediaUrl,horizontalUrl,verticalUrl,seasonsCount",
+      "Movie,Sample Movie,Action,English,https://example.com/movie.mp4,https://example.com/h.jpg,https://example.com/v.jpg,",
+      "Web Series,Sample Series,Drama,Hindi,https://example.com/series.mp4,https://example.com/h2.jpg,https://example.com/v2.jpg,2",
+    ].join("\n");
+
+    const blob = new Blob([sampleData], { type: "text/csv" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "ott_import_sample.csv";
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
   const filteredOttContent = ottContent.filter((ott) =>
     ott.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -176,6 +356,13 @@ const Ott = () => {
               >
                 <Filter className="w-4 h-4" />
                 <span>Filters</span>
+              </button>
+              <button
+                onClick={handleOpenImportModal}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all"
+              >
+                <Upload className="w-4 h-4" />
+                <span>Import CSV</span>
               </button>
               <button
                 onClick={() => handleOpenModal("create")}
@@ -212,20 +399,11 @@ const Ott = () => {
                     Type
                   </label>
                   <select
-                    value={formData.type}
-                    onChange={(e) => {
-                      const newType = e.target.value;
-                      setFormData({
-                        ...formData,
-                        type: newType,
-                        // Clear seasonsCount when switching to Movie
-                        seasonsCount:
-                          newType === "Movie" ? "" : formData.seasonsCount,
-                      });
-                    }}
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
                   >
+                    <option value="">All Types</option>
                     <option value="Movie">Movie</option>
                     <option value="Web Series">Web Series</option>
                   </select>
@@ -553,6 +731,217 @@ const Ott = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Import Modal */}
+      {showImportModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">
+                Import OTT Content from CSV
+              </h2>
+              <button
+                onClick={handleCloseImportModal}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* CSV Format Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <div className="flex items-start space-x-3">
+                  <FileText className="w-5 h-5 text-blue-600 mt-0.5" />
+                  <div className="flex-1">
+                    <h3 className="font-semibold text-blue-900 mb-2">
+                      CSV File Format
+                    </h3>
+                    <p className="text-sm text-blue-800 mb-3">
+                      Your CSV file must include the following columns in this
+                      exact order:
+                    </p>
+                    <div className="bg-white rounded-lg p-3 font-mono text-xs text-gray-700 overflow-x-auto">
+                      type,title,genre,language,mediaUrl,horizontalUrl,verticalUrl,seasonsCount
+                    </div>
+                    <div className="mt-3 space-y-1 text-sm text-blue-800">
+                      <p>
+                        <strong>• type:</strong> Must be "Movie" or "Web Series"
+                      </p>
+                      <p>
+                        <strong>• genre:</strong> Must match existing genre
+                        names exactly
+                      </p>
+                      <p>
+                        <strong>• language:</strong> Must match existing
+                        language names exactly
+                      </p>
+                      <p>
+                        <strong>• seasonsCount:</strong> Required for Web
+                        Series, leave empty for Movies
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Download Sample */}
+              <div className="flex items-center justify-between bg-gray-50 rounded-xl p-4">
+                <div className="flex items-center space-x-3">
+                  <Download className="w-5 h-5 text-gray-600" />
+                  <div>
+                    <p className="font-semibold text-gray-900">
+                      Download Sample CSV
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      Get a template file with the correct format
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={downloadSampleCSV}
+                  className="px-4 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-800 transition-all text-sm font-medium"
+                >
+                  Download
+                </button>
+              </div>
+
+              {/* File Upload */}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Upload CSV File
+                </label>
+                <div className="relative">
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="block w-full text-sm text-gray-900 border border-gray-200 rounded-xl cursor-pointer bg-gray-50 focus:outline-none file:mr-4 file:py-3 file:px-4 file:rounded-l-xl file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+                  />
+                </div>
+              </div>
+
+              {/* Error Message */}
+              {importError && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                  <div className="flex items-start space-x-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-red-900 mb-1">
+                        Import Error
+                      </h4>
+                      <p className="text-sm text-red-800">{importError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Success Message */}
+              {importSuccess && !importError && (
+                <div className="bg-green-50 border border-green-200 rounded-xl p-4">
+                  <div className="flex items-start space-x-3">
+                    <CheckCircle className="w-5 h-5 text-green-600 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-green-900 mb-1">
+                        File Parsed Successfully
+                      </h4>
+                      <p className="text-sm text-green-800">{importSuccess}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview Table */}
+              {importPreview.length > 0 && (
+                <div>
+                  <h3 className="font-semibold text-gray-900 mb-3">
+                    Preview ({importPreview.length} items)
+                  </h3>
+                  <div className="border border-gray-200 rounded-xl overflow-hidden max-h-64 overflow-y-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 sticky top-0">
+                        <tr>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">
+                            Type
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">
+                            Title
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">
+                            Genre
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">
+                            Language
+                          </th>
+                          <th className="px-4 py-2 text-left text-xs font-semibold text-gray-600">
+                            Seasons
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {importPreview.map((item, index) => (
+                          <tr key={index} className="hover:bg-gray-50">
+                            <td className="px-4 py-2 text-gray-900">
+                              {item.type}
+                            </td>
+                            <td className="px-4 py-2 text-gray-900">
+                              {item.title}
+                            </td>
+                            <td className="px-4 py-2 text-gray-900">
+                              {genres.find((g) => g._id === item.genre)?.name}
+                            </td>
+                            <td className="px-4 py-2 text-gray-900">
+                              {
+                                languages.find((l) => l._id === item.language)
+                                  ?.name
+                              }
+                            </td>
+                            <td className="px-4 py-2 text-gray-900">
+                              {item.seasonsCount || "-"}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex items-center space-x-3 pt-4 border-t border-gray-200">
+                <button
+                  onClick={handleImportSubmit}
+                  disabled={submitting || importPreview.length === 0}
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium flex items-center justify-center space-x-2"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader className="w-4 h-4 animate-spin" />
+                      <span>Importing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-4 h-4" />
+                      <span>
+                        Import {importPreview.length} Item
+                        {importPreview.length !== 1 ? "s" : ""}
+                      </span>
+                    </>
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleCloseImportModal}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all disabled:opacity-50 font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
