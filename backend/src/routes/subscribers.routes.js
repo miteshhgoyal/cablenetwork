@@ -1,11 +1,15 @@
+// backend/src/routes/subscribers.js
 import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import Subscriber from '../models/Subscriber.js';
 import User from '../models/User.js';
+import Package from '../models/Package.js';
 
 const router = express.Router();
 
-// Get all subscribers (role-based filtering)
+// ==========================================
+// GET ALL SUBSCRIBERS (with filters)
+// ==========================================
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search, status, resellerId } = req.query;
@@ -52,7 +56,7 @@ router.get('/', authenticateToken, async (req, res) => {
             query.resellerId = resellerId;
         }
 
-        // FIXED: Add search filter - properly combine with existing query using $and
+        // Add search filter
         if (search) {
             const searchConditions = {
                 $or: [
@@ -62,7 +66,7 @@ router.get('/', authenticateToken, async (req, res) => {
                 ]
             };
 
-            // If query already has conditions, combine with $and
+            // Combine with existing query
             if (Object.keys(query).length > 0) {
                 query = { $and: [query, searchConditions] };
             } else {
@@ -89,7 +93,9 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Get resellers list (for filter dropdown)
+// ==========================================
+// GET RESELLERS LIST (for filter dropdown)
+// ==========================================
 router.get('/resellers', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -126,7 +132,32 @@ router.get('/resellers', authenticateToken, async (req, res) => {
     }
 });
 
-// Get single subscriber details
+// ==========================================
+// GET PACKAGES LIST (for dropdown)
+// ==========================================
+router.get('/packages', authenticateToken, async (req, res) => {
+    try {
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            data: { packages }
+        });
+
+    } catch (error) {
+        console.error('Get packages error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch packages'
+        });
+    }
+});
+
+// ==========================================
+// GET SINGLE SUBSCRIBER DETAILS
+// ==========================================
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -176,6 +207,160 @@ router.get('/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch subscriber'
+        });
+    }
+});
+
+// ==========================================
+// UPDATE SUBSCRIBER
+// ==========================================
+router.put('/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        const { subscriberName, macAddress, serialNumber, status, expiryDate, package: packageId } = req.body;
+
+        // Find subscriber
+        const subscriber = await Subscriber.findById(req.params.id);
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check permissions
+        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        if (user.role === 'distributor') {
+            const distributorResellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            });
+            const resellerIds = distributorResellers.map(r => r._id.toString());
+
+            if (!resellerIds.includes(subscriber.resellerId.toString())) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Unauthorized access'
+                });
+            }
+        }
+
+        // Validation
+        if (!subscriberName || !macAddress || !serialNumber) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, MAC address, and serial number are required'
+            });
+        }
+
+        // Check if MAC address already exists (excluding current subscriber)
+        const existingSubscriber = await Subscriber.findOne({
+            macAddress: macAddress.trim(),
+            _id: { $ne: req.params.id }
+        });
+
+        if (existingSubscriber) {
+            return res.status(400).json({
+                success: false,
+                message: 'MAC address already exists'
+            });
+        }
+
+        // Update fields
+        subscriber.subscriberName = subscriberName.trim();
+        subscriber.macAddress = macAddress.trim();
+        subscriber.serialNumber = serialNumber.trim();
+        subscriber.status = status || 'Active';
+
+        if (expiryDate) {
+            subscriber.expiryDate = new Date(expiryDate);
+        }
+
+        if (packageId) {
+            subscriber.package = packageId;
+        }
+
+        await subscriber.save();
+
+        // Populate and return
+        await subscriber.populate('resellerId', 'name email');
+        await subscriber.populate('package', 'name cost duration');
+
+        res.json({
+            success: true,
+            message: 'Subscriber updated successfully',
+            data: { subscriber }
+        });
+
+    } catch (error) {
+        console.error('Update subscriber error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update subscriber'
+        });
+    }
+});
+
+// ==========================================
+// DELETE SUBSCRIBER
+// ==========================================
+router.delete('/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+
+        const subscriber = await Subscriber.findById(req.params.id);
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check permissions
+        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        if (user.role === 'distributor') {
+            const distributorResellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            });
+            const resellerIds = distributorResellers.map(r => r._id.toString());
+
+            if (!resellerIds.includes(subscriber.resellerId.toString())) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Unauthorized access'
+                });
+            }
+        }
+
+        await subscriber.deleteOne();
+
+        res.json({
+            success: true,
+            message: 'Subscriber deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete subscriber error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete subscriber'
         });
     }
 });

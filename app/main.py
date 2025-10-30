@@ -51,6 +51,10 @@ if __name__ == "__main__":
     files_to_find = [
   '_layout.js',
   'index.js',
+  'authContext.js',
+  'api.js',
+  'tokenService.js',
+  'signin.js',
     ]
     
     # Start the search from current directory

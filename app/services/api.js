@@ -1,9 +1,9 @@
+// services/api.js
 import axios from 'axios';
 import { tokenService } from './tokenService.js';
 
-const API_BASE_URL = 'http://192.168.1.66:8000/api';
+const API_BASE_URL = 'http://192.168.1.66:8000/api'; // CHANGE TO YOUR BACKEND
 
-// Create axios instance with proper base URL
 const api = axios.create({
     baseURL: API_BASE_URL,
     timeout: 10000,
@@ -14,9 +14,9 @@ const api = axios.create({
 
 // Request interceptor to add auth token
 api.interceptors.request.use(
-    (config) => {
-        const token = tokenService.getToken();
-        if (token && !tokenService.isTokenExpired(token)) {
+    async (config) => {
+        const token = await tokenService.getToken();
+        if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
         return config;
@@ -29,10 +29,10 @@ api.interceptors.request.use(
 // Response interceptor to handle errors
 api.interceptors.response.use(
     (response) => response,
-    (error) => {
+    async (error) => {
         if (error.response?.status === 401) {
-            tokenService.removeToken();
-            window.location.href = '/login';
+            await tokenService.clearTokens();
+            // Force logout handled by auth context
         }
         return Promise.reject(error);
     }

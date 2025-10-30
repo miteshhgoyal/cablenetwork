@@ -1,53 +1,38 @@
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar } from 'react-native'
-import React, { useState } from 'react'
-import { useRouter, useLocalSearchParams } from 'expo-router'
-import { Ionicons } from '@expo/vector-icons'
-import Loading from '../../components/Loading'
-import CustomKeyboardView from "../../components/CustomKeyboardView"
-import { useAuth } from '@/context/authContext'
-import api from '@/services/api'
+// app/(auth)/signin.js
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { Ionicons } from '@expo/vector-icons';
+import Loading from '../../components/Loading';
+import CustomKeyboardView from "../../components/CustomKeyboardView";
+import { useAuth } from '@/context/authContext';
 
 const signin = () => {
-    const { login } = useAuth()
-    const router = useRouter()
-    const searchParams = useLocalSearchParams()
-    const from = searchParams.from || '/(tabs)/accounts'
-
-    const [email, setEmail] = useState('')
-    const [password, setPassword] = useState('')
-    const [passwordVisible, setPasswordVisible] = useState(false)
-    const [isLoading, setIsLoading] = useState(false)
-    const [error, setError] = useState('')
+    const { login } = useAuth();
+    const [partnerCode, setPartnerCode] = useState('');
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState('');
 
     const handleSubmit = async () => {
-        setError('')
+        setError('');
 
-        // Basic validation
-        if (!email.trim()) {
-            setError('Email is required')
-            return
-        }
-        if (!password.trim() || password.length < 6) {
-            setError('Password must be at least 6 characters')
-            return
+        if (!partnerCode.trim()) {
+            setError('Partner code is required');
+            return;
         }
 
-        setIsLoading(true)
+        setIsLoading(true);
         try {
-            const response = await api.post('/auth/signin', { email, password })
+            const result = await login(partnerCode.trim());
 
-            if (response.data.data) {
-                const { accessToken, refreshToken, user } = response.data.data
-                await login({ accessToken, refreshToken, user })
-                router.replace(from)
+            if (!result.success) {
+                setError(result.message || 'Invalid partner code');
             }
         } catch (error) {
-            const message = error.response?.data?.message || 'Invalid credentials'
-            setError(message)
+            setError('Login failed. Please try again.');
         } finally {
-            setIsLoading(false)
+            setIsLoading(false);
         }
-    }
+    };
 
     return (
         <CustomKeyboardView>
@@ -59,12 +44,12 @@ const signin = () => {
             >
                 <View className="flex-1 justify-center px-6 py-8">
                     {/* Header */}
-                    <View className="items-center mb-8">
-                        <View className="w-16 h-16 bg-orange-500 rounded-full items-center justify-center mb-4">
-                            <Ionicons name="person" size={32} color="white" />
+                    <View className="items-center mb-10">
+                        <View className="w-20 h-20 bg-orange-500 rounded-3xl items-center justify-center mb-4">
+                            <Ionicons name="tv" size={40} color="white" />
                         </View>
-                        <Text className="text-2xl font-bold text-gray-800">Sign In</Text>
-                        <Text className="text-gray-500 mt-1">Welcome back!</Text>
+                        <Text className="text-3xl font-bold text-gray-800">Digital Cable Network</Text>
+                        <Text className="text-gray-500 mt-2 text-center">Enter your partner code to access channels</Text>
                     </View>
 
                     {/* Error Message */}
@@ -74,81 +59,48 @@ const signin = () => {
                         </View>
                     ) : null}
 
-                    {/* Email Input */}
-                    <View className="mb-4">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">Email</Text>
-                        <View className="flex-row items-center border border-gray-300 rounded-lg px-3 py-3">
-                            <Ionicons name="mail-outline" size={20} color="#9ca3af" />
+                    {/* Partner Code Input */}
+                    <View className="mb-6">
+                        <Text className="text-sm font-medium text-gray-700 mb-2">Partner Code</Text>
+                        <View className="flex-row items-center border-2 border-gray-300 rounded-xl px-4 py-3">
+                            <Ionicons name="key-outline" size={20} color="#9ca3af" />
                             <TextInput
-                                value={email}
-                                onChangeText={setEmail}
-                                placeholder="Enter your email"
+                                value={partnerCode}
+                                onChangeText={setPartnerCode}
+                                placeholder="Enter partner code"
                                 placeholderTextColor="#9ca3af"
-                                keyboardType="email-address"
-                                autoCapitalize="none"
-                                className="flex-1 ml-2 text-gray-900"
+                                autoCapitalize="characters"
+                                autoCorrect={false}
+                                maxLength={20}
+                                className="flex-1 ml-3 text-gray-900 text-base"
                             />
                         </View>
                     </View>
-
-                    {/* Password Input */}
-                    <View className="mb-4">
-                        <Text className="text-sm font-medium text-gray-700 mb-2">Password</Text>
-                        <View className="flex-row items-center border border-gray-300 rounded-lg px-3 py-3">
-                            <Ionicons name="lock-closed-outline" size={20} color="#9ca3af" />
-                            <TextInput
-                                value={password}
-                                onChangeText={setPassword}
-                                placeholder="Enter your password"
-                                placeholderTextColor="#9ca3af"
-                                secureTextEntry={!passwordVisible}
-                                className="flex-1 ml-2 text-gray-900"
-                            />
-                            <TouchableOpacity onPress={() => setPasswordVisible(!passwordVisible)}>
-                                <Ionicons
-                                    name={passwordVisible ? "eye-off-outline" : "eye-outline"}
-                                    size={20}
-                                    color="#9ca3af"
-                                />
-                            </TouchableOpacity>
-                        </View>
-                    </View>
-
-                    {/* Forgot Password */}
-                    <TouchableOpacity
-                        onPress={() => router.push('/forgot-password')}
-                        className="items-end mb-6"
-                    >
-                        <Text className="text-orange-500 text-sm">Forgot Password?</Text>
-                    </TouchableOpacity>
 
                     {/* Submit Button */}
                     <TouchableOpacity
                         onPress={handleSubmit}
                         disabled={isLoading}
-                        className={`py-3 rounded-lg ${isLoading ? 'bg-gray-400' : 'bg-orange-500'}`}
+                        className={`py-4 rounded-xl ${isLoading ? 'bg-gray-400' : 'bg-orange-500'}`}
                     >
                         {isLoading ? (
                             <View className="flex-row items-center justify-center">
                                 <Loading size={20} color="white" />
-                                <Text className="text-white font-semibold ml-2">Signing In...</Text>
+                                <Text className="text-white font-semibold ml-2">Verifying...</Text>
                             </View>
                         ) : (
-                            <Text className="text-white font-semibold text-center">Sign In</Text>
+                            <Text className="text-white font-bold text-center text-base">Access Channels</Text>
                         )}
                     </TouchableOpacity>
 
-                    {/* Sign Up Link */}
-                    <View className="flex-row justify-center items-center mt-6">
-                        <Text className="text-gray-600">Don't have an account? </Text>
-                        <TouchableOpacity onPress={() => router.push('/signup')}>
-                            <Text className="text-orange-500 font-semibold">Sign Up</Text>
-                        </TouchableOpacity>
-                    </View>
+                    {/* Info Text */}
+                    <Text className="text-center text-gray-400 text-xs mt-8">
+                        Contact your cable operator to get a partner code
+                    </Text>
                 </View>
             </ScrollView>
         </CustomKeyboardView>
-    )
-}
+    );
+};
 
-export default signin
+export default signin;
