@@ -41,5 +41,5 @@ export const tokenService = {
         } catch (error) {
             console.error('Error clearing tokens:', error);
         }
-    }
+    },
 };

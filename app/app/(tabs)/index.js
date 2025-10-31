@@ -1,224 +1,368 @@
 // app/(tabs)/index.js
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     View,
     Text,
-    FlatList,
     TouchableOpacity,
-    Image,
-    Modal,
     ScrollView,
-    Dimensions,
-    StatusBar
+    ActivityIndicator,
+    RefreshControl,
 } from 'react-native';
+import { useAuth } from '../../context/authContext';
+import {
+    Users,
+    Package,
+    FolderTree,
+    Radio,
+    UserCheck,
+    IndianRupee,
+    RefreshCw,
+    UserX,
+    UserPlus,
+    Building2,
+    Store,
+    Film,
+    Target,
+    BarChart3,
+} from 'lucide-react-native';
+import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/context/authContext';
-import { Ionicons } from '@expo/vector-icons';
-import { Video, ResizeMode } from 'expo-av';
 
-const { width } = Dimensions.get('window');
+const Dashboard = () => {
+    const { user } = useAuth();
+    const [dashboardData, setDashboardData] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [refreshing, setRefreshing] = useState(false);
 
-export default function ChannelsScreen() {
-    const { channels, user, logout } = useAuth();
-    const [selectedChannel, setSelectedChannel] = useState(null);
-    const [showPlayer, setShowPlayer] = useState(false);
-    const [videoError, setVideoError] = useState(false);
+    useEffect(() => {
+        fetchDashboardData();
+    }, []);
 
-    const handleChannelPress = (channel) => {
-        setSelectedChannel(channel);
-        setShowPlayer(true);
-        setVideoError(false);
+    const fetchDashboardData = async () => {
+        try {
+            setRefreshing(true);
+            const response = await api.get('/dashboard/overview');
+            setDashboardData(response.data.data);
+        } catch (error) {
+            console.error('Failed to fetch dashboard data:', error);
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
     };
 
-    const closePlayer = () => {
-        setShowPlayer(false);
-        setSelectedChannel(null);
-        setVideoError(false);
+    const onRefresh = () => {
+        setRefreshing(true);
+        fetchDashboardData();
     };
 
-    const isYouTube = (url) => {
-        return url?.includes('youtube.com') || url?.includes('youtu.be');
+    const getStatsConfig = () => {
+        if (!dashboardData) return [];
+
+        const { role } = user;
+        const stats = dashboardData.stats;
+
+        switch (role) {
+            case 'admin':
+                return [
+                    {
+                        title: 'Total Distributors',
+                        value: stats.totalDistributors,
+                        icon: Building2,
+                        color: '#6366f1',
+                        bgColor: '#eef2ff',
+                    },
+                    {
+                        title: 'Total Resellers',
+                        value: stats.totalResellers,
+                        icon: Store,
+                        color: '#8b5cf6',
+                        bgColor: '#f5f3ff',
+                    },
+                    {
+                        title: 'Total Subscribers',
+                        value: stats.totalSubscribers,
+                        icon: Users,
+                        color: '#3b82f6',
+                        bgColor: '#eff6ff',
+                    },
+                    {
+                        title: 'Total Categories',
+                        value: stats.totalCategories,
+                        icon: FolderTree,
+                        color: '#06b6d4',
+                        bgColor: '#ecfeff',
+                    },
+                    {
+                        title: 'Total Channels',
+                        value: stats.totalChannels,
+                        icon: Radio,
+                        color: '#14b8a6',
+                        bgColor: '#f0fdfa',
+                    },
+                    {
+                        title: 'Total Packages',
+                        value: stats.totalPackages,
+                        icon: Package,
+                        color: '#10b981',
+                        bgColor: '#f0fdf4',
+                    },
+                    {
+                        title: 'Total OTT',
+                        value: stats.totalOtt,
+                        icon: Film,
+                        color: '#f59e0b',
+                        bgColor: '#fffbeb',
+                    },
+                    {
+                        title: 'Active Subscribers',
+                        value: stats.activeSubscribers,
+                        icon: UserCheck,
+                        color: '#22c55e',
+                        bgColor: '#f0fdf4',
+                    },
+                ];
+
+            case 'distributor':
+                return [
+                    {
+                        title: 'Total Resellers',
+                        value: stats.totalResellers,
+                        icon: Store,
+                        color: '#8b5cf6',
+                        bgColor: '#f5f3ff',
+                    },
+                    {
+                        title: 'Total Subscribers',
+                        value: stats.totalSubscribers,
+                        icon: Users,
+                        color: '#3b82f6',
+                        bgColor: '#eff6ff',
+                    },
+                    {
+                        title: 'Total Categories',
+                        value: stats.totalCategories,
+                        icon: FolderTree,
+                        color: '#06b6d4',
+                        bgColor: '#ecfeff',
+                    },
+                    {
+                        title: 'Total Channels',
+                        value: stats.totalChannels,
+                        icon: Radio,
+                        color: '#14b8a6',
+                        bgColor: '#f0fdfa',
+                    },
+                    {
+                        title: 'Total Packages',
+                        value: stats.totalPackages,
+                        icon: Package,
+                        color: '#10b981',
+                        bgColor: '#f0fdf4',
+                    },
+                    {
+                        title: 'Total OTT',
+                        value: stats.totalOtt,
+                        icon: Film,
+                        color: '#f59e0b',
+                        bgColor: '#fffbeb',
+                    },
+                    {
+                        title: 'Active Subscribers',
+                        value: stats.activeSubscribers,
+                        icon: UserCheck,
+                        color: '#22c55e',
+                        bgColor: '#f0fdf4',
+                    },
+                    {
+                        title: 'Inactive Subscribers',
+                        value: stats.inactiveSubscribers,
+                        icon: UserX,
+                        color: '#ef4444',
+                        bgColor: '#fef2f2',
+                    },
+                ];
+
+            case 'reseller':
+                return [
+                    {
+                        title: 'Total Subscriptions',
+                        value: stats.totalSubscribers,
+                        icon: Users,
+                        color: '#3b82f6',
+                        bgColor: '#eff6ff',
+                    },
+                    {
+                        title: 'Active Subscribers',
+                        value: stats.activeSubscribers,
+                        icon: UserCheck,
+                        color: '#22c55e',
+                        bgColor: '#f0fdf4',
+                    },
+                    {
+                        title: 'Inactive Subscribers',
+                        value: stats.inactiveSubscribers,
+                        icon: UserX,
+                        color: '#ef4444',
+                        bgColor: '#fef2f2',
+                    },
+                    {
+                        title: 'Fresh Subscribers',
+                        value: stats.freshSubscribers,
+                        icon: UserPlus,
+                        color: '#06b6d4',
+                        bgColor: '#ecfeff',
+                    },
+                    {
+                        title: 'Total Packages',
+                        value: stats.totalPackages,
+                        icon: Package,
+                        color: '#10b981',
+                        bgColor: '#f0fdf4',
+                    },
+                    {
+                        title: 'Subscriber Limit',
+                        value: stats.subscriberLimit,
+                        icon: Target,
+                        color: '#f59e0b',
+                        bgColor: '#fffbeb',
+                    },
+                    {
+                        title: 'Available Slots',
+                        value: stats.availableSlots,
+                        icon: BarChart3,
+                        color: '#8b5cf6',
+                        bgColor: '#f5f3ff',
+                    },
+                ];
+
+            default:
+                return [];
+        }
     };
 
-    const renderChannel = ({ item }) => (
-        <TouchableOpacity
-            className="m-2 bg-white rounded-2xl overflow-hidden shadow-md"
-            style={{ width: (width / 2) - 24 }}
-            onPress={() => handleChannelPress(item)}
-            activeOpacity={0.7}
-        >
-            <Image
-                source={{ uri: item.imageUrl }}
-                style={{ width: '100%', height: 110 }}
-                resizeMode="cover"
-            />
-            <View className="p-3">
-                <Text className="text-xs font-bold text-orange-600 mb-1">
-                    LCN {item.lcn}
-                </Text>
-                <Text
-                    className="text-sm font-semibold text-gray-900"
-                    numberOfLines={1}
-                >
-                    {item.name}
-                </Text>
-                <Text className="text-xs text-gray-500 mt-1">
-                    {item.genre?.name || 'General'}
+    if (loading) {
+        return (
+            <View className="flex-1 bg-gray-50 items-center justify-center">
+                <ActivityIndicator size="large" color="#2563eb" />
+                <Text className="text-gray-600 font-semibold mt-4">
+                    Loading dashboard...
                 </Text>
             </View>
-        </TouchableOpacity>
-    );
+        );
+    }
+
+    const stats = getStatsConfig();
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
-            <StatusBar barStyle="light-content" backgroundColor="#f97316" />
-
-            {/* Header */}
-            <View className="bg-orange-500 px-6 py-4 flex-row items-center justify-between">
-                <View className="flex-1">
-                    <Text className="text-white text-2xl font-bold">
-                        {user?.packageName || 'All Channels'}
-                    </Text>
-                    <Text className="text-orange-100 text-sm mt-1">
-                        {channels.length} channels available
-                    </Text>
-                </View>
-                <TouchableOpacity
-                    onPress={logout}
-                    className="w-10 h-10 bg-orange-600 rounded-full items-center justify-center ml-3"
-                >
-                    <Ionicons name="log-out-outline" size={20} color="white" />
-                </TouchableOpacity>
-            </View>
-
-            {/* Channels Grid */}
-            {channels.length === 0 ? (
-                <View className="flex-1 justify-center items-center px-6">
-                    <Ionicons name="tv-outline" size={80} color="#d1d5db" />
-                    <Text className="text-gray-500 text-center mt-4 text-lg font-semibold">
-                        No channels available
-                    </Text>
-                    <Text className="text-gray-400 text-center mt-2 text-sm">
-                        Contact your cable operator
-                    </Text>
-                </View>
-            ) : (
-                <FlatList
-                    data={channels}
-                    renderItem={renderChannel}
-                    keyExtractor={(item) => item._id}
-                    numColumns={2}
-                    contentContainerStyle={{ padding: 8, paddingBottom: 20 }}
-                    showsVerticalScrollIndicator={false}
-                />
-            )}
-
-            {/* Video Player Modal */}
-            <Modal
-                visible={showPlayer}
-                animationType="slide"
-                presentationStyle="fullScreen"
-                onRequestClose={closePlayer}
+            <ScrollView
+                refreshControl={
+                    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+                }
+                showsVerticalScrollIndicator={false}
             >
-                <SafeAreaView className="flex-1 bg-black">
-                    <StatusBar barStyle="light-content" backgroundColor="#000" />
-
-                    {/* Header */}
-                    <View className="flex-row items-center px-4 py-3 bg-black/90 border-b border-gray-800">
-                        <TouchableOpacity
-                            onPress={closePlayer}
-                            className="flex-row items-center"
-                        >
-                            <Ionicons name="chevron-back" size={24} color="white" />
-                            <Text className="text-white ml-2 text-base">Back</Text>
-                        </TouchableOpacity>
-                        <Text
-                            className="text-white font-bold text-base flex-1 text-center mr-16"
-                            numberOfLines={1}
-                        >
-                            {selectedChannel?.name}
+                {/* Header Section */}
+                <View style={{ backgroundColor: '#1e3a8a', paddingHorizontal: 16, paddingVertical: 32 }}>
+                    <View style={{ marginBottom: 24 }}>
+                        <Text style={{ fontSize: 28, fontWeight: 'bold', color: '#ffffff', marginBottom: 8 }}>
+                            Welcome back,
+                        </Text>
+                        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#ffffff' }}>
+                            {dashboardData?.user?.name?.toUpperCase()}
+                        </Text>
+                        <Text style={{ color: '#bfdbfe', fontSize: 16, marginTop: 8 }}>
+                            Dashboard Overview
                         </Text>
                     </View>
 
-                    <ScrollView className="flex-1">
-                        {/* Video Player */}
-                        <View className="w-full bg-black" style={{ height: 260 }}>
-                            {selectedChannel && !isYouTube(selectedChannel.url) ? (
-                                videoError ? (
-                                    <View className="flex-1 items-center justify-center px-6">
-                                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                                            Unable to load stream
-                                        </Text>
-                                        <Text className="text-gray-400 text-sm text-center mt-2">
-                                            Stream may be offline or URL is invalid
-                                        </Text>
-                                    </View>
-                                ) : (
-                                    <Video
-                                        source={{ uri: selectedChannel.url }}
-                                        style={{ width: '100%', height: '100%' }}
-                                        useNativeControls
-                                        resizeMode={ResizeMode.CONTAIN}
-                                        isLooping
-                                        shouldPlay
-                                        onError={(error) => {
-                                            console.log('Video error:', error);
-                                            setVideoError(true);
-                                        }}
-                                        onLoad={() => setVideoError(false)}
-                                    />
-                                )
-                            ) : (
-                                <View className="flex-1 items-center justify-center px-6">
-                                    <Ionicons name="logo-youtube" size={60} color="#ff0000" />
-                                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                                        YouTube Stream
-                                    </Text>
-                                    <Text className="text-gray-400 text-sm text-center mt-2">
-                                        YouTube streams require YouTube app
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Channel Info */}
-                        <View className="p-6">
-                            <View className="flex-row items-center mb-4">
-                                <View className="bg-orange-500 rounded-lg px-4 py-1.5 mr-3">
-                                    <Text className="text-white font-bold text-sm">
-                                        LCN {selectedChannel?.lcn}
-                                    </Text>
-                                </View>
-                                <Text className="text-gray-400 text-sm">
-                                    {selectedChannel?.genre?.name || 'General'}
+                    {/* Balance Card */}
+                    <View style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }}>
+                        <Text style={{ color: '#bfdbfe', fontSize: 13, marginBottom: 8 }}>
+                            Available amount
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                <IndianRupee size={32} color="#ffffff" style={{ marginRight: 8 }} />
+                                <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#ffffff' }}>
+                                    {(dashboardData?.user?.balance || 0).toLocaleString('en-IN')}
                                 </Text>
                             </View>
-
-                            <Text className="text-white text-2xl font-bold mb-3">
-                                {selectedChannel?.name}
-                            </Text>
-
-                            {selectedChannel?.language && (
-                                <View className="flex-row items-center mb-2">
-                                    <Ionicons name="language-outline" size={18} color="#9ca3af" />
-                                    <Text className="text-gray-400 text-sm ml-2">
-                                        {selectedChannel.language.name}
-                                    </Text>
-                                </View>
-                            )}
-
-                            {!selectedChannel?.url && (
-                                <View className="mt-4 bg-red-900/30 border border-red-500 rounded-xl p-4">
-                                    <Text className="text-red-400 text-sm">
-                                        ⚠️ Stream URL not configured
-                                    </Text>
-                                </View>
-                            )}
+                            <TouchableOpacity
+                                onPress={fetchDashboardData}
+                                disabled={refreshing}
+                                style={{
+                                    paddingHorizontal: 12,
+                                    paddingVertical: 12,
+                                    backgroundColor: 'rgba(255,255,255,0.1)',
+                                    borderRadius: 8,
+                                    borderWidth: 1,
+                                    borderColor: 'rgba(255,255,255,0.2)',
+                                    opacity: refreshing ? 0.5 : 1,
+                                }}
+                            >
+                                <RefreshCw
+                                    size={20}
+                                    color="#ffffff"
+                                    style={refreshing ? { transform: [{ rotate: '360deg' }] } : {}}
+                                />
+                            </TouchableOpacity>
                         </View>
-                    </ScrollView>
-                </SafeAreaView>
-            </Modal>
+                    </View>
+                </View>
+
+                {/* Stats Cards */}
+                <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 }}>
+                        {stats.map((stat, index) => {
+                            const IconComponent = stat.icon;
+                            return (
+                                <View key={index} style={{ width: '50%', paddingHorizontal: 8, marginBottom: 16 }}>
+                                    <View
+                                        style={{
+                                            backgroundColor: '#ffffff',
+                                            borderRadius: 16,
+                                            paddingHorizontal: 16,
+                                            paddingVertical: 16,
+                                            shadowColor: '#000',
+                                            shadowOffset: { width: 0, height: 1 },
+                                            shadowOpacity: 0.05,
+                                            shadowRadius: 3,
+                                            elevation: 2,
+                                            borderWidth: 1,
+                                            borderColor: '#e5e7eb',
+                                            minHeight: 130,
+                                            justifyContent: 'flex-start',
+                                        }}
+                                    >
+                                        <View
+                                            style={{
+                                                width: 48,
+                                                height: 48,
+                                                borderRadius: 12,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                marginBottom: 12,
+                                                backgroundColor: stat.bgColor,
+                                            }}
+                                        >
+                                            <IconComponent size={24} color={stat.color} />
+                                        </View>
+                                        <Text style={{ color: '#9ca3af', fontSize: 12, fontWeight: '500', marginBottom: 8, lineHeight: 16 }}>
+                                            {stat.title}
+                                        </Text>
+                                        <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#111827' }}>
+                                            {stat.value}
+                                        </Text>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </View>
+                </View>
+            </ScrollView>
         </SafeAreaView>
     );
-}
+};
+
+export default Dashboard;

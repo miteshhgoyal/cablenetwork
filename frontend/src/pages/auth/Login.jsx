@@ -365,19 +365,6 @@ const Login = () => {
                       </>
                     )}
                   </button>
-
-                  {/* Footer */}
-                  {/* <div className="text-center pt-4 border-t border-gray-200">
-                    <p className="text-sm text-gray-600">
-                      Don't have an account?{" "}
-                      <Link
-                        to="/register"
-                        className="font-semibold text-blue-600 hover:text-blue-700 transition-colors"
-                      >
-                        Create one
-                      </Link>
-                    </p>
-                  </div> */}
                 </form>
               </div>
             </div>

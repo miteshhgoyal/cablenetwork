@@ -1,9 +1,8 @@
 // context/authContext.js
 import { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter } from 'expo-router';
-import api from "../services/api";
-import * as Device from 'expo-device';
+import { useRouter, useSegments } from 'expo-router';
+import api, { tokenService } from "../services/api";
 
 export const AuthContext = createContext();
 
@@ -17,86 +16,124 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
-    const [channels, setChannels] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const router = useRouter();
+    const segments = useSegments();
 
     useEffect(() => {
         checkAuth();
     }, []);
 
+    useEffect(() => {
+        if (loading) return;
+
+        const inAuthGroup = segments[0] === '(auth)';
+
+        if (!isAuthenticated && !inAuthGroup) {
+            router.replace('/(auth)/signin');
+        } else if (isAuthenticated && inAuthGroup) {
+            router.replace('/(tabs)');
+        }
+    }, [isAuthenticated, loading, segments]);
+
     const checkAuth = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
-            const savedChannels = await AsyncStorage.getItem('channels');
+            // Check for accessToken (new standard)
+            let token = await AsyncStorage.getItem('accessToken');
+
+            // Fallback to old 'token' key for existing users
+            if (!token) {
+                token = await AsyncStorage.getItem('token');
+                if (token) {
+                    // Migrate to new key
+                    await AsyncStorage.setItem('accessToken', token);
+                }
+            }
+
             const savedUser = await AsyncStorage.getItem('user');
 
-            if (token && savedChannels && savedUser) {
+            if (token && savedUser) {
                 setIsAuthenticated(true);
-                setChannels(JSON.parse(savedChannels));
                 setUser(JSON.parse(savedUser));
             } else {
                 setIsAuthenticated(false);
+                setUser(null);
             }
         } catch (error) {
             console.error('Auth check error:', error);
             setIsAuthenticated(false);
+            setUser(null);
         } finally {
             setLoading(false);
         }
     };
 
-    const login = async (partnerCode) => {
+    const login = async (credentials) => {
         try {
-            const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
-            const deviceName = Device.deviceName || 'User Device';
-
-            const response = await api.post(`/customer/login`, {
-                partnerCode: partnerCode.trim(),
-                macAddress,
-                deviceName
-            });
+            const response = await api.post('/auth/login', credentials);
 
             if (response.data.success) {
-                const { token, subscriber, channels: fetchedChannels } = response.data.data;
+                const { token, accessToken, refreshToken, user: userData } = response.data.data;
 
-                await AsyncStorage.setItem('token', token);
-                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                // Store with accessToken key (use token if accessToken not provided)
+                const tokenToStore = accessToken || token;
 
-                setUser(subscriber);
-                setChannels(fetchedChannels);
+                if (tokenToStore) {
+                    await AsyncStorage.setItem('accessToken', tokenToStore);
+                }
+
+                if (refreshToken) {
+                    await AsyncStorage.setItem('refreshToken', refreshToken);
+                }
+
+                await AsyncStorage.setItem('user', JSON.stringify(userData));
+
+                setUser(userData);
                 setIsAuthenticated(true);
 
                 return { success: true };
             } else {
-                return { success: false, message: 'Login failed' };
+                return { success: false, message: response.data.message || 'Login failed' };
             }
         } catch (error) {
             console.error('Login error:', error);
+
             return {
                 success: false,
-                message: error.response?.data?.message || 'Invalid partner code'
+                message: error.response?.data?.message || error.message || 'Login failed',
             };
         }
     };
 
     const logout = async () => {
         try {
-            await AsyncStorage.multiRemove(['token', 'channels', 'user']);
+            // Call logout API
+            try {
+                await api.post('/auth/logout');
+            } catch (err) {
+                console.warn('Logout API failed:', err);
+            }
+
+            // Clear all tokens
+            await tokenService.clearTokens();
+            // Also clear old token key
+            await AsyncStorage.removeItem('token');
+
             setIsAuthenticated(false);
-            setChannels([]);
             setUser(null);
             router.replace('/(auth)/signin');
         } catch (error) {
             console.error('Logout error:', error);
+            // Force logout anyway
+            setIsAuthenticated(false);
+            setUser(null);
+            router.replace('/(auth)/signin');
         }
     };
 
     const value = {
         user,
-        channels,
         isAuthenticated,
         loading,
         login,

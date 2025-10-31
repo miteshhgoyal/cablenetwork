@@ -1,9 +1,8 @@
-// services/api.js
 import axios from 'axios';
-import { tokenService } from './tokenService.js';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// const API_BASE_URL = 'http://192.168.1.66:8000/api';
-const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
+const API_BASE_URL = 'http://192.168.1.66:8000/api';
+// const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
@@ -16,9 +15,13 @@ const api = axios.create({
 // Request interceptor to add auth token
 api.interceptors.request.use(
     async (config) => {
-        const token = await tokenService.getToken();
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
+        try {
+            const token = await AsyncStorage.getItem('accessToken');
+            if (token) {
+                config.headers.Authorization = `Bearer ${token}`;
+            }
+        } catch (error) {
+            console.error('Error getting token:', error);
         }
         return config;
     },
@@ -31,10 +34,24 @@ api.interceptors.request.use(
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
+        // Handle 401 - clear tokens
         if (error.response?.status === 401) {
-            await tokenService.clearTokens();
-            // Force logout handled by auth context
+            try {
+                await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+            } catch (err) {
+                console.error('Error clearing tokens:', err);
+            }
         }
+
+        // Handle network errors with better message
+        if (!error.response) {
+            console.error('Network Error:', error.message);
+            return Promise.reject({
+                message: 'Network error - Check your connection and API URL',
+                original: error,
+            });
+        }
+
         return Promise.reject(error);
     }
 );
