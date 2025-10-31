@@ -1,23 +1,23 @@
 {
   "expo": {
-    "name": "Digital Cable Network",
-    "slug": "digital-cable-network",
+    "name": "DCN Main",
+    "slug": "digital-cable-network-main",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "scheme": "digitalcablenetwork",
+    "scheme": "digitalcablenetworkmain ",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.miteshhq.digitalcablenetwork"
+      "bundleIdentifier": "com.miteshhq.digitalcablenetworkmain"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "com.miteshhq.digitalcablenetwork",
+      "package": "com.miteshhq.digitalcablenetworkmain",
       "versionCode": 1
     },
     "web": {
@@ -39,12 +39,6 @@
     ],
     "experiments": {
       "typedRoutes": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": "213095c5-9164-4b78-932b-1320748e070b"
-      },
-      "router": {}
     }
   }
 }

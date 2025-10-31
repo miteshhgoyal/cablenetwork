@@ -1,4 +1,4 @@
-package com.miteshhq.digitalcablenetwork
+package com.miteshhq.digitalcablenetworkmain
 
 import android.app.Application
 import android.content.res.Configuration

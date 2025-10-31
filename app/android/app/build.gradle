@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.miteshhq.digitalcablenetwork'
+    namespace 'com.miteshhq.digitalcablenetworkmain'
     defaultConfig {
-        applicationId 'com.miteshhq.digitalcablenetwork'
+        applicationId 'com.miteshhq.digitalcablenetworkmain'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

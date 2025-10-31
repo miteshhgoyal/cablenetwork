@@ -28,6 +28,7 @@
         <category android:name="android.intent.category.BROWSABLE"/>
         <data android:scheme="Digital Cable Network"/>
         <data android:scheme="digitalcablenetwork"/>
+        <data android:scheme="digitalcablenetworkmain "/>
       </intent-filter>
     </activity>
   </application>
