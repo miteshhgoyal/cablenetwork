@@ -9,6 +9,7 @@ import {
     RefreshControl,
 } from 'react-native';
 import { useAuth } from '../../context/authContext';
+import { useRouter } from 'expo-router';
 import {
     Users,
     Package,
@@ -30,6 +31,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 const Dashboard = () => {
     const { user } = useAuth();
+    const router = useRouter();
     const [dashboardData, setDashboardData] = useState(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -54,6 +56,41 @@ const Dashboard = () => {
     const onRefresh = () => {
         setRefreshing(true);
         fetchDashboardData();
+    };
+
+    const getMenuItems = () => {
+        const { role } = user;
+
+        if (role === 'admin') {
+            return [
+                { title: 'Distributors', icon: Building2, color: '#6366f1', bgColor: '#eef2ff', route: 'distributors' },
+                { title: 'Resellers', icon: Store, color: '#8b5cf6', bgColor: '#f5f3ff', route: 'resellers' },
+                { title: 'Subscribers', icon: Users, color: '#3b82f6', bgColor: '#eff6ff', route: 'subscribers' },
+                { title: 'Categories', icon: FolderTree, color: '#06b6d4', bgColor: '#ecfeff', route: 'categories' },
+                { title: 'Channels', icon: Radio, color: '#14b8a6', bgColor: '#f0fdfa', route: 'channels' },
+                { title: 'Packages', icon: Package, color: '#10b981', bgColor: '#f0fdf4', route: 'packages' },
+                { title: 'OTT', icon: Film, color: '#f59e0b', bgColor: '#fffbeb', route: 'ott' },
+                { title: 'Credit', icon: IndianRupee, color: '#ec4899', bgColor: '#fce7f3', route: 'credits' },
+            ];
+        }
+
+        if (role === 'distributor') {
+            return [
+                { title: 'Resellers', icon: Store, color: '#8b5cf6', bgColor: '#f5f3ff', route: 'resellers' },
+                { title: 'Subscribers', icon: Users, color: '#3b82f6', bgColor: '#eff6ff', route: 'subscribers' },
+                { title: 'Categories', icon: FolderTree, color: '#06b6d4', bgColor: '#ecfeff', route: 'categories' },
+                { title: 'Channels', icon: Radio, color: '#14b8a6', bgColor: '#f0fdfa', route: 'channels' },
+                { title: 'Packages', icon: Package, color: '#10b981', bgColor: '#f0fdf4', route: 'packages' },
+                { title: 'OTT', icon: Film, color: '#f59e0b', bgColor: '#fffbeb', route: 'ott' },
+                { title: 'Credit', icon: IndianRupee, color: '#ec4899', bgColor: '#fce7f3', route: 'credits' },
+            ];
+        }
+
+        // Reseller - minimal menu
+        return [
+            { title: 'Subscribers', icon: Users, color: '#3b82f6', bgColor: '#eff6ff', route: 'subscribers' },
+            { title: 'Packages', icon: Package, color: '#10b981', bgColor: '#f0fdf4', route: 'packages' },
+        ];
     };
 
     const getStatsConfig = () => {
@@ -253,6 +290,7 @@ const Dashboard = () => {
     }
 
     const stats = getStatsConfig();
+    const menuItems = getMenuItems();
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
@@ -311,8 +349,11 @@ const Dashboard = () => {
                     </View>
                 </View>
 
-                {/* Stats Cards */}
+                {/* Stats Cards - ALL KEPT */}
                 <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 }}>
+                        Statistics
+                    </Text>
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 }}>
                         {stats.map((stat, index) => {
                             const IconComponent = stat.icon;
@@ -356,6 +397,53 @@ const Dashboard = () => {
                                         </Text>
                                     </View>
                                 </View>
+                            );
+                        })}
+                    </View>
+                </View>
+
+                {/* Menu Buttons */}
+                <View style={{ paddingHorizontal: 16, paddingVertical: 20 }}>
+                    <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 }}>
+                        Management
+                    </Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4 }}>
+                        {menuItems.map((item, index) => {
+                            const IconComponent = item.icon;
+                            return (
+                                <TouchableOpacity
+                                    key={index}
+                                    onPress={() => router.push(`/${item.route}`)}
+                                    style={{ width: '50%', paddingHorizontal: 4, marginBottom: 12 }}
+                                >
+                                    <View
+                                        className='flex-row items-center p-3'
+                                        style={{
+                                            backgroundColor: '#ffffff',
+                                            borderRadius: 12,
+                                            alignItems: 'center',
+                                            borderWidth: 1,
+                                            borderColor: '#e5e7eb',
+                                        }}
+                                    >
+                                        <View
+                                            className='mr-3'
+                                            style={{
+                                                width: 44,
+                                                height: 44,
+                                                borderRadius: 10,
+                                                alignItems: 'center',
+                                                justifyContent: 'center',
+                                                backgroundColor: item.bgColor,
+                                            }}
+                                        >
+                                            <IconComponent size={22} color={item.color} />
+                                        </View>
+                                        <Text style={{ fontSize: 11, fontWeight: '600', color: '#111827', textAlign: 'center' }}>
+                                            {item.title}
+                                        </Text>
+                                    </View>
+                                </TouchableOpacity>
                             );
                         })}
                     </View>
