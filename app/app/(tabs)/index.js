@@ -29,6 +29,7 @@ import {
 import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+
 const Dashboard = () => {
     const { user } = useAuth();
     const router = useRouter();
@@ -36,9 +37,11 @@ const Dashboard = () => {
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
 
+
     useEffect(() => {
         fetchDashboardData();
     }, []);
+
 
     const fetchDashboardData = async () => {
         try {
@@ -53,13 +56,16 @@ const Dashboard = () => {
         }
     };
 
+
     const onRefresh = () => {
         setRefreshing(true);
         fetchDashboardData();
     };
 
+
     const getMenuItems = () => {
         const { role } = user;
+
 
         if (role === 'admin') {
             return [
@@ -74,6 +80,7 @@ const Dashboard = () => {
             ];
         }
 
+
         if (role === 'distributor') {
             return [
                 { title: 'Resellers', icon: Store, color: '#8b5cf6', bgColor: '#f5f3ff', route: 'resellers' },
@@ -86,6 +93,7 @@ const Dashboard = () => {
             ];
         }
 
+
         // Reseller - minimal menu
         return [
             { title: 'Subscribers', icon: Users, color: '#3b82f6', bgColor: '#eff6ff', route: 'subscribers' },
@@ -93,11 +101,14 @@ const Dashboard = () => {
         ];
     };
 
+
     const getStatsConfig = () => {
         if (!dashboardData) return [];
 
+
         const { role } = user;
         const stats = dashboardData.stats;
+
 
         switch (role) {
             case 'admin':
@@ -108,6 +119,7 @@ const Dashboard = () => {
                         icon: Building2,
                         color: '#6366f1',
                         bgColor: '#eef2ff',
+                        route: 'distributors',
                     },
                     {
                         title: 'Total Resellers',
@@ -115,6 +127,7 @@ const Dashboard = () => {
                         icon: Store,
                         color: '#8b5cf6',
                         bgColor: '#f5f3ff',
+                        route: 'resellers',
                     },
                     {
                         title: 'Total Subscribers',
@@ -122,6 +135,7 @@ const Dashboard = () => {
                         icon: Users,
                         color: '#3b82f6',
                         bgColor: '#eff6ff',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Total Categories',
@@ -129,6 +143,7 @@ const Dashboard = () => {
                         icon: FolderTree,
                         color: '#06b6d4',
                         bgColor: '#ecfeff',
+                        route: 'categories',
                     },
                     {
                         title: 'Total Channels',
@@ -136,6 +151,7 @@ const Dashboard = () => {
                         icon: Radio,
                         color: '#14b8a6',
                         bgColor: '#f0fdfa',
+                        route: 'channels',
                     },
                     {
                         title: 'Total Packages',
@@ -143,6 +159,7 @@ const Dashboard = () => {
                         icon: Package,
                         color: '#10b981',
                         bgColor: '#f0fdf4',
+                        route: 'packages',
                     },
                     {
                         title: 'Total OTT',
@@ -150,6 +167,7 @@ const Dashboard = () => {
                         icon: Film,
                         color: '#f59e0b',
                         bgColor: '#fffbeb',
+                        route: 'ott',
                     },
                     {
                         title: 'Active Subscribers',
@@ -157,8 +175,10 @@ const Dashboard = () => {
                         icon: UserCheck,
                         color: '#22c55e',
                         bgColor: '#f0fdf4',
+                        route: 'subscribers',
                     },
                 ];
+
 
             case 'distributor':
                 return [
@@ -168,6 +188,7 @@ const Dashboard = () => {
                         icon: Store,
                         color: '#8b5cf6',
                         bgColor: '#f5f3ff',
+                        route: 'resellers',
                     },
                     {
                         title: 'Total Subscribers',
@@ -175,6 +196,7 @@ const Dashboard = () => {
                         icon: Users,
                         color: '#3b82f6',
                         bgColor: '#eff6ff',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Total Categories',
@@ -182,6 +204,7 @@ const Dashboard = () => {
                         icon: FolderTree,
                         color: '#06b6d4',
                         bgColor: '#ecfeff',
+                        route: 'categories',
                     },
                     {
                         title: 'Total Channels',
@@ -189,6 +212,7 @@ const Dashboard = () => {
                         icon: Radio,
                         color: '#14b8a6',
                         bgColor: '#f0fdfa',
+                        route: 'channels',
                     },
                     {
                         title: 'Total Packages',
@@ -196,6 +220,7 @@ const Dashboard = () => {
                         icon: Package,
                         color: '#10b981',
                         bgColor: '#f0fdf4',
+                        route: 'packages',
                     },
                     {
                         title: 'Total OTT',
@@ -203,6 +228,7 @@ const Dashboard = () => {
                         icon: Film,
                         color: '#f59e0b',
                         bgColor: '#fffbeb',
+                        route: 'ott',
                     },
                     {
                         title: 'Active Subscribers',
@@ -210,6 +236,7 @@ const Dashboard = () => {
                         icon: UserCheck,
                         color: '#22c55e',
                         bgColor: '#f0fdf4',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Inactive Subscribers',
@@ -217,8 +244,10 @@ const Dashboard = () => {
                         icon: UserX,
                         color: '#ef4444',
                         bgColor: '#fef2f2',
+                        route: 'subscribers',
                     },
                 ];
+
 
             case 'reseller':
                 return [
@@ -228,6 +257,7 @@ const Dashboard = () => {
                         icon: Users,
                         color: '#3b82f6',
                         bgColor: '#eff6ff',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Active Subscribers',
@@ -235,6 +265,7 @@ const Dashboard = () => {
                         icon: UserCheck,
                         color: '#22c55e',
                         bgColor: '#f0fdf4',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Inactive Subscribers',
@@ -242,6 +273,7 @@ const Dashboard = () => {
                         icon: UserX,
                         color: '#ef4444',
                         bgColor: '#fef2f2',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Fresh Subscribers',
@@ -249,6 +281,7 @@ const Dashboard = () => {
                         icon: UserPlus,
                         color: '#06b6d4',
                         bgColor: '#ecfeff',
+                        route: 'subscribers',
                     },
                     {
                         title: 'Total Packages',
@@ -256,6 +289,7 @@ const Dashboard = () => {
                         icon: Package,
                         color: '#10b981',
                         bgColor: '#f0fdf4',
+                        route: 'packages',
                     },
                     {
                         title: 'Subscriber Limit',
@@ -263,6 +297,7 @@ const Dashboard = () => {
                         icon: Target,
                         color: '#f59e0b',
                         bgColor: '#fffbeb',
+                        route: null,
                     },
                     {
                         title: 'Available Slots',
@@ -270,13 +305,16 @@ const Dashboard = () => {
                         icon: BarChart3,
                         color: '#8b5cf6',
                         bgColor: '#f5f3ff',
+                        route: null,
                     },
                 ];
+
 
             default:
                 return [];
         }
     };
+
 
     if (loading) {
         return (
@@ -289,8 +327,10 @@ const Dashboard = () => {
         );
     }
 
+
     const stats = getStatsConfig();
     const menuItems = getMenuItems();
+
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
@@ -313,6 +353,7 @@ const Dashboard = () => {
                             Dashboard Overview
                         </Text>
                     </View>
+
 
                     {/* Balance Card */}
                     <View style={{ backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 16, paddingHorizontal: 16, paddingVertical: 16, borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)' }}>
@@ -349,7 +390,8 @@ const Dashboard = () => {
                     </View>
                 </View>
 
-                {/* Stats Cards - ALL KEPT */}
+
+                {/* Stats Cards - NOW CLICKABLE */}
                 <View style={{ paddingHorizontal: 16, paddingVertical: 24 }}>
                     <Text style={{ fontSize: 16, fontWeight: '600', color: '#111827', marginBottom: 12 }}>
                         Statistics
@@ -357,8 +399,20 @@ const Dashboard = () => {
                     <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -8 }}>
                         {stats.map((stat, index) => {
                             const IconComponent = stat.icon;
+                            const isClickable = stat.route !== null;
+
                             return (
-                                <View key={index} style={{ width: '50%', paddingHorizontal: 8, marginBottom: 16 }}>
+                                <TouchableOpacity
+                                    key={index}
+                                    onPress={() => {
+                                        if (isClickable) {
+                                            router.push(`/${stat.route}`);
+                                        }
+                                    }}
+                                    disabled={!isClickable}
+                                    style={{ width: '50%', paddingHorizontal: 8, marginBottom: 16 }}
+                                    activeOpacity={isClickable ? 0.7 : 1}
+                                >
                                     <View
                                         style={{
                                             backgroundColor: '#ffffff',
@@ -367,13 +421,14 @@ const Dashboard = () => {
                                             paddingVertical: 16,
                                             shadowColor: '#000',
                                             shadowOffset: { width: 0, height: 1 },
-                                            shadowOpacity: 0.05,
-                                            shadowRadius: 3,
-                                            elevation: 2,
+                                            shadowOpacity: isClickable ? 0.1 : 0.05,
+                                            shadowRadius: isClickable ? 8 : 3,
+                                            elevation: isClickable ? 4 : 2,
                                             borderWidth: 1,
-                                            borderColor: '#e5e7eb',
+                                            borderColor: isClickable ? '#3b82f6' : '#e5e7eb',
                                             minHeight: 130,
                                             justifyContent: 'flex-start',
+                                            transform: isClickable ? [{ scale: 1 }] : [],
                                         }}
                                     >
                                         <View
@@ -396,11 +451,12 @@ const Dashboard = () => {
                                             {stat.value}
                                         </Text>
                                     </View>
-                                </View>
+                                </TouchableOpacity>
                             );
                         })}
                     </View>
                 </View>
+
 
                 {/* Menu Buttons */}
                 <View style={{ paddingHorizontal: 16, paddingVertical: 20 }}>
@@ -415,6 +471,7 @@ const Dashboard = () => {
                                     key={index}
                                     onPress={() => router.push(`/${item.route}`)}
                                     style={{ width: '50%', paddingHorizontal: 4, marginBottom: 12 }}
+                                    activeOpacity={0.7}
                                 >
                                     <View
                                         className='flex-row items-center p-3'
@@ -452,5 +509,6 @@ const Dashboard = () => {
         </SafeAreaView>
     );
 };
+
 
 export default Dashboard;

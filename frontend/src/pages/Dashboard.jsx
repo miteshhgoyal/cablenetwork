@@ -1,6 +1,7 @@
 // frontend/src/pages/dashboard/Dashboard.jsx
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
+import { useNavigate } from "react-router-dom";
 import api from "../services/api.js";
 import {
   Users,
@@ -23,6 +24,7 @@ import {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -57,41 +59,49 @@ const Dashboard = () => {
             title: "Total Distributors",
             value: stats.totalDistributors,
             icon: Building2,
+            link: "/admin/distributors",
           },
           {
             title: "Total Resellers",
             value: stats.totalResellers,
             icon: Store,
+            link: "/admin/resellers",
           },
           {
             title: "Total Subscribers",
             value: stats.totalSubscribers,
             icon: Users,
+            link: "/admin/subscribers",
           },
           {
             title: "Total Categories",
             value: stats.totalCategories,
             icon: FolderTree,
+            link: "/admin/categories",
           },
           {
             title: "Total Channels",
             value: stats.totalChannels,
             icon: Radio,
+            link: "/admin/channels",
           },
           {
             title: "Total Packages",
             value: stats.totalPackages,
             icon: Package,
+            link: "/admin/packages",
           },
           {
             title: "Total OTT",
             value: stats.totalOtt,
             icon: Film,
+            link: "/admin/ott",
           },
           {
             title: "Active Subscribers",
             value: stats.activeSubscribers,
             icon: UserCheck,
+            link: "/admin/subscribers",
           },
         ];
 
@@ -101,41 +111,49 @@ const Dashboard = () => {
             title: "Total Resellers",
             value: stats.totalResellers,
             icon: Store,
+            link: "/distributor/resellers",
           },
           {
             title: "Total Subscribers",
             value: stats.totalSubscribers,
             icon: Users,
+            link: "/distributor/subscribers",
           },
           {
             title: "Total Categories",
             value: stats.totalCategories,
             icon: FolderTree,
+            link: "/distributor/categories",
           },
           {
             title: "Total Channels",
             value: stats.totalChannels,
             icon: Radio,
+            link: "/distributor/channels",
           },
           {
             title: "Total Packages",
             value: stats.totalPackages,
             icon: Package,
+            link: "/distributor/packages",
           },
           {
             title: "Total OTT",
             value: stats.totalOtt,
             icon: Film,
+            link: "/distributor/ott",
           },
           {
             title: "Active Subscribers",
             value: stats.activeSubscribers,
             icon: UserCheck,
+            link: "/distributor/subscribers",
           },
           {
             title: "Inactive Subscribers",
             value: stats.inactiveSubscribers,
             icon: UserX,
+            link: "/distributor/subscribers",
           },
         ];
 
@@ -145,41 +163,54 @@ const Dashboard = () => {
             title: "Total Subscriptions",
             value: stats.totalSubscribers,
             icon: Users,
+            link: "/reseller/subscribers",
           },
           {
             title: "Active Subscribers",
             value: stats.activeSubscribers,
             icon: UserCheck,
+            link: "/reseller/subscribers",
           },
           {
             title: "Inactive Subscribers",
             value: stats.inactiveSubscribers,
             icon: UserX,
+            link: "/reseller/subscribers",
           },
           {
             title: "Fresh Subscribers",
             value: stats.freshSubscribers,
             icon: UserPlus,
+            link: "/reseller/subscribers",
           },
           {
             title: "Total Packages",
             value: stats.totalPackages,
             icon: Package,
+            link: "/reseller/packages",
           },
           {
             title: "Subscriber Limit",
             value: stats.subscriberLimit,
             icon: Target,
+            link: null, // No navigation for this stat
           },
           {
             title: "Available Slots",
             value: stats.availableSlots,
             icon: BarChart3,
+            link: null, // No navigation for this stat
           },
         ];
 
       default:
         return [];
+    }
+  };
+
+  const handleTileClick = (link) => {
+    if (link) {
+      navigate(link);
     }
   };
 
@@ -238,15 +269,22 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Stats Cards - Simple & Clean */}
+      {/* Stats Cards - Now Clickable */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, index) => {
             const IconComponent = stat.icon;
+            const isClickable = stat.link !== null;
+
             return (
               <div
                 key={index}
-                className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200 hover:shadow-md transition-all"
+                onClick={() => handleTileClick(stat.link)}
+                className={`bg-white rounded-2xl p-6 shadow-sm border border-gray-200 transition-all ${
+                  isClickable
+                    ? "cursor-pointer hover:shadow-lg hover:scale-105 hover:border-blue-300"
+                    : ""
+                }`}
               >
                 <div className="flex items-start justify-between">
                   <div className="flex-1">
@@ -257,8 +295,18 @@ const Dashboard = () => {
                       {stat.value}
                     </p>
                   </div>
-                  <div className="p-3 bg-gray-50 rounded-xl">
-                    <IconComponent className="h-6 w-6 text-gray-600" />
+                  <div
+                    className={`p-3 rounded-xl ${
+                      isClickable
+                        ? "bg-blue-50 group-hover:bg-blue-100"
+                        : "bg-gray-50"
+                    }`}
+                  >
+                    <IconComponent
+                      className={`h-6 w-6 ${
+                        isClickable ? "text-blue-600" : "text-gray-600"
+                      }`}
+                    />
                   </div>
                 </div>
               </div>
