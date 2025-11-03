@@ -269,13 +269,13 @@ const Resellers = () => {
                       Name
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Role
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Email
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Phone
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Created By
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Status
@@ -305,15 +305,20 @@ const Resellers = () => {
                           {reseller.name}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
-                          <span className="uppercase text-xs">
-                            {reseller.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
                           {reseller.email}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {reseller.phone}
+                        </td>
+                        <td className="px-6 py-4 text-sm">
+                          <div className="flex flex-col space-y-1">
+                            <span className="text-gray-900 font-medium">
+                              {reseller.createdBy?.name || "N/A"}
+                            </span>
+                            <span className="text-gray-500 text-xs">
+                              {reseller.createdBy?.email || ""}
+                            </span>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm">
                           <span

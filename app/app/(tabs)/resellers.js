@@ -26,6 +26,7 @@ import {
 import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+
 const Resellers = () => {
     const [resellers, setResellers] = useState([]);
     const [packages, setPackages] = useState([]);
@@ -51,16 +52,19 @@ const Resellers = () => {
     });
     const [submitting, setSubmitting] = useState(false);
 
+
     useEffect(() => {
         fetchResellers();
         fetchPackages();
     }, [statusFilter]);
+
 
     const fetchResellers = async () => {
         try {
             setLoading(true);
             const params = new URLSearchParams();
             if (statusFilter) params.append('status', statusFilter);
+
 
             const response = await api.get(`/resellers?${params.toString()}`);
             setResellers(response.data.data.resellers);
@@ -73,6 +77,7 @@ const Resellers = () => {
         }
     };
 
+
     const fetchPackages = async () => {
         try {
             const response = await api.get('/resellers/packages');
@@ -82,10 +87,12 @@ const Resellers = () => {
         }
     };
 
+
     const onRefresh = () => {
         setRefreshing(true);
         fetchResellers();
     };
+
 
     const handleOpenModal = (mode, reseller = null) => {
         setModalMode(mode);
@@ -116,6 +123,7 @@ const Resellers = () => {
         setShowModal(true);
     };
 
+
     const handleCloseModal = () => {
         setShowModal(false);
         setSelectedReseller(null);
@@ -131,6 +139,7 @@ const Resellers = () => {
             status: 'Active',
         });
     };
+
 
     const handleSubmit = async () => {
         if (!formData.name.trim()) {
@@ -154,14 +163,18 @@ const Resellers = () => {
             return;
         }
 
+
         setSubmitting(true);
+
 
         try {
             const submitData = { ...formData };
 
+
             if (modalMode === 'edit' && !submitData.password) {
                 delete submitData.password;
             }
+
 
             if (modalMode === 'create') {
                 await api.post('/resellers', submitData);
@@ -180,6 +193,7 @@ const Resellers = () => {
         }
     };
 
+
     const handleDelete = async () => {
         setSubmitting(true);
         try {
@@ -196,6 +210,7 @@ const Resellers = () => {
         }
     };
 
+
     const togglePackageSelection = (packageId) => {
         setFormData({
             ...formData,
@@ -204,6 +219,7 @@ const Resellers = () => {
                 : [...formData.packages, packageId],
         });
     };
+
 
     const filteredResellers = resellers.filter((reseller) => {
         const searchLower = searchTerm.toLowerCase();
@@ -214,6 +230,7 @@ const Resellers = () => {
             reseller.partnerCode?.toLowerCase().includes(searchLower)
         );
     });
+
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
@@ -232,6 +249,7 @@ const Resellers = () => {
                         </View>
                     </View>
                 </View>
+
 
                 {/* Action Buttons */}
                 <View style={{ flexDirection: 'row' }}>
@@ -252,6 +270,7 @@ const Resellers = () => {
                 </View>
             </View>
 
+
             {/* Search and Filters */}
             <View className="px-4 py-4">
                 <View className="relative mb-4">
@@ -266,6 +285,7 @@ const Resellers = () => {
                         className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-900"
                     />
                 </View>
+
 
                 {showFilters && (
                     <View className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
@@ -284,6 +304,7 @@ const Resellers = () => {
                             </Picker>
                         </View>
 
+
                         {statusFilter && (
                             <TouchableOpacity
                                 onPress={() => setStatusFilter('')}
@@ -297,6 +318,7 @@ const Resellers = () => {
                     </View>
                 )}
             </View>
+
 
             {/* Content */}
             {loading ? (
@@ -334,6 +356,23 @@ const Resellers = () => {
                                                 {reseller.phone}
                                             </Text>
 
+
+                                            {/* Created By Section - NEW */}
+                                            {reseller.createdBy && (
+                                                <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#22c55e' }}>
+                                                    <Text className="text-xs text-gray-600 font-semibold mb-1">
+                                                        Created by
+                                                    </Text>
+                                                    <Text className="text-xs text-gray-900 font-semibold">
+                                                        {reseller.createdBy?.name || 'N/A'}
+                                                    </Text>
+                                                    <Text className="text-xs text-gray-500">
+                                                        {reseller.createdBy?.email || ''}
+                                                    </Text>
+                                                </View>
+                                            )}
+
+
                                             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                                                 {reseller.partnerCode && (
                                                     <Text className="text-xs text-blue-600 font-semibold mr-3">
@@ -346,6 +385,7 @@ const Resellers = () => {
                                                     </Text>
                                                 )}
                                             </View>
+
 
                                             <View
                                                 style={{
@@ -370,6 +410,7 @@ const Resellers = () => {
                                             </View>
                                         </View>
 
+
                                         {/* Action Buttons */}
                                         <View style={{ flexDirection: 'row' }}>
                                             <TouchableOpacity
@@ -389,6 +430,7 @@ const Resellers = () => {
                                             </TouchableOpacity>
                                         </View>
                                     </View>
+
 
                                     {/* Packages Display */}
                                     {reseller.packages && reseller.packages.length > 0 && (
@@ -433,6 +475,7 @@ const Resellers = () => {
                 </ScrollView>
             )}
 
+
             {/* Add/Edit Modal */}
             <Modal
                 visible={showModal}
@@ -450,6 +493,7 @@ const Resellers = () => {
                                 <X size={20} color="#6b7280" />
                             </TouchableOpacity>
                         </View>
+
 
                         <ScrollView className="px-6 py-4" keyboardShouldPersistTaps="handled">
                             <View>
@@ -469,6 +513,7 @@ const Resellers = () => {
                                     />
                                 </View>
 
+
                                 {/* Email */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -486,6 +531,7 @@ const Resellers = () => {
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
                                     />
                                 </View>
+
 
                                 {/* Password */}
                                 <View style={{ marginBottom: 16 }}>
@@ -521,6 +567,7 @@ const Resellers = () => {
                                     </View>
                                 </View>
 
+
                                 {/* Phone */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -537,6 +584,7 @@ const Resellers = () => {
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
                                     />
                                 </View>
+
 
                                 {/* Subscriber Limit */}
                                 <View style={{ marginBottom: 16 }}>
@@ -555,6 +603,7 @@ const Resellers = () => {
                                     />
                                 </View>
 
+
                                 {/* Partner Code */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -570,6 +619,7 @@ const Resellers = () => {
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
                                     />
                                 </View>
+
 
                                 {/* Status */}
                                 <View style={{ marginBottom: 16 }}>
@@ -589,6 +639,7 @@ const Resellers = () => {
                                         </Picker>
                                     </View>
                                 </View>
+
 
                                 {/* Packages */}
                                 <View style={{ marginBottom: 24 }}>
@@ -627,6 +678,7 @@ const Resellers = () => {
                                     </Text>
                                 </View>
 
+
                                 {/* Buttons */}
                                 <View style={{ flexDirection: 'row', marginBottom: 24 }}>
                                     <TouchableOpacity
@@ -656,6 +708,7 @@ const Resellers = () => {
                     </View>
                 </View>
             </Modal>
+
 
             {/* Delete Confirmation Modal */}
             <Modal
@@ -707,5 +760,6 @@ const Resellers = () => {
         </SafeAreaView>
     );
 };
+
 
 export default Resellers;
