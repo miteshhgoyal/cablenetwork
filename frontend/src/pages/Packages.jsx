@@ -1,4 +1,3 @@
-// frontend/src/pages/packages/Packages.jsx
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import api from "../services/api.js";
@@ -13,6 +12,7 @@ import {
   Eye,
   IndianRupee,
   Calendar,
+  Check,
 } from "lucide-react";
 
 const Packages = () => {
@@ -155,6 +155,34 @@ const Packages = () => {
       return `${months} Month${months > 1 ? "s" : ""}`;
     }
     return `${days} Day${days > 1 ? "s" : ""}`;
+  };
+
+  const toggleGenre = (genreId) => {
+    if (formData.genres.includes(genreId)) {
+      setFormData({
+        ...formData,
+        genres: formData.genres.filter((id) => id !== genreId),
+      });
+    } else {
+      setFormData({
+        ...formData,
+        genres: [...formData.genres, genreId],
+      });
+    }
+  };
+
+  const toggleChannel = (channelId) => {
+    if (formData.channels.includes(channelId)) {
+      setFormData({
+        ...formData,
+        channels: formData.channels.filter((id) => id !== channelId),
+      });
+    } else {
+      setFormData({
+        ...formData,
+        channels: [...formData.channels, channelId],
+      });
+    }
   };
 
   return (
@@ -374,66 +402,98 @@ const Packages = () => {
                   />
                 </div>
 
-                {/* Genres */}
+                {/* Genres with Checkmarks */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Genres (Optional)
                   </label>
-                  <select
-                    multiple
-                    value={formData.genres}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        genres: Array.from(
-                          e.target.selectedOptions,
-                          (option) => option.value
-                        ),
-                      })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    size="5"
-                  >
-                    {genres.map((genre) => (
-                      <option key={genre._id} value={genre._id}>
-                        {genre.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Hold Ctrl/Cmd to select multiple
-                  </p>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                    {genres.length === 0 ? (
+                      <p className="text-gray-500 text-sm">
+                        No genres available
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {genres.map((genre) => (
+                          <label
+                            key={genre._id}
+                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                          >
+                            <div className="relative">
+                              <input
+                                type="checkbox"
+                                checked={formData.genres.includes(genre._id)}
+                                onChange={() => toggleGenre(genre._id)}
+                                className="sr-only"
+                              />
+                              <div
+                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                  formData.genres.includes(genre._id)
+                                    ? "bg-blue-600 border-blue-600"
+                                    : "border-gray-300 hover:border-blue-400"
+                                }`}
+                              >
+                                {formData.genres.includes(genre._id) && (
+                                  <Check className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-sm text-gray-900 font-medium">
+                              {genre.name}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
 
-                {/* Channels */}
+                {/* Channels with Checkmarks */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Channels (Optional)
                   </label>
-                  <select
-                    multiple
-                    value={formData.channels}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        channels: Array.from(
-                          e.target.selectedOptions,
-                          (option) => option.value
-                        ),
-                      })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    size="5"
-                  >
-                    {channels.map((channel) => (
-                      <option key={channel._id} value={channel._id}>
-                        {channel.lcn} - {channel.name}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Hold Ctrl/Cmd to select multiple
-                  </p>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                    {channels.length === 0 ? (
+                      <p className="text-gray-500 text-sm">
+                        No channels available
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {channels.map((channel) => (
+                          <label
+                            key={channel._id}
+                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                          >
+                            <div className="relative">
+                              <input
+                                type="checkbox"
+                                checked={formData.channels.includes(
+                                  channel._id
+                                )}
+                                onChange={() => toggleChannel(channel._id)}
+                                className="sr-only"
+                              />
+                              <div
+                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                  formData.channels.includes(channel._id)
+                                    ? "bg-blue-600 border-blue-600"
+                                    : "border-gray-300 hover:border-blue-400"
+                                }`}
+                              >
+                                {formData.channels.includes(channel._id) && (
+                                  <Check className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-sm text-gray-900 font-medium">
+                              {channel.lcn} - {channel.name}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
