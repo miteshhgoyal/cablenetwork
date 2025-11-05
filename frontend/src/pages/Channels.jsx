@@ -10,6 +10,9 @@ import {
   Loader,
   Radio,
   ExternalLink,
+  Lock,
+  Unlock,
+  AlertCircle,
 } from "lucide-react";
 
 const Channels = () => {
@@ -22,6 +25,10 @@ const Channels = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedChannel, setSelectedChannel] = useState(null);
+  const [userRole, setUserRole] = useState("user");
+  const [canAccessUrls, setCanAccessUrls] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [urlAccessToggling, setUrlAccessToggling] = useState(null);
   const [formData, setFormData] = useState({
     name: "",
     lcn: "",
@@ -30,7 +37,6 @@ const Channels = () => {
     url: "",
     imageUrl: "",
   });
-  const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
     fetchChannels();
@@ -42,6 +48,8 @@ const Channels = () => {
       setLoading(true);
       const response = await api.get("/channels");
       setChannels(response.data.data.channels);
+      setUserRole(response.data.data.userRole || "user");
+      setCanAccessUrls(response.data.data.canAccessUrls || false);
     } catch (error) {
       console.error("Failed to fetch channels:", error);
     } finally {
@@ -68,8 +76,8 @@ const Channels = () => {
         lcn: channel.lcn,
         language: channel.language?._id || "",
         genre: channel.genre?._id || "",
-        url: channel.url,
-        imageUrl: channel.imageUrl,
+        url: channel.url || "",
+        imageUrl: channel.imageUrl || "",
       });
     } else {
       setFormData({
@@ -132,6 +140,39 @@ const Channels = () => {
     }
   };
 
+  const handleToggleUrlAccess = async (channel) => {
+    if (userRole !== "admin") return;
+
+    setUrlAccessToggling(channel._id);
+    try {
+      const response = await api.patch(
+        `/channels/${channel._id}/toggle-urls-access`
+      );
+      fetchChannels();
+    } catch (error) {
+      console.error("Toggle URL access error:", error);
+      alert(error.response?.data?.message || "Failed to toggle URL access");
+    } finally {
+      setUrlAccessToggling(null);
+    }
+  };
+
+  // Check if URL fields can be edited (for distributors, depends on urlsAccessible)
+  const canEditUrlFields = () => {
+    if (userRole === "admin") return true;
+    if (userRole === "distributor" && selectedChannel) {
+      return selectedChannel.urlsAccessible;
+    }
+    return false;
+  };
+
+  // Check if URL fields should be visible (for distributors, always visible but may be disabled)
+  const shouldShowUrlFields = () => {
+    if (userRole === "admin") return true;
+    if (userRole === "distributor") return true;
+    return canAccessUrls;
+  };
+
   const filteredChannels = channels.filter((channel) =>
     channel.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -153,13 +194,15 @@ const Channels = () => {
                 </p>
               </div>
             </div>
-            <button
-              onClick={() => handleOpenModal("create")}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Add Channel</span>
-            </button>
+            {userRole === "admin" && (
+              <button
+                onClick={() => handleOpenModal("create")}
+                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Channel</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -179,6 +222,20 @@ const Channels = () => {
             />
           </div>
         </div>
+
+        {/* Access Alert for Non-Admins */}
+        {userRole !== "admin" && !canAccessUrls && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-amber-900">Limited Access</h3>
+              <p className="text-sm text-amber-700">
+                You don't have permission to view or edit stream URLs and images
+                for these channels. Contact your administrator for access.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Table */}
         {loading ? (
@@ -206,6 +263,11 @@ const Channels = () => {
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Genres
                     </th>
+                    {userRole === "admin" && (
+                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                        URL Access
+                      </th>
+                    )}
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Actions
                     </th>
@@ -214,7 +276,10 @@ const Channels = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredChannels.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td
+                        colSpan={userRole === "admin" ? "7" : "6"}
+                        className="px-6 py-12 text-center"
+                      >
                         <p className="text-gray-500">No channels found</p>
                       </td>
                     </tr>
@@ -239,23 +304,54 @@ const Channels = () => {
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {channel.genre?.name || "N/A"}
                         </td>
+                        {userRole === "admin" && (
+                          <td className="px-6 py-4 text-sm">
+                            <button
+                              onClick={() => handleToggleUrlAccess(channel)}
+                              disabled={urlAccessToggling === channel._id}
+                              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                                channel.urlsAccessible
+                                  ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                  : "bg-red-100 text-red-700 hover:bg-red-200"
+                              } disabled:opacity-50`}
+                            >
+                              {urlAccessToggling === channel._id ? (
+                                <Loader className="w-4 h-4 animate-spin" />
+                              ) : channel.urlsAccessible ? (
+                                <Unlock className="w-4 h-4" />
+                              ) : (
+                                <Lock className="w-4 h-4" />
+                              )}
+                              <span className="text-xs font-semibold">
+                                {channel.urlsAccessible
+                                  ? "Enabled"
+                                  : "Disabled"}
+                              </span>
+                            </button>
+                          </td>
+                        )}
                         <td className="px-6 py-4 text-sm text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            <button
-                              onClick={() => handleOpenModal("edit", channel)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all inline-flex items-center justify-center"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedChannel(channel);
-                                setShowDeleteModal(true);
-                              }}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all inline-flex items-center justify-center"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                            {(userRole === "admin" ||
+                              userRole === "distributor") && (
+                              <button
+                                onClick={() => handleOpenModal("edit", channel)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all inline-flex items-center justify-center"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            )}
+                            {userRole === "admin" && (
+                              <button
+                                onClick={() => {
+                                  setSelectedChannel(channel);
+                                  setShowDeleteModal(true);
+                                }}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all inline-flex items-center justify-center"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -366,39 +462,79 @@ const Channels = () => {
                   </select>
                 </div>
 
-                {/* URL */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Stream URL
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.url}
-                    onChange={(e) =>
-                      setFormData({ ...formData, url: e.target.value })
-                    }
-                    placeholder="https://example.com/stream"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
+                {/* URL Fields - visible to admin and distributor */}
+                {shouldShowUrlFields() && (
+                  <>
+                    <div className="md:col-span-2">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <label className="block text-sm font-semibold text-gray-700">
+                          Stream URL
+                        </label>
+                        {userRole === "distributor" && !canEditUrlFields() && (
+                          <Lock className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
+                      <input
+                        type="url"
+                        value={formData.url}
+                        onChange={(e) =>
+                          setFormData({ ...formData, url: e.target.value })
+                        }
+                        placeholder="https://example.com/stream"
+                        disabled={!canEditUrlFields()}
+                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          !canEditUrlFields()
+                            ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
+                        required
+                      />
+                    </div>
 
-                {/* Image URL */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Image URL
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.imageUrl}
-                    onChange={(e) =>
-                      setFormData({ ...formData, imageUrl: e.target.value })
-                    }
-                    placeholder="https://example.com/image.jpg"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
+                    {/* Image URL */}
+                    <div className="md:col-span-2">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <label className="block text-sm font-semibold text-gray-700">
+                          Image URL
+                        </label>
+                        {userRole === "distributor" && !canEditUrlFields() && (
+                          <Lock className="w-4 h-4 text-red-500" />
+                        )}
+                      </div>
+                      <input
+                        type="url"
+                        value={formData.imageUrl}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            imageUrl: e.target.value,
+                          })
+                        }
+                        placeholder="https://example.com/image.jpg"
+                        disabled={!canEditUrlFields()}
+                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                          !canEditUrlFields()
+                            ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                            : "bg-gray-50 border-gray-200"
+                        }`}
+                        required
+                      />
+                    </div>
+
+                    {/* Message when URLs are locked for distributors */}
+                    {userRole === "distributor" &&
+                      selectedChannel &&
+                      !selectedChannel.urlsAccessible && (
+                        <div className="md:col-span-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
+                          <Lock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                          <p className="text-sm text-red-700">
+                            Stream URLs are locked by the administrator. You
+                            cannot modify these fields until access is granted.
+                          </p>
+                        </div>
+                      )}
+                  </>
+                )}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">

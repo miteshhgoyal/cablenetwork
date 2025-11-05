@@ -26,6 +26,11 @@ const channelSchema = new mongoose.Schema({
     imageUrl: {
         type: String,
         required: true,
+    },
+    urlsAccessible: {
+        type: Boolean,
+        default: true,
+        description: 'Controls if non-admin roles can view/update stream URLs'
     }
 }, {
     timestamps: true

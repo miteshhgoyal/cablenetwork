@@ -6,14 +6,35 @@ import Category from '../models/Category.js';
 
 const router = express.Router();
 
+// Helper function to filter sensitive fields based on role and access toggle
+const filterChannelData = (channel, userRole, urlsAccessible) => {
+    const channelObj = channel.toObject ? channel.toObject() : channel;
+
+    // Only filter URLs if:
+    // 1. User is NOT admin AND
+    // 2. User is NOT distributor AND
+    // 3. URLs are not accessible
+    if (userRole !== 'admin' && userRole !== 'distributor' && !urlsAccessible) {
+        delete channelObj.url;
+        delete channelObj.imageUrl;
+    }
+
+    return channelObj;
+};
+
+// Helper to check if user can edit URLs
+const canEditUrls = (userRole, urlsAccessible) => {
+    return userRole === 'admin' || urlsAccessible;
+};
+
 // Get all channels (with optional search and populated categories)
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search } = req.query;
+        const userRole = req.user.role || 'user';
 
         let query = {};
 
-        // Add search filter
         if (search) {
             query.name = { $regex: search, $options: 'i' };
         }
@@ -21,11 +42,19 @@ router.get('/', authenticateToken, async (req, res) => {
         const channels = await Channel.find(query)
             .populate('language', 'name')
             .populate('genre', 'name')
-            .sort({ lcn: 1 }); // Sort by LCN number
+            .sort({ lcn: 1 });
+
+        const filteredChannels = channels.map(channel =>
+            filterChannelData(channel, userRole, channel.urlsAccessible)
+        );
 
         res.json({
             success: true,
-            data: { channels }
+            data: {
+                channels: filteredChannels,
+                userRole,
+                canAccessUrls: userRole === 'admin' || userRole === 'distributor'
+            }
         });
 
     } catch (error) {
@@ -60,6 +89,8 @@ router.get('/categories', authenticateToken, async (req, res) => {
 // Get single channel
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
+        const userRole = req.user.role || 'user';
+
         const channel = await Channel.findById(req.params.id)
             .populate('language', 'name')
             .populate('genre', 'name');
@@ -71,9 +102,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        const filteredChannel = filterChannelData(channel, userRole, channel.urlsAccessible);
+
         res.json({
             success: true,
-            data: { channel }
+            data: {
+                channel: filteredChannel,
+                userRole,
+                canAccessUrls: userRole === 'admin' || userRole === 'distributor',
+                urlsAccessible: channel.urlsAccessible
+            }
         });
 
     } catch (error) {
@@ -88,9 +126,17 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Create channel
 router.post('/', authenticateToken, async (req, res) => {
     try {
+        const userRole = req.user.role || 'user';
         const { name, lcn, language, genre, url, imageUrl } = req.body;
 
-        // Validation
+        // Only admin can create channels
+        if (userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can create channels'
+            });
+        }
+
         if (!name || !lcn || !language || !genre || !url || !imageUrl) {
             return res.status(400).json({
                 success: false,
@@ -98,7 +144,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if LCN already exists
         const existingChannel = await Channel.findOne({ lcn });
         if (existingChannel) {
             return res.status(400).json({
@@ -113,12 +158,11 @@ router.post('/', authenticateToken, async (req, res) => {
             language,
             genre,
             url: url.trim(),
-            imageUrl: imageUrl.trim()
+            imageUrl: imageUrl.trim(),
+            urlsAccessible: true
         });
 
         await channel.save();
-
-        // Populate before sending response
         await channel.populate('language', 'name');
         await channel.populate('genre', 'name');
 
@@ -140,15 +184,8 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update channel
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
+        const userRole = req.user.role || 'user';
         const { name, lcn, language, genre, url, imageUrl } = req.body;
-
-        // Validation
-        if (!name || !lcn || !language || !genre || !url || !imageUrl) {
-            return res.status(400).json({
-                success: false,
-                message: 'All fields are required'
-            });
-        }
 
         const channel = await Channel.findById(req.params.id);
 
@@ -159,7 +196,31 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if LCN already exists (excluding current channel)
+        // UPDATED: Allow distributors to edit, but not URLs when disabled
+        if (userRole !== 'admin' && userRole !== 'distributor') {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to edit channels'
+            });
+        }
+
+        // Check if trying to update URLs when they're disabled (non-admin only)
+        if ((url !== undefined || imageUrl !== undefined) &&
+            !channel.urlsAccessible &&
+            userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to modify stream URLs. URLs are currently locked by administrator.'
+            });
+        }
+
+        if (!name || !lcn || !language || !genre || !url || !imageUrl) {
+            return res.status(400).json({
+                success: false,
+                message: 'All fields are required'
+            });
+        }
+
         const existingChannel = await Channel.findOne({
             lcn,
             _id: { $ne: req.params.id }
@@ -176,19 +237,23 @@ router.put('/:id', authenticateToken, async (req, res) => {
         channel.lcn = lcn;
         channel.language = language;
         channel.genre = genre;
-        channel.url = url.trim();
-        channel.imageUrl = imageUrl.trim();
+
+        // Update URLs if admin, OR if distributor and URLs are accessible
+        if (userRole === 'admin' || channel.urlsAccessible) {
+            channel.url = url.trim();
+            channel.imageUrl = imageUrl.trim();
+        }
 
         await channel.save();
-
-        // Populate before sending response
         await channel.populate('language', 'name');
         await channel.populate('genre', 'name');
+
+        const filteredChannel = filterChannelData(channel, userRole, channel.urlsAccessible);
 
         res.json({
             success: true,
             message: 'Channel updated successfully',
-            data: { channel }
+            data: { channel: filteredChannel }
         });
 
     } catch (error) {
@@ -203,6 +268,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
 // Delete channel
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
+        const userRole = req.user.role || 'user';
+
+        if (userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can delete channels'
+            });
+        }
+
         const channel = await Channel.findById(req.params.id);
 
         if (!channel) {
@@ -224,6 +298,51 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete channel'
+        });
+    }
+});
+
+// Admin toggle URL accessibility
+router.patch('/:id/toggle-urls-access', authenticateToken, async (req, res) => {
+    try {
+        const userRole = req.user.role || 'user';
+
+        if (userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can toggle URL access'
+            });
+        }
+
+        const channel = await Channel.findById(req.params.id);
+
+        if (!channel) {
+            return res.status(404).json({
+                success: false,
+                message: 'Channel not found'
+            });
+        }
+
+        channel.urlsAccessible = !channel.urlsAccessible;
+        await channel.save();
+
+        await channel.populate('language', 'name');
+        await channel.populate('genre', 'name');
+
+        res.json({
+            success: true,
+            message: `URL access ${channel.urlsAccessible ? 'enabled' : 'disabled'} for this channel`,
+            data: {
+                channel,
+                urlsAccessible: channel.urlsAccessible
+            }
+        });
+
+    } catch (error) {
+        console.error('Toggle URLs access error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to toggle URL access'
         });
     }
 });
