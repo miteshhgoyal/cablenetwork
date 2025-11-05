@@ -28,7 +28,11 @@ const subscriberSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
-    package: {
+    packages: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Package',
+    }],
+    primaryPackageId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Package',
     }

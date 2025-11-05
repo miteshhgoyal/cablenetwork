@@ -22,7 +22,7 @@ import YoutubePlayer from 'react-native-youtube-iframe';
 const { width } = Dimensions.get('window');
 
 export default function ChannelsScreen() {
-    const { channels, user, logout } = useAuth();
+    const { channels, user, packagesList, logout } = useAuth();
     const [selectedChannel, setSelectedChannel] = useState(null);
     const [showPlayer, setShowPlayer] = useState(false);
     const [videoError, setVideoError] = useState(false);
@@ -49,23 +49,18 @@ export default function ChannelsScreen() {
     const getYouTubeType = (url) => {
         if (!url) return null;
 
-        // YouTube Short Video
         if (url.includes('youtu.be/') || url.includes('youtube.com/watch')) {
             return 'video';
         }
-        // YouTube Live Stream
         if (url.includes('youtube.com/live/')) {
             return 'live';
         }
-        // YouTube Playlist
         if (url.includes('youtube.com/playlist') || url.includes('list=')) {
             return 'playlist';
         }
-        // YouTube Channel
         if (url.includes('youtube.com/c/') || url.includes('youtube.com/@')) {
             return 'channel';
         }
-        // YouTube User
         if (url.includes('youtube.com/user/')) {
             return 'channel';
         }
@@ -76,22 +71,18 @@ export default function ChannelsScreen() {
     const extractVideoId = (url) => {
         if (!url) return null;
 
-        // youtu.be format
         const shortRegex = /youtu\.be\/([^?&]+)/;
         const shortMatch = url.match(shortRegex);
         if (shortMatch) return shortMatch[1];
 
-        // youtube.com/watch?v= format
         const watchRegex = /youtube\.com\/watch\?v=([^&]+)/;
         const watchMatch = url.match(watchRegex);
         if (watchMatch) return watchMatch[1];
 
-        // youtube.com/live/ format
         const liveRegex = /youtube\.com\/live\/([^?&]+)/;
         const liveMatch = url.match(liveRegex);
         if (liveMatch) return liveMatch[1];
 
-        // Embed format
         const embedRegex = /youtube\.com\/embed\/([^?&]+)/;
         const embedMatch = url.match(embedRegex);
         if (embedMatch) return embedMatch[1];
@@ -101,10 +92,6 @@ export default function ChannelsScreen() {
 
     const isHLS = (url) => {
         return url?.includes('.m3u8') || url?.includes('m3u');
-    };
-
-    const isYouTube = (url) => {
-        return url?.includes('youtube.com') || url?.includes('youtu.be');
     };
 
     const isStreamUrl = (url) => {
@@ -126,10 +113,8 @@ export default function ChannelsScreen() {
         if (youtubeType === 'video' || youtubeType === 'live') {
             const videoId = extractVideoId(url);
             if (videoId) {
-                // Try to open in YouTube app first
                 const youtubeUrl = `youtube://${videoId}`;
                 Linking.openURL(youtubeUrl).catch(() => {
-                    // Fallback to browser
                     Linking.openURL(url);
                 });
             }
@@ -141,7 +126,7 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // RENDER CHANNEL CARD
+    // RENDER CHANNEL CARD - FIXED
     // ==========================================
 
     const renderChannel = ({ item }) => (
@@ -169,6 +154,19 @@ export default function ChannelsScreen() {
                 <Text className="text-xs text-gray-500 mt-1">
                     {item.genre?.name || 'General'}
                 </Text>
+
+                {/* FIXED: Show package names */}
+                {item.packageNames && item.packageNames.length > 0 && (
+                    <View className="mt-2 flex-row flex-wrap gap-1">
+                        {item.packageNames.map((pkgName, idx) => (
+                            <View key={idx} className="bg-orange-100 px-2 py-0.5 rounded">
+                                <Text className="text-xs text-orange-700 font-semibold">
+                                    {pkgName}
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
             </View>
         </TouchableOpacity>
     );
@@ -374,26 +372,95 @@ export default function ChannelsScreen() {
         );
     };
 
+    // Format expiry date - FIXED
+    const getFormattedExpiryDate = () => {
+        if (!user?.expiryDate) return '';
+        const date = new Date(user.expiryDate);
+
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+            'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+        const day = String(date.getDate()).padStart(2, '0');
+        const month = months[date.getMonth()];
+        const year = date.getFullYear();
+
+        return `${day} ${month} ${year}`;
+    };
+
+    // Calculate days remaining - FIXED
+    const getDaysRemaining = () => {
+        if (!user?.expiryDate) return 0;
+        try {
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+
+            const expiry = new Date(user.expiryDate);
+            expiry.setHours(0, 0, 0, 0);
+
+            const diffTime = expiry - today;
+            const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+            return Math.max(0, diffDays);
+        } catch (error) {
+            console.error('Error calculating days:', error);
+            return 0;
+        }
+    };
+
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
             <StatusBar barStyle="light-content" backgroundColor="#f97316" />
 
-            {/* Header */}
-            <View className="bg-orange-500 px-6 py-4 flex-row items-center justify-between">
-                <View className="flex-1">
-                    <Text className="text-white text-2xl font-bold">
-                        {user?.packageName || 'All Channels'}
+            {/* ===== UPDATED HEADER ===== */}
+            <View className="bg-orange-500 px-6 py-5">
+                {/* Top Row: Title + Logout */}
+                <View className="flex-row items-center justify-between mb-4">
+                    <Text className="text-white text-2xl font-bold flex-1">
+                        All Channels
                     </Text>
-                    <Text className="text-orange-100 text-sm mt-1">
-                        {channels.length} channels available
+                    <TouchableOpacity
+                        onPress={logout}
+                        className="w-10 h-10 bg-orange-600 rounded-full items-center justify-center"
+                    >
+                        <Ionicons name="log-out-outline" size={20} color="white" />
+                    </TouchableOpacity>
+                </View>
+
+                {/* Info Row 1: Channel Count + Expiry */}
+                <View className="flex-row justify-between mb-3">
+                    <View className="flex-row items-center">
+                        <Ionicons name="tv-outline" size={16} color="#fff" />
+                        <Text className="text-orange-100 text-sm ml-2 font-semibold">
+                            {channels.length} Channels
+                        </Text>
+                    </View>
+                    <View className="flex-row items-center">
+                        <Ionicons name="calendar-outline" size={16} color="#fff" />
+                        <Text className="text-orange-100 text-sm ml-2 font-semibold">
+                            {getDaysRemaining()} days left
+                        </Text>
+                    </View>
+                </View>
+
+                {/* Info Row 2: Expiry Date */}
+                <View className="flex-row justify-between items-center">
+                    <Text className="text-orange-100 text-xs">
+                        Expires: {getFormattedExpiryDate()}
                     </Text>
                 </View>
-                <TouchableOpacity
-                    onPress={logout}
-                    className="w-10 h-10 bg-orange-600 rounded-full items-center justify-center ml-3"
-                >
-                    <Ionicons name="log-out-outline" size={20} color="white" />
-                </TouchableOpacity>
+
+                {/* FIXED: Show package list */}
+                {packagesList.length > 0 && (
+                    <View className="mt-3 pt-3 border-t border-orange-400/50 flex-row flex-wrap gap-2">
+                        {packagesList.map((pkg, idx) => (
+                            <View key={idx} className="bg-orange-600/40 px-2.5 py-1 rounded">
+                                <Text className="text-orange-50 text-xs font-semibold">
+                                    {pkg.name} • {pkg.channelCount} ch
+                                </Text>
+                            </View>
+                        ))}
+                    </View>
+                )}
             </View>
 
             {/* Channels Grid */}
@@ -468,6 +535,24 @@ export default function ChannelsScreen() {
                             <Text className="text-white text-2xl font-bold mb-3">
                                 {selectedChannel?.name}
                             </Text>
+
+                            {/* FIXED: Show package names in modal */}
+                            {selectedChannel?.packageNames && selectedChannel.packageNames.length > 0 && (
+                                <View className="mb-4">
+                                    <Text className="text-gray-300 text-xs font-semibold mb-2">
+                                        Available in Packages:
+                                    </Text>
+                                    <View className="flex-row flex-wrap gap-2">
+                                        {selectedChannel.packageNames.map((pkgName, idx) => (
+                                            <View key={idx} className="bg-orange-600/50 px-3 py-1.5 rounded">
+                                                <Text className="text-orange-100 text-xs font-semibold">
+                                                    {pkgName}
+                                                </Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
 
                             {selectedChannel?.language && (
                                 <View className="flex-row items-center mb-2">
