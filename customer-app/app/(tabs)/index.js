@@ -1,9 +1,8 @@
 // app/(tabs)/index.js
-import React, { useState } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
     View,
     Text,
-    FlatList,
     TouchableOpacity,
     Image,
     Modal,
@@ -11,7 +10,9 @@ import {
     Dimensions,
     StatusBar,
     Linking,
-    ActivityIndicator
+    ActivityIndicator,
+    Platform,
+    FlatList
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/authContext';
@@ -27,12 +28,42 @@ export default function ChannelsScreen() {
     const [showPlayer, setShowPlayer] = useState(false);
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
+    const [errorMessage, setErrorMessage] = useState('');
+    const videoRef = useRef(null);
+
+    // ==========================================
+    // GROUP CHANNELS BY LANGUAGE
+    // ==========================================
+
+    const groupedChannels = useMemo(() => {
+        if (!channels || channels.length === 0) return [];
+
+        const languageMap = {};
+
+        channels.forEach((channel) => {
+            const languageName = channel.language?.name || 'Unknown';
+
+            if (!languageMap[languageName]) {
+                languageMap[languageName] = {
+                    title: languageName,
+                    data: []
+                };
+            }
+
+            languageMap[languageName].data.push(channel);
+        });
+
+        return Object.values(languageMap).sort((a, b) =>
+            a.title.localeCompare(b.title)
+        );
+    }, [channels]);
 
     const handleChannelPress = (channel) => {
         setSelectedChannel(channel);
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(false);
+        setErrorMessage('');
     };
 
     const closePlayer = () => {
@@ -40,6 +71,7 @@ export default function ChannelsScreen() {
         setSelectedChannel(null);
         setVideoError(false);
         setVideoLoading(false);
+        setErrorMessage('');
     };
 
     // ==========================================
@@ -48,7 +80,6 @@ export default function ChannelsScreen() {
 
     const getYouTubeType = (url) => {
         if (!url) return null;
-
         if (url.includes('youtu.be/') || url.includes('youtube.com/watch')) {
             return 'video';
         }
@@ -64,29 +95,23 @@ export default function ChannelsScreen() {
         if (url.includes('youtube.com/user/')) {
             return 'channel';
         }
-
         return null;
     };
 
     const extractVideoId = (url) => {
         if (!url) return null;
-
         const shortRegex = /youtu\.be\/([^?&]+)/;
         const shortMatch = url.match(shortRegex);
         if (shortMatch) return shortMatch[1];
-
         const watchRegex = /youtube\.com\/watch\?v=([^&]+)/;
         const watchMatch = url.match(watchRegex);
         if (watchMatch) return watchMatch[1];
-
         const liveRegex = /youtube\.com\/live\/([^?&]+)/;
         const liveMatch = url.match(liveRegex);
         if (liveMatch) return liveMatch[1];
-
         const embedRegex = /youtube\.com\/embed\/([^?&]+)/;
         const embedMatch = url.match(embedRegex);
         if (embedMatch) return embedMatch[1];
-
         return null;
     };
 
@@ -101,64 +126,53 @@ export default function ChannelsScreen() {
             url?.includes('rtmp'));
     };
 
-    // ==========================================
-    // OPEN YOUTUBE IN APP
-    // ==========================================
-
     const openYouTubeApp = (url) => {
         if (!url) return;
-
         const youtubeType = getYouTubeType(url);
-
         if (youtubeType === 'video' || youtubeType === 'live') {
             const videoId = extractVideoId(url);
             if (videoId) {
-                const youtubeUrl = `youtube://${videoId}`;
+                const youtubeUrl = Platform.OS === 'ios'
+                    ? `youtube://${videoId}`
+                    : `vnd.youtube://${videoId}`;
                 Linking.openURL(youtubeUrl).catch(() => {
                     Linking.openURL(url);
                 });
             }
-        } else if (youtubeType === 'channel') {
-            Linking.openURL(url);
-        } else if (youtubeType === 'playlist') {
+        } else {
             Linking.openURL(url);
         }
     };
 
     // ==========================================
-    // RENDER CHANNEL CARD - FIXED
+    // RENDER CHANNEL CARD
     // ==========================================
 
-    const renderChannel = ({ item }) => (
+    const renderChannelCard = ({ item }) => (
         <TouchableOpacity
-            className="m-2 bg-white rounded-2xl overflow-hidden shadow-md"
-            style={{ width: (width / 2) - 24 }}
+            className="bg-white rounded-xl overflow-hidden shadow-sm flex-1 mx-1 mb-3"
             onPress={() => handleChannelPress(item)}
             activeOpacity={0.7}
         >
             <Image
                 source={{ uri: item.imageUrl }}
-                style={{ width: '100%', height: 110 }}
+                className="w-full h-24 bg-gray-200"
                 resizeMode="cover"
             />
             <View className="p-3">
-                <Text className="text-xs font-bold text-orange-600 mb-1">
+                <Text className="text-xs font-bold text-orange-600 tracking-wide">
                     LCN {item.lcn}
                 </Text>
-                <Text
-                    className="text-sm font-semibold text-gray-900"
-                    numberOfLines={1}
-                >
+                <Text className="text-sm font-bold text-gray-900 mt-1 mb-1" numberOfLines={1}>
                     {item.name}
                 </Text>
-                <Text className="text-xs text-gray-500 mt-1">
+                <Text className="text-xs text-gray-500 mb-2">
                     {item.genre?.name || 'General'}
                 </Text>
 
-                {/* FIXED: Show package names */}
                 {item.packageNames && item.packageNames.length > 0 && (
-                    <View className="mt-2 flex-row flex-wrap gap-1">
-                        {item.packageNames.map((pkgName, idx) => (
+                    <View className="flex-row flex-wrap gap-1">
+                        {item.packageNames.slice(0, 2).map((pkgName, idx) => (
                             <View key={idx} className="bg-orange-100 px-2 py-0.5 rounded">
                                 <Text className="text-xs text-orange-700 font-semibold">
                                     {pkgName}
@@ -172,7 +186,42 @@ export default function ChannelsScreen() {
     );
 
     // ==========================================
-    // RENDER VIDEO PLAYER (HLS/M3U8 Stream)
+    // RENDER LANGUAGE SECTION
+    // ==========================================
+
+    const renderLanguageSection = (section) => (
+        <View key={section.title} className="mt-3 mb-2">
+            {/* Language Header */}
+            <View className="bg-orange-500 px-4 py-3 flex-row items-center justify-between">
+                <View className="flex-row items-center flex-1">
+                    <Ionicons name="language-outline" size={18} color="white" />
+                    <Text className="text-white text-base font-bold ml-3 flex-1">
+                        {section.title}
+                    </Text>
+                </View>
+                <View className="bg-orange-600 px-3 py-1.5 rounded-full">
+                    <Text className="text-white text-xs font-bold">
+                        {section.data.length}
+                    </Text>
+                </View>
+            </View>
+
+            {/* Grid Items */}
+            <View className="bg-gray-50 px-2 py-3">
+                <FlatList
+                    data={section.data}
+                    renderItem={renderChannelCard}
+                    keyExtractor={(item) => item._id}
+                    numColumns={2}
+                    scrollEnabled={false}
+                    columnWrapperStyle={{ justifyContent: 'space-between' }}
+                />
+            </View>
+        </View>
+    );
+
+    // ==========================================
+    // RENDER STREAM PLAYER
     // ==========================================
 
     const renderStreamPlayer = () => (
@@ -184,19 +233,44 @@ export default function ChannelsScreen() {
                         Unable to load stream
                     </Text>
                     <Text className="text-gray-400 text-sm text-center mt-2">
-                        Stream may be offline or URL is invalid
+                        {errorMessage || 'Stream may be offline or URL is invalid'}
                     </Text>
+                    <TouchableOpacity
+                        onPress={() => {
+                            setVideoError(false);
+                            setVideoLoading(true);
+                            if (videoRef.current) {
+                                videoRef.current.loadAsync({
+                                    uri: selectedChannel.url,
+                                    headers: {
+                                        'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36'
+                                    }
+                                });
+                            }
+                        }}
+                        className="mt-4 bg-orange-600 px-6 py-2 rounded-lg"
+                    >
+                        <Text className="text-white font-semibold">Retry</Text>
+                    </TouchableOpacity>
                 </View>
             ) : (
                 <Video
-                    source={{ uri: selectedChannel.url }}
+                    ref={videoRef}
+                    source={{
+                        uri: selectedChannel.url,
+                        headers: {
+                            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36'
+                        }
+                    }}
                     style={{ width: '100%', height: '100%' }}
                     useNativeControls
                     resizeMode={ResizeMode.CONTAIN}
                     isLooping
-                    shouldPlay
+                    shouldPlay={true}
+                    progressUpdateIntervalMillis={1000}
                     onError={(error) => {
-                        console.log('Video error:', error);
+                        console.error('Video error:', error);
+                        setErrorMessage(error?.message || 'Stream playback failed');
                         setVideoError(true);
                     }}
                     onLoad={() => {
@@ -204,6 +278,16 @@ export default function ChannelsScreen() {
                         setVideoLoading(false);
                     }}
                     onLoadStart={() => setVideoLoading(true)}
+                    onBuffer={({ isBuffering }) => {
+                        setVideoLoading(isBuffering);
+                    }}
+                    onPlaybackStatusUpdate={(status) => {
+                        if (status.error) {
+                            console.error('Playback error:', status.error);
+                            setErrorMessage(status.error);
+                            setVideoError(true);
+                        }
+                    }}
                 />
             )}
         </View>
@@ -218,7 +302,7 @@ export default function ChannelsScreen() {
 
         if (!videoId) {
             return (
-                <View className="flex-1 items-center justify-center px-6">
+                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">
                         Invalid YouTube Link
@@ -233,7 +317,30 @@ export default function ChannelsScreen() {
                     height={260}
                     videoId={videoId}
                     play={true}
-                    onError={() => setVideoError(true)}
+                    onError={(error) => {
+                        console.error('YouTube error:', error);
+                        setErrorMessage('Unable to load YouTube video');
+                        setVideoError(true);
+                    }}
+                    onReady={() => {
+                        setVideoError(false);
+                        setVideoLoading(false);
+                    }}
+                    onChangeState={(state) => {
+                        if (state === 'playing') {
+                            setVideoLoading(false);
+                        } else if (state === 'buffering') {
+                            setVideoLoading(true);
+                        }
+                    }}
+                    initialPlayerParams={{
+                        controls: true,
+                        modestbranding: false,
+                        rel: false,
+                        showinfo: true,
+                        iv_load_policy: 3,
+                        cc_load_policy: 0
+                    }}
                 />
             </View>
         );
@@ -248,7 +355,7 @@ export default function ChannelsScreen() {
 
         return (
             <View className="w-full bg-black" style={{ height: 260 }}>
-                <View className="flex-1 items-center justify-center px-6 space-y-4">
+                <View className="flex-1 items-center justify-center px-6 gap-4">
                     <Ionicons name="logo-youtube" size={60} color="#ff0000" />
                     <Text className="text-white text-center text-lg font-semibold">
                         {youtubeType === 'channel' ? 'YouTube Channel' : 'YouTube Playlist'}
@@ -278,7 +385,7 @@ export default function ChannelsScreen() {
 
         if (!videoId) {
             return (
-                <View className="flex-1 items-center justify-center px-6">
+                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">
                         Invalid YouTube Live Link
@@ -293,7 +400,25 @@ export default function ChannelsScreen() {
                     height={260}
                     videoId={videoId}
                     play={true}
-                    onError={() => setVideoError(true)}
+                    onError={(error) => {
+                        console.error('YouTube Live error:', error);
+                        setErrorMessage('Unable to load YouTube live stream');
+                        setVideoError(true);
+                    }}
+                    onReady={() => {
+                        setVideoError(false);
+                        setVideoLoading(false);
+                    }}
+                    onChangeState={(state) => {
+                        if (state === 'playing') {
+                            setVideoLoading(false);
+                        }
+                    }}
+                    initialPlayerParams={{
+                        controls: true,
+                        rel: false,
+                        modestbranding: true
+                    }}
                 />
             </View>
         );
@@ -306,7 +431,7 @@ export default function ChannelsScreen() {
     const renderPlayerContent = () => {
         if (!selectedChannel?.url) {
             return (
-                <View className="flex-1 items-center justify-center px-6">
+                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">
                         No Stream Available
@@ -332,13 +457,16 @@ export default function ChannelsScreen() {
                     <Text className="text-white text-center mt-4 text-lg font-semibold">
                         Unknown Stream Type
                     </Text>
+                    <Text className="text-gray-400 text-sm text-center mt-2">
+                        URL: {selectedChannel.url?.substring(0, 50)}...
+                    </Text>
                 </View>
             );
         }
     };
 
     // ==========================================
-    // RENDER CHANNEL TYPE BADGE
+    // RENDER STREAM TYPE BADGE
     // ==========================================
 
     const renderStreamTypeBadge = () => {
@@ -363,6 +491,9 @@ export default function ChannelsScreen() {
         } else if (isHLS(selectedChannel.url)) {
             type = 'HLS Stream';
             color = 'bg-blue-600';
+        } else if (selectedChannel.url.includes('.mp4')) {
+            type = 'MP4 Video';
+            color = 'bg-green-600';
         }
 
         return (
@@ -372,34 +503,26 @@ export default function ChannelsScreen() {
         );
     };
 
-    // Format expiry date - FIXED
     const getFormattedExpiryDate = () => {
         if (!user?.expiryDate) return '';
         const date = new Date(user.expiryDate);
-
         const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
             'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
         const day = String(date.getDate()).padStart(2, '0');
         const month = months[date.getMonth()];
         const year = date.getFullYear();
-
         return `${day} ${month} ${year}`;
     };
 
-    // Calculate days remaining - FIXED
     const getDaysRemaining = () => {
         if (!user?.expiryDate) return 0;
         try {
             const today = new Date();
             today.setHours(0, 0, 0, 0);
-
             const expiry = new Date(user.expiryDate);
             expiry.setHours(0, 0, 0, 0);
-
             const diffTime = expiry - today;
             const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
             return Math.max(0, diffDays);
         } catch (error) {
             console.error('Error calculating days:', error);
@@ -408,62 +531,69 @@ export default function ChannelsScreen() {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-gray-50">
+        <SafeAreaView className="flex-1 bg-gray-100">
             <StatusBar barStyle="light-content" backgroundColor="#f97316" />
 
-            {/* ===== UPDATED HEADER ===== */}
-            <View className="bg-orange-500 px-6 py-5">
-                {/* Top Row: Title + Logout */}
-                <View className="flex-row items-center justify-between mb-4">
-                    <Text className="text-white text-2xl font-bold flex-1">
+            {/* HEADER */}
+            <View className="bg-orange-500 px-4 py-4">
+                <View className="flex-row items-center justify-between mb-3">
+                    <Text className="text-white text-3xl font-bold flex-1">
                         All Channels
                     </Text>
                     <TouchableOpacity
                         onPress={logout}
-                        className="w-10 h-10 bg-orange-600 rounded-full items-center justify-center"
+                        className="w-11 h-11 bg-orange-600 rounded-full items-center justify-center"
                     >
-                        <Ionicons name="log-out-outline" size={20} color="white" />
+                        <Ionicons name="log-out-outline" size={22} color="white" />
                     </TouchableOpacity>
                 </View>
 
-                {/* Info Row 1: Channel Count + Expiry */}
-                <View className="flex-row justify-between mb-3">
+                {/* Stats Row 1 */}
+                <View className="flex-row justify-between mb-2">
                     <View className="flex-row items-center">
-                        <Ionicons name="tv-outline" size={16} color="#fff" />
+                        <Ionicons name="tv-outline" size={16} color="#fef3c7" />
                         <Text className="text-orange-100 text-sm ml-2 font-semibold">
                             {channels.length} Channels
                         </Text>
                     </View>
                     <View className="flex-row items-center">
-                        <Ionicons name="calendar-outline" size={16} color="#fff" />
+                        <Ionicons name="calendar-outline" size={16} color="#fef3c7" />
                         <Text className="text-orange-100 text-sm ml-2 font-semibold">
-                            {getDaysRemaining()} days left
+                            {getDaysRemaining()} days
                         </Text>
                     </View>
                 </View>
 
-                {/* Info Row 2: Expiry Date */}
-                <View className="flex-row justify-between items-center">
+                {/* Stats Row 2 */}
+                <View className="flex-row justify-between items-center mb-3">
                     <Text className="text-orange-100 text-xs">
                         Expires: {getFormattedExpiryDate()}
                     </Text>
+                    <View className="flex-row items-center">
+                        <Ionicons name="folder-outline" size={16} color="#fef3c7" />
+                        <Text className="text-orange-100 text-sm ml-2 font-semibold">
+                            {groupedChannels.length} Languages
+                        </Text>
+                    </View>
                 </View>
 
-                {/* FIXED: Show package list */}
+                {/* Packages */}
                 {packagesList.length > 0 && (
-                    <View className="mt-3 pt-3 border-t border-orange-400/50 flex-row flex-wrap gap-2">
-                        {packagesList.map((pkg, idx) => (
-                            <View key={idx} className="bg-orange-600/40 px-2.5 py-1 rounded">
-                                <Text className="text-orange-50 text-xs font-semibold">
-                                    {pkg.name} • {pkg.channelCount} ch
-                                </Text>
-                            </View>
-                        ))}
+                    <View className="pt-2 border-t border-orange-400 border-opacity-40">
+                        <View className="flex-row flex-wrap gap-2 mt-2">
+                            {packagesList.map((pkg, idx) => (
+                                <View key={idx} className="bg-orange-600 bg-opacity-40 px-3 py-1.5 rounded-full">
+                                    <Text className="text-orange-50 text-xs font-semibold">
+                                        {pkg.name} • {pkg.channelCount}
+                                    </Text>
+                                </View>
+                            ))}
+                        </View>
                     </View>
                 )}
             </View>
 
-            {/* Channels Grid */}
+            {/* MAIN CONTENT */}
             {channels.length === 0 ? (
                 <View className="flex-1 justify-center items-center px-6">
                     <Ionicons name="tv-outline" size={80} color="#d1d5db" />
@@ -475,17 +605,16 @@ export default function ChannelsScreen() {
                     </Text>
                 </View>
             ) : (
-                <FlatList
-                    data={channels}
-                    renderItem={renderChannel}
-                    keyExtractor={(item) => item._id}
-                    numColumns={2}
-                    contentContainerStyle={{ padding: 8, paddingBottom: 20 }}
+                <ScrollView
+                    className="flex-1"
                     showsVerticalScrollIndicator={false}
-                />
+                    contentContainerStyle={{ paddingBottom: 20 }}
+                >
+                    {groupedChannels.map((section) => renderLanguageSection(section))}
+                </ScrollView>
             )}
 
-            {/* Video Player Modal */}
+            {/* VIDEO PLAYER MODAL */}
             <Modal
                 visible={showPlayer}
                 animationType="slide"
@@ -495,7 +624,7 @@ export default function ChannelsScreen() {
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-                    {/* Header */}
+                    {/* Modal Header */}
                     <View className="flex-row items-center px-4 py-3 bg-black/90 border-b border-gray-800">
                         <TouchableOpacity
                             onPress={closePlayer}
@@ -512,16 +641,16 @@ export default function ChannelsScreen() {
                         </Text>
                     </View>
 
-                    <ScrollView className="flex-1">
+                    <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
                         {/* Video Player */}
-                        {renderPlayerContent()}
-
-                        {/* Loading Indicator */}
-                        {videoLoading && (
-                            <View className="absolute inset-0 items-center justify-center bg-black/50">
-                                <ActivityIndicator size="large" color="#ff9500" />
-                            </View>
-                        )}
+                        <View>
+                            {renderPlayerContent()}
+                            {videoLoading && (
+                                <View className="absolute inset-0 items-center justify-center bg-black/50 z-10" style={{ height: 260 }}>
+                                    <ActivityIndicator size="large" color="#ff9500" />
+                                </View>
+                            )}
+                        </View>
 
                         {/* Channel Info */}
                         <View className="p-6">
@@ -536,11 +665,19 @@ export default function ChannelsScreen() {
                                 {selectedChannel?.name}
                             </Text>
 
-                            {/* FIXED: Show package names in modal */}
+                            {selectedChannel?.language && (
+                                <View className="flex-row items-center mb-4 bg-orange-900/30 px-3 py-2 rounded-lg">
+                                    <Ionicons name="language-outline" size={18} color="#fbbf24" />
+                                    <Text className="text-orange-200 text-sm ml-2 font-semibold">
+                                        {selectedChannel.language.name}
+                                    </Text>
+                                </View>
+                            )}
+
                             {selectedChannel?.packageNames && selectedChannel.packageNames.length > 0 && (
                                 <View className="mb-4">
                                     <Text className="text-gray-300 text-xs font-semibold mb-2">
-                                        Available in Packages:
+                                        Available Packages:
                                     </Text>
                                     <View className="flex-row flex-wrap gap-2">
                                         {selectedChannel.packageNames.map((pkgName, idx) => (
@@ -554,19 +691,18 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {selectedChannel?.language && (
-                                <View className="flex-row items-center mb-2">
-                                    <Ionicons name="language-outline" size={18} color="#9ca3af" />
-                                    <Text className="text-gray-400 text-sm ml-2">
-                                        {selectedChannel.language.name}
+                            {!selectedChannel?.url && (
+                                <View className="mt-4 bg-red-900/30 border border-red-500 rounded-lg p-4">
+                                    <Text className="text-red-400 text-sm">
+                                        ⚠️ Stream URL not configured
                                     </Text>
                                 </View>
                             )}
 
-                            {!selectedChannel?.url && (
-                                <View className="mt-4 bg-red-900/30 border border-red-500 rounded-xl p-4">
-                                    <Text className="text-red-400 text-sm">
-                                        Stream URL not configured
+                            {selectedChannel?.url && isStreamUrl(selectedChannel.url) && (
+                                <View className="mt-4 p-3 bg-gray-900 rounded-lg">
+                                    <Text className="text-gray-400 text-xs" selectable>
+                                        Stream: {selectedChannel.url.substring(0, 60)}...
                                     </Text>
                                 </View>
                             )}
