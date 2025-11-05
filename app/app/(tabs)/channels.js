@@ -20,6 +20,9 @@ import {
     Trash2,
     X,
     Radio,
+    Lock,
+    Unlock,
+    AlertCircle,
 } from 'lucide-react-native';
 import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -35,6 +38,10 @@ const Channels = () => {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
     const [modalMode, setModalMode] = useState('create');
     const [selectedChannel, setSelectedChannel] = useState(null);
+    const [userRole, setUserRole] = useState('user');
+    const [canAccessUrls, setCanAccessUrls] = useState(false);
+    const [submitting, setSubmitting] = useState(false);
+    const [urlAccessToggling, setUrlAccessToggling] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
         lcn: '',
@@ -43,7 +50,6 @@ const Channels = () => {
         url: '',
         imageUrl: '',
     });
-    const [submitting, setSubmitting] = useState(false);
 
     useEffect(() => {
         fetchChannels();
@@ -55,6 +61,8 @@ const Channels = () => {
             setLoading(true);
             const response = await api.get('/channels');
             setChannels(response.data.data.channels);
+            setUserRole(response.data.data.userRole || 'user');
+            setCanAccessUrls(response.data.data.canAccessUrls || false);
         } catch (error) {
             console.error('Failed to fetch channels:', error);
             Alert.alert('Error', 'Failed to load channels');
@@ -88,8 +96,8 @@ const Channels = () => {
                 lcn: channel.lcn.toString(),
                 language: channel.language?._id || '',
                 genre: channel.genre?._id || '',
-                url: channel.url,
-                imageUrl: channel.imageUrl,
+                url: channel.url || '',
+                imageUrl: channel.imageUrl || '',
             });
         } else {
             setFormData({
@@ -117,6 +125,20 @@ const Channels = () => {
         });
     };
 
+    const canEditUrlFields = () => {
+        if (userRole === 'admin') return true;
+        if (userRole === 'distributor' && selectedChannel) {
+            return selectedChannel.urlsAccessible;
+        }
+        return false;
+    };
+
+    const shouldShowUrlFields = () => {
+        if (userRole === 'admin') return true;
+        if (userRole === 'distributor') return true;
+        return canAccessUrls;
+    };
+
     const handleSubmit = async () => {
         if (!formData.name.trim()) {
             Alert.alert('Error', 'Channel name is required');
@@ -134,13 +156,15 @@ const Channels = () => {
             Alert.alert('Error', 'Genre is required');
             return;
         }
-        if (!formData.url.trim()) {
-            Alert.alert('Error', 'Stream URL is required');
-            return;
-        }
-        if (!formData.imageUrl.trim()) {
-            Alert.alert('Error', 'Image URL is required');
-            return;
+        if (shouldShowUrlFields()) {
+            if (!formData.url.trim()) {
+                Alert.alert('Error', 'Stream URL is required');
+                return;
+            }
+            if (!formData.imageUrl.trim()) {
+                Alert.alert('Error', 'Image URL is required');
+                return;
+            }
         }
 
         setSubmitting(true);
@@ -179,6 +203,23 @@ const Channels = () => {
         }
     };
 
+    const handleToggleUrlAccess = async (channel) => {
+        if (userRole !== 'admin') return;
+
+        setUrlAccessToggling(channel._id);
+        try {
+            const response = await api.patch(
+                `/channels/${channel._id}/toggle-urls-access`
+            );
+            fetchChannels();
+        } catch (error) {
+            console.error('Toggle URL access error:', error);
+            Alert.alert('Error', error.response?.data?.message || 'Failed to toggle URL access');
+        } finally {
+            setUrlAccessToggling(null);
+        }
+    };
+
     const filteredChannels = channels.filter((channel) =>
         channel.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
@@ -188,7 +229,7 @@ const Channels = () => {
             {/* Header */}
             <View className="bg-white border-b border-gray-200 px-4 py-4">
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginRight: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
                         <View className="p-2 bg-blue-50 rounded-xl mr-3">
                             <Radio size={24} color="#2563eb" />
                         </View>
@@ -201,20 +242,22 @@ const Channels = () => {
                     </View>
                 </View>
 
-                {/* Add Button */}
-                <TouchableOpacity
-                    onPress={() => handleOpenModal('create')}
-                    style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8 }}
-                >
-                    <Plus size={18} color="#ffffff" style={{ marginRight: 8 }} />
-                    <Text className="text-white font-semibold">Add Channel</Text>
-                </TouchableOpacity>
+                {/* Add Button - Admin Only */}
+                {userRole === 'admin' && (
+                    <TouchableOpacity
+                        onPress={() => handleOpenModal('create')}
+                        style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8 }}
+                    >
+                        <Plus size={18} color="#ffffff" style={{ marginRight: 8 }} />
+                        <Text className="text-white font-semibold">Add Channel</Text>
+                    </TouchableOpacity>
+                )}
             </View>
 
             {/* Search Bar */}
             <View className="px-4 py-4">
                 <View className="relative">
-                    <View className="absolute left-4 top-1/2 -translate-y-2.5 z-10">
+                    <View className="absolute left-4 top-1/2 z-10" style={{ transform: [{ translateY: -10 }] }}>
                         <Search size={20} color="#9ca3af" />
                     </View>
                     <TextInput
@@ -226,6 +269,21 @@ const Channels = () => {
                     />
                 </View>
             </View>
+
+            {/* Access Alert for Non-Admins */}
+            {userRole !== 'admin' && !canAccessUrls && (
+                <View className="mx-4 mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl flex-row items-start">
+                    <AlertCircle size={20} color="#b45309" style={{ marginRight: 12, marginTop: 2 }} />
+                    <View style={{ flex: 1 }}>
+                        <Text className="font-semibold text-amber-900 mb-1">
+                            Limited Access
+                        </Text>
+                        <Text className="text-xs text-amber-700">
+                            You don't have permission to view or edit stream URLs and images for these channels.
+                        </Text>
+                    </View>
+                </View>
+            )}
 
             {/* Content */}
             {loading ? (
@@ -293,24 +351,56 @@ const Channels = () => {
 
                                         {/* Action Buttons */}
                                         <View style={{ flexDirection: 'row', marginLeft: 8 }}>
-                                            <TouchableOpacity
-                                                onPress={() => handleOpenModal('edit', channel)}
-                                                className="p-2 bg-blue-50 rounded-lg"
-                                                style={{ marginRight: 8 }}
-                                            >
-                                                <Edit2 size={18} color="#2563eb" />
-                                            </TouchableOpacity>
-                                            <TouchableOpacity
-                                                onPress={() => {
-                                                    setSelectedChannel(channel);
-                                                    setShowDeleteModal(true);
-                                                }}
-                                                className="p-2 bg-red-50 rounded-lg"
-                                            >
-                                                <Trash2 size={18} color="#dc2626" />
-                                            </TouchableOpacity>
+                                            {(userRole === 'admin' || userRole === 'distributor') && (
+                                                <TouchableOpacity
+                                                    onPress={() => handleOpenModal('edit', channel)}
+                                                    className="p-2 bg-blue-50 rounded-lg"
+                                                    style={{ marginRight: 8 }}
+                                                >
+                                                    <Edit2 size={18} color="#2563eb" />
+                                                </TouchableOpacity>
+                                            )}
+                                            {userRole === 'admin' && (
+                                                <TouchableOpacity
+                                                    onPress={() => {
+                                                        setSelectedChannel(channel);
+                                                        setShowDeleteModal(true);
+                                                    }}
+                                                    className="p-2 bg-red-50 rounded-lg"
+                                                >
+                                                    <Trash2 size={18} color="#dc2626" />
+                                                </TouchableOpacity>
+                                            )}
                                         </View>
                                     </View>
+
+                                    {/* Admin URL Access Toggle */}
+                                    {userRole === 'admin' && (
+                                        <TouchableOpacity
+                                            onPress={() => handleToggleUrlAccess(channel)}
+                                            disabled={urlAccessToggling === channel._id}
+                                            className={`mt-3 p-2 rounded-lg flex-row items-center justify-center ${channel.urlsAccessible
+                                                    ? 'bg-green-100'
+                                                    : 'bg-red-100'
+                                                } ${urlAccessToggling === channel._id ? 'opacity-50' : ''}`}
+                                        >
+                                            {urlAccessToggling === channel._id ? (
+                                                <ActivityIndicator size="small" color={channel.urlsAccessible ? '#15803d' : '#dc2626'} />
+                                            ) : (
+                                                <>
+                                                    {channel.urlsAccessible ? (
+                                                        <Unlock size={16} color="#15803d" style={{ marginRight: 6 }} />
+                                                    ) : (
+                                                        <Lock size={16} color="#dc2626" style={{ marginRight: 6 }} />
+                                                    )}
+                                                    <Text className={`text-xs font-semibold ${channel.urlsAccessible ? 'text-green-700' : 'text-red-700'
+                                                        }`}>
+                                                        {channel.urlsAccessible ? 'URLs Enabled' : 'URLs Disabled'}
+                                                    </Text>
+                                                </>
+                                            )}
+                                        </TouchableOpacity>
+                                    )}
                                 </View>
                             ))}
                         </View>
@@ -426,48 +516,86 @@ const Channels = () => {
                                     </View>
                                 </View>
 
-                                {/* Stream URL */}
-                                <View style={{ marginBottom: 16 }}>
-                                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                                        Stream URL
-                                    </Text>
-                                    <TextInput
-                                        value={formData.url}
-                                        onChangeText={(text) =>
-                                            setFormData({ ...formData, url: text })
-                                        }
-                                        placeholder="https://example.com/stream"
-                                        placeholderTextColor="#9ca3af"
-                                        keyboardType="url"
-                                        autoCapitalize="none"
-                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
-                                    />
-                                </View>
+                                {/* URL Fields - Conditionally Visible */}
+                                {shouldShowUrlFields() && (
+                                    <>
+                                        {/* Stream URL */}
+                                        <View style={{ marginBottom: 16 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                                <Text className="text-sm font-semibold text-gray-700">
+                                                    Stream URL
+                                                </Text>
+                                                {userRole === 'distributor' && !canEditUrlFields() && (
+                                                    <Lock size={16} color="#dc2626" style={{ marginLeft: 8 }} />
+                                                )}
+                                            </View>
+                                            <TextInput
+                                                value={formData.url}
+                                                onChangeText={(text) =>
+                                                    setFormData({ ...formData, url: text })
+                                                }
+                                                placeholder="https://example.com/stream"
+                                                placeholderTextColor="#9ca3af"
+                                                keyboardType="url"
+                                                autoCapitalize="none"
+                                                editable={canEditUrlFields()}
+                                                className={`w-full px-4 py-3 border rounded-xl text-gray-900 ${!canEditUrlFields()
+                                                        ? 'bg-gray-100 border-gray-300'
+                                                        : 'bg-gray-50 border-gray-200'
+                                                    }`}
+                                            />
+                                        </View>
 
-                                {/* Image URL */}
-                                <View style={{ marginBottom: 24 }}>
-                                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                                        Image URL
-                                    </Text>
-                                    <TextInput
-                                        value={formData.imageUrl}
-                                        onChangeText={(text) =>
-                                            setFormData({ ...formData, imageUrl: text })
-                                        }
-                                        placeholder="https://example.com/image.jpg"
-                                        placeholderTextColor="#9ca3af"
-                                        keyboardType="url"
-                                        autoCapitalize="none"
-                                        className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
-                                    />
-                                </View>
+                                        {/* Image URL */}
+                                        <View style={{ marginBottom: 16 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                                <Text className="text-sm font-semibold text-gray-700">
+                                                    Image URL
+                                                </Text>
+                                                {userRole === 'distributor' && !canEditUrlFields() && (
+                                                    <Lock size={16} color="#dc2626" style={{ marginLeft: 8 }} />
+                                                )}
+                                            </View>
+                                            <TextInput
+                                                value={formData.imageUrl}
+                                                onChangeText={(text) =>
+                                                    setFormData({
+                                                        ...formData,
+                                                        imageUrl: text,
+                                                    })
+                                                }
+                                                placeholder="https://example.com/image.jpg"
+                                                placeholderTextColor="#9ca3af"
+                                                keyboardType="url"
+                                                autoCapitalize="none"
+                                                editable={canEditUrlFields()}
+                                                className={`w-full px-4 py-3 border rounded-xl text-gray-900 ${!canEditUrlFields()
+                                                        ? 'bg-gray-100 border-gray-300'
+                                                        : 'bg-gray-50 border-gray-200'
+                                                    }`}
+                                            />
+                                        </View>
+
+                                        {/* Lock Warning for Distributors */}
+                                        {userRole === 'distributor' &&
+                                            selectedChannel &&
+                                            !selectedChannel.urlsAccessible && (
+                                                <View className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex-row items-start">
+                                                    <Lock size={18} color="#dc2626" style={{ marginRight: 12, marginTop: 2 }} />
+                                                    <Text className="text-xs text-red-700 flex-1">
+                                                        Stream URLs are locked by the administrator. You cannot modify these fields until access is granted.
+                                                    </Text>
+                                                </View>
+                                            )}
+                                    </>
+                                )}
 
                                 {/* Buttons */}
                                 <View style={{ flexDirection: 'row', marginBottom: 24 }}>
                                     <TouchableOpacity
                                         onPress={handleSubmit}
                                         disabled={submitting}
-                                        className={`flex-1 px-4 py-3 bg-blue-600 rounded-xl ${submitting ? 'opacity-50' : ''}`}
+                                        className={`flex-1 px-4 py-3 bg-blue-600 rounded-xl items-center justify-center ${submitting ? 'opacity-50' : ''}`}
                                         style={{ marginRight: 12 }}
                                     >
                                         <Text className="text-white text-center font-semibold">
@@ -480,7 +608,7 @@ const Channels = () => {
                                     </TouchableOpacity>
                                     <TouchableOpacity
                                         onPress={handleCloseModal}
-                                        className="flex-1 px-4 py-3 bg-gray-100 rounded-xl"
+                                        className="flex-1 px-4 py-3 bg-gray-100 rounded-xl items-center justify-center"
                                     >
                                         <Text className="text-gray-700 text-center font-semibold">
                                             Cancel
@@ -518,7 +646,7 @@ const Channels = () => {
                                 <TouchableOpacity
                                     onPress={handleDelete}
                                     disabled={submitting}
-                                    className={`flex-1 px-4 py-3 bg-red-600 rounded-xl ${submitting ? 'opacity-50' : ''}`}
+                                    className={`flex-1 px-4 py-3 bg-red-600 rounded-xl items-center justify-center ${submitting ? 'opacity-50' : ''}`}
                                     style={{ marginRight: 12 }}
                                 >
                                     <Text className="text-white text-center font-semibold">
@@ -530,7 +658,7 @@ const Channels = () => {
                                         setShowDeleteModal(false);
                                         setSelectedChannel(null);
                                     }}
-                                    className="flex-1 px-4 py-3 bg-gray-100 rounded-xl"
+                                    className="flex-1 px-4 py-3 bg-gray-100 rounded-xl items-center justify-center"
                                 >
                                     <Text className="text-gray-700 text-center font-semibold">
                                         Cancel
