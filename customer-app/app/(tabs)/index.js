@@ -30,6 +30,7 @@ export default function ChannelsScreen() {
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const videoRef = useRef(null);
+    const [isLiveStream, setIsLiveStream] = useState(false);
 
     // ==========================================
     // GROUP CHANNELS BY LANGUAGE
@@ -64,6 +65,7 @@ export default function ChannelsScreen() {
         setVideoError(false);
         setVideoLoading(false);
         setErrorMessage('');
+        setIsLiveStream(isHLS(channel.url) || isStreamUrl(channel.url));
     };
 
     const closePlayer = () => {
@@ -72,6 +74,7 @@ export default function ChannelsScreen() {
         setVideoError(false);
         setVideoLoading(false);
         setErrorMessage('');
+        setIsLiveStream(false);
     };
 
     // ==========================================
@@ -221,11 +224,11 @@ export default function ChannelsScreen() {
     );
 
     // ==========================================
-    // RENDER STREAM PLAYER
+    // RENDER HLS/LIVE STREAM PLAYER (NO SEEKING)
     // ==========================================
 
     const renderStreamPlayer = () => (
-        <View className="w-full bg-black" style={{ height: 260 }}>
+        <View className="w-full bg-black relative" style={{ height: 260 }}>
             {videoError ? (
                 <View className="flex-1 items-center justify-center px-6">
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
@@ -254,47 +257,75 @@ export default function ChannelsScreen() {
                     </TouchableOpacity>
                 </View>
             ) : (
-                <Video
-                    ref={videoRef}
-                    source={{
-                        uri: selectedChannel.url,
-                        headers: {
-                            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36'
-                        }
-                    }}
-                    style={{ width: '100%', height: '100%' }}
-                    useNativeControls
-                    resizeMode={ResizeMode.CONTAIN}
-                    isLooping
-                    shouldPlay={true}
-                    progressUpdateIntervalMillis={1000}
-                    onError={(error) => {
-                        console.error('Video error:', error);
-                        setErrorMessage(error?.message || 'Stream playback failed');
-                        setVideoError(true);
-                    }}
-                    onLoad={() => {
-                        setVideoError(false);
-                        setVideoLoading(false);
-                    }}
-                    onLoadStart={() => setVideoLoading(true)}
-                    onBuffer={({ isBuffering }) => {
-                        setVideoLoading(isBuffering);
-                    }}
-                    onPlaybackStatusUpdate={(status) => {
-                        if (status.error) {
-                            console.error('Playback error:', status.error);
-                            setErrorMessage(status.error);
+                <>
+                    <Video
+                        ref={videoRef}
+                        source={{
+                            uri: selectedChannel.url,
+                            headers: {
+                                'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36'
+                            }
+                        }}
+                        style={{ width: '100%', height: '100%' }}
+                        useNativeControls={false}
+                        resizeMode={ResizeMode.CONTAIN}
+                        isLooping={true}
+                        shouldPlay={true}
+                        progressUpdateIntervalMillis={1000}
+                        onError={(error) => {
+                            console.error('Video error:', error);
+                            setErrorMessage(error?.message || 'Stream playback failed');
                             setVideoError(true);
-                        }
-                    }}
-                />
+                        }}
+                        onLoad={() => {
+                            setVideoError(false);
+                            setVideoLoading(false);
+                        }}
+                        onLoadStart={() => setVideoLoading(true)}
+                        onBuffer={({ isBuffering }) => {
+                            setVideoLoading(isBuffering);
+                        }}
+                        onPlaybackStatusUpdate={(status) => {
+                            if (status.error) {
+                                console.error('Playback error:', status.error);
+                                setErrorMessage(status.error);
+                                setVideoError(true);
+                            }
+                        }}
+                    />
+                    {/* Custom minimal controls - play/pause only, no seeking */}
+                    <View className="absolute bottom-0 left-0 right-0 bg-black/20 px-4 py-2 flex-row items-center justify-between">
+                        <TouchableOpacity
+                            onPress={() => {
+                                if (videoRef.current) {
+                                    videoRef.current.pauseAsync();
+                                }
+                            }}
+                            className="bg-orange-600 px-4 py-2 rounded-lg"
+                        >
+                            <Ionicons name="pause" size={20} color="white" />
+                        </TouchableOpacity>
+                        <Text className="text-white text-xs font-semibold">
+                            🔴 LIVE STREAM
+                        </Text>
+                        <TouchableOpacity
+                            onPress={() => {
+                                if (videoRef.current) {
+                                    videoRef.current.playAsync();
+                                }
+                            }}
+                            className="bg-orange-600 px-4 py-2 rounded-lg"
+                        >
+                            <Ionicons name="play" size={20} color="white" />
+                        </TouchableOpacity>
+                    </View>
+                </>
             )}
         </View>
     );
 
     // ==========================================
-    // RENDER YOUTUBE VIDEO PLAYER
+    // RENDER YOUTUBE VIDEO PLAYER (AUTOPLAY)
     // ==========================================
 
     const renderYouTubeVideoPlayer = () => {
@@ -339,7 +370,9 @@ export default function ChannelsScreen() {
                         rel: false,
                         showinfo: true,
                         iv_load_policy: 3,
-                        cc_load_policy: 0
+                        cc_load_policy: 0,
+                        autoplay: 1,
+                        fs: 1,
                     }}
                 />
             </View>
@@ -377,7 +410,7 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // RENDER YOUTUBE LIVE STREAM
+    // RENDER YOUTUBE LIVE STREAM (AUTOPLAY)
     // ==========================================
 
     const renderYouTubeLive = () => {
@@ -412,12 +445,16 @@ export default function ChannelsScreen() {
                     onChangeState={(state) => {
                         if (state === 'playing') {
                             setVideoLoading(false);
+                        } else if (state === 'buffering') {
+                            setVideoLoading(true);
                         }
                     }}
                     initialPlayerParams={{
                         controls: true,
                         rel: false,
-                        modestbranding: true
+                        modestbranding: true,
+                        autoplay: 1,
+                        fs: 1,
                     }}
                 />
             </View>
@@ -665,6 +702,14 @@ export default function ChannelsScreen() {
                                 {selectedChannel?.name}
                             </Text>
 
+                            {isLiveStream && (
+                                <View className="mb-4 bg-red-900/30 border border-red-500 rounded-lg px-3 py-2">
+                                    <Text className="text-red-300 text-xs font-semibold">
+                                        This is a live stream - seeking disabled
+                                    </Text>
+                                </View>
+                            )}
+
                             {selectedChannel?.language && (
                                 <View className="flex-row items-center mb-4 bg-orange-900/30 px-3 py-2 rounded-lg">
                                     <Ionicons name="language-outline" size={18} color="#fbbf24" />
@@ -694,7 +739,7 @@ export default function ChannelsScreen() {
                             {!selectedChannel?.url && (
                                 <View className="mt-4 bg-red-900/30 border border-red-500 rounded-lg p-4">
                                     <Text className="text-red-400 text-sm">
-                                        ⚠️ Stream URL not configured
+                                        Stream URL not configured
                                     </Text>
                                 </View>
                             )}
