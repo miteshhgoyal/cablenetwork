@@ -1,12 +1,11 @@
-// backend/src/routes/resellers.js
 import express from 'express';
-import { authenticateToken } from '../middlewares/auth.js';
+import { authenticateToken, authorize } from '../middlewares/auth.js';
 import User from '../models/User.js';
 import Package from '../models/Package.js';
 
 const router = express.Router();
 
-// Get all resellers (role-based filtering)
+// Get all resellers (role-based filtering with status check)
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search, status } = req.query;
@@ -47,7 +46,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
         const resellers = await User.find(query)
             .populate('packages', 'name cost duration')
-            .populate('createdBy', 'name email')
+            .populate('createdBy', 'name email status')
             .select('-password')
             .sort({ createdAt: -1 });
 
@@ -68,7 +67,9 @@ router.get('/', authenticateToken, async (req, res) => {
 // Get packages for dropdown
 router.get('/packages', authenticateToken, async (req, res) => {
     try {
-        const packages = await Package.find().select('name cost duration').sort({ name: 1 });
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
 
         res.json({
             success: true,
@@ -95,7 +96,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             role: 'reseller'
         })
             .populate('packages', 'name cost duration')
-            .populate('createdBy', 'name email')
+            .populate('createdBy', 'name email status')
             .select('-password');
 
         if (!reseller) {
@@ -139,6 +140,14 @@ router.post('/', authenticateToken, async (req, res) => {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to create resellers'
+            });
+        }
+
+        // NEW: Check if distributor is Active (if current user is distributor)
+        if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                message: 'Your account is inactive. Cannot create resellers.'
             });
         }
 
@@ -188,7 +197,7 @@ router.post('/', authenticateToken, async (req, res) => {
             partnerCode: partnerCode?.trim() || '',
             packages: packages || [],
             status: status || 'Active',
-            createdBy: userId, // Link to current user (admin or distributor)
+            createdBy: userId,
             balance: 0
         });
 
@@ -196,7 +205,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
         // Populate before sending
         await reseller.populate('packages', 'name cost duration');
-        await reseller.populate('createdBy', 'name email');
+        await reseller.populate('createdBy', 'name email status');
 
         res.status(201).json({
             success: true,
@@ -221,7 +230,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Update reseller
+// Update reseller (with distributor status check)
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -248,6 +257,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // NEW: Check if distributor is Active (if current user is distributor)
+        if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                message: 'Your account is inactive. Cannot update resellers.'
+            });
+        }
+
         const {
             name,
             email,
@@ -268,16 +285,18 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
 
         // Check if email already exists (excluding current reseller)
-        const existingUser = await User.findOne({
-            email: email.toLowerCase(),
-            _id: { $ne: req.params.id }
-        });
-
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email already exists'
+        if (email.toLowerCase() !== reseller.email) {
+            const existingUser = await User.findOne({
+                email: email.toLowerCase(),
+                _id: { $ne: req.params.id }
             });
+
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Email already exists'
+                });
+            }
         }
 
         // Update fields
@@ -287,18 +306,27 @@ router.put('/:id', authenticateToken, async (req, res) => {
         reseller.subscriberLimit = subscriberLimit || 0;
         reseller.partnerCode = partnerCode?.trim() || '';
         reseller.packages = packages || [];
-        reseller.status = status || 'Active';
+
+        // NEW: Validate status
+        if (status && ['Active', 'Inactive'].includes(status)) {
+            reseller.status = status;
+        }
 
         // Update password if provided
         if (password && password.length >= 6) {
             reseller.password = password;
+        } else if (password && password.length > 0 && password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 6 characters'
+            });
         }
 
         await reseller.save();
 
         // Populate before sending
         await reseller.populate('packages', 'name cost duration');
-        await reseller.populate('createdBy', 'name email');
+        await reseller.populate('createdBy', 'name email status');
 
         res.json({
             success: true,
@@ -339,6 +367,14 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to delete this reseller'
+            });
+        }
+
+        // NEW: Check if distributor is Active (if current user is distributor)
+        if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                message: 'Your account is inactive. Cannot delete resellers.'
             });
         }
 

@@ -1,6 +1,6 @@
 // backend/src/routes/distributors.js
 import express from 'express';
-import { authenticateToken } from '../middlewares/auth.js';
+import { authenticateToken, authorize } from '../middlewares/auth.js';
 import User from '../models/User.js';
 
 const router = express.Router();
@@ -168,82 +168,6 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Update distributor
-router.put('/:id', authenticateToken, async (req, res) => {
-    try {
-        const currentUser = await User.findById(req.user.id);
-
-        if (currentUser.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to update distributors'
-            });
-        }
-
-        const { name, email, password, phone, partnerCode, status } = req.body;
-
-        // Validation
-        if (!name || !email || !phone) {
-            return res.status(400).json({
-                success: false,
-                message: 'Name, email, and phone are required'
-            });
-        }
-
-        const distributor = await User.findOne({
-            _id: req.params.id,
-            role: 'distributor'
-        });
-
-        if (!distributor) {
-            return res.status(404).json({
-                success: false,
-                message: 'Distributor not found'
-            });
-        }
-
-        // Check if email already exists (excluding current distributor)
-        const existingUser = await User.findOne({
-            email: email.toLowerCase(),
-            _id: { $ne: req.params.id }
-        });
-
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email already exists'
-            });
-        }
-
-        // Update fields
-        distributor.name = name.trim();
-        distributor.email = email.toLowerCase().trim();
-        distributor.phone = phone.trim();
-        distributor.partnerCode = partnerCode?.trim() || '';
-        distributor.status = status || 'Active';
-
-        // Update password if provided
-        if (password && password.length >= 6) {
-            distributor.password = password;
-        }
-
-        await distributor.save();
-
-        res.json({
-            success: true,
-            message: 'Distributor updated successfully',
-            data: { distributor: distributor.toJSON() }
-        });
-
-    } catch (error) {
-        console.error('Update distributor error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to update distributor'
-        });
-    }
-});
-
 // Delete distributor
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
@@ -293,6 +217,102 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete distributor'
+        });
+    }
+});
+
+// Update distributor
+router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
+    try {
+        const { name, email, password, phone, partnerCode, status } = req.body;
+
+
+        // Validation
+        if (!name || !email || !phone) {
+            return res.status(400).json({
+                success: false,
+                message: 'Name, email, and phone are required'
+            });
+        }
+
+
+        const distributor = await User.findOne({
+            _id: req.params.id,
+            role: 'distributor'
+        });
+
+
+        if (!distributor) {
+            return res.status(404).json({
+                success: false,
+                message: 'Distributor not found'
+            });
+        }
+
+
+        // Check if email already exists (excluding current distributor)
+        if (email.toLowerCase() !== distributor.email) {
+            const existingUser = await User.findOne({
+                email: email.toLowerCase(),
+                _id: { $ne: req.params.id }
+            });
+
+
+            if (existingUser) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Email already exists'
+                });
+            }
+        }
+
+
+        // Update fields
+        distributor.name = name.trim();
+        distributor.email = email.toLowerCase().trim();
+        distributor.phone = phone.trim();
+        distributor.partnerCode = partnerCode?.trim() || '';
+
+        // NEW: Validate and update status
+        if (status && ['Active', 'Inactive'].includes(status)) {
+            distributor.status = status;
+
+            // If changing to Inactive, cascade to all resellers
+            if (status === 'Inactive') {
+                await User.updateMany(
+                    { createdBy: req.params.id, role: 'reseller' },
+                    { status: 'Inactive' }
+                );
+            }
+        }
+
+
+        // Update password if provided
+        if (password && password.length >= 6) {
+            distributor.password = password;
+        } else if (password && password.length > 0 && password.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'Password must be at least 6 characters'
+            });
+        }
+
+
+        await distributor.save();
+
+
+        res.json({
+            success: true,
+            message: 'Distributor updated successfully',
+            data: { distributor: distributor.toJSON() }
+        });
+
+
+    } catch (error) {
+        console.error('Update distributor error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update distributor'
         });
     }
 });
