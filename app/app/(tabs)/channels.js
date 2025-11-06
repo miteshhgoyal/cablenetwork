@@ -380,8 +380,8 @@ const Channels = () => {
                                             onPress={() => handleToggleUrlAccess(channel)}
                                             disabled={urlAccessToggling === channel._id}
                                             className={`mt-3 p-2 rounded-lg flex-row items-center justify-center ${channel.urlsAccessible
-                                                    ? 'bg-green-100'
-                                                    : 'bg-red-100'
+                                                ? 'bg-green-100'
+                                                : 'bg-red-100'
                                                 } ${urlAccessToggling === channel._id ? 'opacity-50' : ''}`}
                                         >
                                             {urlAccessToggling === channel._id ? (
@@ -517,7 +517,9 @@ const Channels = () => {
                                 </View>
 
                                 {/* URL Fields - Conditionally Visible */}
-                                {shouldShowUrlFields() && (
+                                {shouldShowUrlFields() &&
+                                    (userRole === 'admin' ||
+                                        (userRole === 'distributor' && selectedChannel?.urlsAccessible)) ? (
                                     <>
                                         {/* Stream URL */}
                                         <View style={{ marginBottom: 16 }}>
@@ -540,8 +542,8 @@ const Channels = () => {
                                                 autoCapitalize="none"
                                                 editable={canEditUrlFields()}
                                                 className={`w-full px-4 py-3 border rounded-xl text-gray-900 ${!canEditUrlFields()
-                                                        ? 'bg-gray-100 border-gray-300'
-                                                        : 'bg-gray-50 border-gray-200'
+                                                    ? 'bg-gray-100 border-gray-300'
+                                                    : 'bg-gray-50 border-gray-200'
                                                     }`}
                                             />
                                         </View>
@@ -570,25 +572,21 @@ const Channels = () => {
                                                 autoCapitalize="none"
                                                 editable={canEditUrlFields()}
                                                 className={`w-full px-4 py-3 border rounded-xl text-gray-900 ${!canEditUrlFields()
-                                                        ? 'bg-gray-100 border-gray-300'
-                                                        : 'bg-gray-50 border-gray-200'
+                                                    ? 'bg-gray-100 border-gray-300'
+                                                    : 'bg-gray-50 border-gray-200'
                                                     }`}
                                             />
                                         </View>
-
-                                        {/* Lock Warning for Distributors */}
-                                        {userRole === 'distributor' &&
-                                            selectedChannel &&
-                                            !selectedChannel.urlsAccessible && (
-                                                <View className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex-row items-start">
-                                                    <Lock size={18} color="#dc2626" style={{ marginRight: 12, marginTop: 2 }} />
-                                                    <Text className="text-xs text-red-700 flex-1">
-                                                        Stream URLs are locked by the administrator. You cannot modify these fields until access is granted.
-                                                    </Text>
-                                                </View>
-                                            )}
                                     </>
-                                )}
+                                ) : userRole === 'distributor' && selectedChannel && !selectedChannel.urlsAccessible ? (
+                                    // Restricted message for distributors without access
+                                    <View className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex-row items-start">
+                                        <Lock size={18} color="#dc2626" style={{ marginRight: 12, marginTop: 2 }} />
+                                        <Text className="text-xs text-red-700 flex-1">
+                                            Stream URLs are locked by the administrator. You cannot view or modify these fields until access is granted.
+                                        </Text>
+                                    </View>
+                                ) : null}
 
                                 {/* Buttons */}
                                 <View style={{ flexDirection: 'row', marginBottom: 24 }}>
