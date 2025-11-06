@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Allow cleartext for all streaming domains and IPs -->
+    <domain-config cleartextTrafficPermitted="true">
+        <!-- IP-based streams -->
+        <domain includeSubdomains="true">103.175.73.12</domain>
+        <domain includeSubdomains="true">210.89.51.165</domain>
+        <domain includeSubdomains="true">xott.live</domain>
+
+        <!-- General streaming domains -->
+        <domain includeSubdomains="true">*.live</domain>
+        <domain includeSubdomains="true">*.stream</domain>
+        <domain includeSubdomains="true">*.m3u8</domain>
+        <domain includeSubdomains="true">*.mp4</domain>
+        <domain includeSubdomains="true">localhost</domain>
+        <domain includeSubdomains="true">127.0.0.1</domain>
+
+        <!-- Add wildcard for any domain starting with numbers (IP addresses) -->
+        <domain includeSubdomains="true">*</domain>
+    </domain-config>
+</network-security-config>

@@ -4,7 +4,6 @@ import {
     View,
     Text,
     TouchableOpacity,
-    Image,
     Modal,
     ScrollView,
     Dimensions,
@@ -12,7 +11,7 @@ import {
     Linking,
     ActivityIndicator,
     Platform,
-    FlatList
+    FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '@/context/authContext';
@@ -31,6 +30,7 @@ export default function ChannelsScreen() {
     const [errorMessage, setErrorMessage] = useState('');
     const videoRef = useRef(null);
     const [isPlaying, setIsPlaying] = useState(true);
+    const [searchQuery, setSearchQuery] = useState('');
 
     // ==========================================
     // GROUP CHANNELS BY LANGUAGE
@@ -69,35 +69,56 @@ export default function ChannelsScreen() {
         ).slice(0, 15);
     };
 
-    const handleChannelPress = (channel) => {
-        // Stop previous video if playing
-        if (videoRef.current) {
-            videoRef.current.stopAsync().catch(() => { });
+    // ==========================================
+    // STREAM URL ANALYSIS (ENHANCED)
+    // ==========================================
+
+    const analyzeStreamUrl = (url) => {
+        if (!url) return { type: 'unknown', isValid: false };
+
+        const urlLower = url.toLowerCase();
+
+        // YouTube detection
+        if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+            if (urlLower.includes('/live/')) return { type: 'youtube-live', isValid: true };
+            if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
+            if (urlLower.includes('playlist')) return { type: 'youtube-playlist', isValid: true };
+            if (urlLower.includes('/c/') || urlLower.includes('/@')) return { type: 'youtube-channel', isValid: true };
+            return { type: 'youtube-video', isValid: true };
         }
 
-        setSelectedChannel(channel);
-        setShowPlayer(true);
-        setVideoError(false);
-        setVideoLoading(true);
-        setErrorMessage('');
-        setIsPlaying(true);
-    };
-
-    const closePlayer = () => {
-        if (videoRef.current) {
-            videoRef.current.stopAsync().catch(() => { });
+        // HLS/M3U8 detection
+        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) {
+            return { type: 'hls', isValid: true };
         }
-        setShowPlayer(false);
-        setSelectedChannel(null);
-        setVideoError(false);
-        setVideoLoading(false);
-        setErrorMessage('');
-        setIsPlaying(false);
-    };
 
-    // ==========================================
-    // URL DETECTION & HANDLING
-    // ==========================================
+        // Chunklist detection
+        if (urlLower.includes('chunklist')) {
+            return { type: 'hls', isValid: true };
+        }
+
+        // MP4 detection
+        if (urlLower.includes('.mp4')) {
+            return { type: 'mp4', isValid: true };
+        }
+
+        // IPTV-style URL detection
+        if (url.match(/:\d{4}\//) || url.match(/\/live\//)) {
+            return { type: 'iptv', isValid: true };
+        }
+
+        // RTMP detection
+        if (urlLower.includes('rtmp')) {
+            return { type: 'rtmp', isValid: true };
+        }
+
+        // Generic HTTP/HTTPS stream
+        if (url.includes('http://') || url.includes('https://')) {
+            return { type: 'stream', isValid: true };
+        }
+
+        return { type: 'unknown', isValid: false };
+    };
 
     const getYouTubeType = (url) => {
         if (!url) return null;
@@ -138,12 +159,11 @@ export default function ChannelsScreen() {
 
     const isIPTVStream = (url) => {
         if (!url) return false;
-        // Detect IPTV-style URLs (like xott.live, etc)
         const iptvPatterns = [
-            /:\d{4}\/\d+\/\d+\/\d+/,  // Pattern: :8080/56564322/56564323/244915
-            /\/live\/.*\/.*\//,        // Pattern: /live/username/password/
-            /\/get\.php/,              // Pattern: /get.php
-            /\/play\//,                // Pattern: /play/
+            /:\d{4}\/\d+\/\d+\/\d+/,
+            /\/live\/.*\/.*\//,
+            /\/get\.php/,
+            /\/play\//,
         ];
         return iptvPatterns.some(pattern => pattern.test(url));
     };
@@ -160,11 +180,7 @@ export default function ChannelsScreen() {
 
     const isStreamUrl = (url) => {
         if (!url) return false;
-
-        // YouTube check
         if (getYouTubeType(url)) return false;
-
-        // HTTP/HTTPS stream check
         return (url.includes('http://') || url.includes('https://')) && (
             isHLS(url) ||
             isMP4(url) ||
@@ -177,40 +193,96 @@ export default function ChannelsScreen() {
         );
     };
 
-    const getStreamHeaders = (url) => {
-        const baseHeaders = {
+    // ==========================================
+    // GET OPTIMAL HEADERS FOR ANY URL
+    // ==========================================
+
+    const getOptimalHeaders = (url) => {
+        if (!url) return {};
+
+        const headers = {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'gzip, deflate',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache',
+            'Pragma': 'no-cache',
         };
 
-        // Add Referer and Origin for certain domains
-        if (url.includes('103.175.73') || url.includes('210.89.51')) {
-            baseHeaders['Referer'] = 'https://example.com';
-            baseHeaders['Origin'] = 'https://example.com';
+        try {
+            const urlObj = new URL(url);
+            const domain = urlObj.hostname;
+            const protocol = urlObj.protocol;
+
+            if (domain.includes('.live') || domain.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)) {
+                headers['Referer'] = `${protocol}//${domain}`;
+                headers['Origin'] = `${protocol}//${domain}`;
+                headers['Host'] = domain;
+            }
+
+            if (domain.includes('youtube') || domain.includes('googlevideo')) {
+                headers['Referer'] = 'https://www.youtube.com/';
+                headers['Origin'] = 'https://www.youtube.com';
+            }
+
+            return headers;
+        } catch (error) {
+            console.log('Error parsing URL headers:', error);
+            return headers;
+        }
+    };
+
+    // ==========================================
+    // PLAYER STATE MANAGEMENT
+    // ==========================================
+
+    const handleChannelPress = (channel) => {
+        if (videoRef.current) {
+            videoRef.current.stopAsync().catch(() => { });
         }
 
-        return baseHeaders;
+        setSelectedChannel(channel);
+        setShowPlayer(true);
+        setVideoError(false);
+        setVideoLoading(true);
+        setErrorMessage('');
+        setIsPlaying(true);
+    };
+
+    const closePlayer = () => {
+        if (videoRef.current) {
+            videoRef.current.stopAsync().catch(err => {
+                console.log('Error stopping video:', err);
+            });
+        }
+
+        setShowPlayer(false);
+        setSelectedChannel(null);
+        setVideoError(false);
+        setVideoLoading(false);
+        setErrorMessage('');
+        setIsPlaying(false);
     };
 
     const openYouTubeApp = (url) => {
         if (!url) return;
-        const youtubeType = getYouTubeType(url);
-        if (youtubeType === 'video' || youtubeType === 'live') {
-            const videoId = extractVideoId(url);
-            if (videoId) {
-                const youtubeUrl = Platform.OS === 'ios'
-                    ? `youtube://${videoId}`
-                    : `vnd.youtube://${videoId}`;
-                Linking.openURL(youtubeUrl).catch(() => {
-                    Linking.openURL(url);
-                });
-            }
+
+        const videoId = extractVideoId(url);
+        if (videoId) {
+            const youtubeUrl = Platform.OS === 'ios'
+                ? `youtube://${videoId}`
+                : `vnd.youtube://${videoId}`;
+
+            Linking.openURL(youtubeUrl).catch(() => {
+                Linking.openURL(url);
+            });
         } else {
             Linking.openURL(url);
         }
     };
 
     // ==========================================
-    // RENDER CHANNEL ITEM (TEXT ONLY - NO IMAGE)
+    // RENDER CHANNEL ITEM (TEXT ONLY)
     // ==========================================
 
     const renderChannelItem = ({ item }) => (
@@ -257,14 +329,15 @@ export default function ChannelsScreen() {
     );
 
     // ==========================================
-    // RENDER RECOMMENDED CHANNEL ITEM
+    // RENDER RECOMMENDED ITEM
     // ==========================================
 
     const renderRecommendedItem = ({ item }) => (
         <TouchableOpacity
             className="bg-gray-800 rounded-lg px-3 py-3 mb-2 flex-row items-center justify-between active:bg-gray-700"
             onPress={() => {
-                handleChannelPress(item);
+                closePlayer();
+                setTimeout(() => handleChannelPress(item), 100);
             }}
             activeOpacity={0.7}
         >
@@ -293,7 +366,6 @@ export default function ChannelsScreen() {
 
     const renderLanguageSection = (section) => (
         <View key={section.title} className="mt-3 mb-2">
-            {/* Language Header */}
             <View className="bg-orange-500 px-4 py-3 flex-row items-center justify-between">
                 <View className="flex-row items-center flex-1">
                     <Ionicons name="language-outline" size={18} color="white" />
@@ -308,7 +380,6 @@ export default function ChannelsScreen() {
                 </View>
             </View>
 
-            {/* Channel List */}
             <View className="bg-gray-50 py-2">
                 <FlatList
                     data={section.data}
@@ -321,12 +392,12 @@ export default function ChannelsScreen() {
     );
 
     // ==========================================
-    // RENDER STREAM PLAYER (HLS/M3U8/IPTV/MP4)
+    // RENDER STREAM PLAYER
     // ==========================================
 
     const renderStreamPlayer = () => {
         const streamUrl = selectedChannel.url;
-        const headers = getStreamHeaders(streamUrl);
+        const headers = getOptimalHeaders(streamUrl);
 
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
@@ -334,98 +405,109 @@ export default function ChannelsScreen() {
                     <View className="flex-1 items-center justify-center px-6">
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                         <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Unable to load stream
+                            Stream Failed
                         </Text>
-                        <Text className="text-gray-400 text-sm text-center mt-2 px-4">
-                            {errorMessage || 'Stream may be offline, restricted, or URL is invalid'}
+                        <Text className="text-gray-400 text-xs text-center mt-2 px-4 line-clamp-2">
+                            {errorMessage || 'Unable to load stream'}
                         </Text>
                         <TouchableOpacity
                             onPress={() => {
                                 setVideoError(false);
                                 setVideoLoading(true);
                                 if (videoRef.current) {
-                                    videoRef.current.unloadAsync().then(() => {
-                                        videoRef.current.loadAsync(
-                                            {
-                                                uri: streamUrl,
-                                                headers: headers
-                                            },
-                                            { shouldPlay: true }
-                                        );
-                                    });
+                                    videoRef.current.unloadAsync()
+                                        .then(() => {
+                                            videoRef.current.loadAsync(
+                                                {
+                                                    uri: streamUrl,
+                                                    headers: headers,
+                                                    overrideFileExtensionAndroid: 'm3u8',
+                                                },
+                                                { shouldPlay: true }
+                                            );
+                                        })
+                                        .catch(err => {
+                                            console.log('Error reloading:', err);
+                                            setVideoError(true);
+                                            setVideoLoading(false);
+                                        });
                                 }
                             }}
                             className="mt-4 bg-orange-600 px-6 py-3 rounded-lg"
                         >
-                            <Text className="text-white font-semibold">Retry Stream</Text>
+                            <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
                     </View>
                 ) : (
-                    <>
-                        <Video
-                            ref={videoRef}
-                            source={{
-                                uri: streamUrl,
-                                headers: headers,
-                                overrideFileExtensionAndroid: isHLS(streamUrl) ? 'm3u8' : undefined,
-                            }}
-                            style={{ width: '100%', height: '100%' }}
-                            useNativeControls={true}
-                            resizeMode={ResizeMode.CONTAIN}
-                            isLooping={false}
-                            shouldPlay={true}
-                            progressUpdateIntervalMillis={500}
-                            onError={(error) => {
-                                console.error('Video error:', error);
-                                const errorMsg = error?.error?.message || error?.message || 'Stream playback failed';
-                                setErrorMessage(errorMsg);
+                    <Video
+                        ref={videoRef}
+                        source={{
+                            uri: streamUrl,
+                            headers: headers,
+                            overrideFileExtensionAndroid: 'm3u8',
+                        }}
+                        style={{ width: '100%', height: '100%' }}
+                        useNativeControls={true}
+                        resizeMode={ResizeMode.CONTAIN}
+                        isLooping={false}
+                        shouldPlay={true}
+                        progressUpdateIntervalMillis={500}
+                        rate={1.0}
+                        volume={1.0}
+                        isMuted={false}
+                        onLoad={() => {
+                            console.log('✅ Video loaded:', streamUrl);
+                            setVideoError(false);
+                            setVideoLoading(false);
+                            setIsPlaying(true);
+                        }}
+                        onLoadStart={() => {
+                            console.log('⏳ Loading stream...');
+                            setVideoLoading(true);
+                        }}
+                        onReadyForDisplay={() => {
+                            console.log('✅ Ready for display');
+                            setVideoLoading(false);
+                        }}
+                        onError={(error) => {
+                            console.error('❌ Video Error:', error);
+                            const errorMsg = error?.error?.message || error?.message || 'Stream failed';
+                            setErrorMessage(errorMsg);
+                            setVideoError(true);
+                            setVideoLoading(false);
+                        }}
+                        onPlaybackStatusUpdate={(status) => {
+                            if (status.error) {
+                                console.error('❌ Playback Error:', status.error);
+                                setErrorMessage(status.error);
                                 setVideoError(true);
-                                setVideoLoading(false);
-                                setIsPlaying(false);
-                            }}
-                            onLoad={(data) => {
-                                console.log('Video loaded successfully:', data);
-                                setVideoError(false);
-                                setVideoLoading(false);
-                                setIsPlaying(true);
-                            }}
-                            onLoadStart={() => {
-                                console.log('Loading video from:', streamUrl);
-                                setVideoLoading(true);
-                            }}
-                            onReadyForDisplay={() => {
-                                console.log('Video ready for display');
-                                setVideoLoading(false);
-                            }}
-                            onPlaybackStatusUpdate={(status) => {
-                                if (status.error) {
-                                    console.error('Playback error:', status.error);
-                                    setErrorMessage(status.error);
-                                    setVideoError(true);
+                            }
+                            if (status.isLoaded) {
+                                setIsPlaying(status.isPlaying);
+                                if (!status.isPlaying && !status.isBuffering && !videoLoading) {
                                     setVideoLoading(false);
                                 }
-                                if (status.isLoaded) {
-                                    setIsPlaying(status.isPlaying);
-                                    if (!status.isPlaying && !status.isBuffering) {
-                                        setVideoLoading(false);
-                                    }
-                                }
-                            }}
-                            onBuffer={({ isBuffering }) => {
-                                setVideoLoading(isBuffering);
-                            }}
-                        />
-                    </>
+                            }
+                        }}
+                        onBuffer={({ isBuffering }) => {
+                            if (isBuffering) {
+                                console.log('⏳ Buffering...');
+                                setVideoLoading(true);
+                            } else {
+                                setVideoLoading(false);
+                            }
+                        }}
+                    />
                 )}
             </View>
         );
     };
 
     // ==========================================
-    // RENDER YOUTUBE VIDEO PLAYER (AUTOPLAY)
+    // RENDER YOUTUBE VIDEO
     // ==========================================
 
-    const renderYouTubeVideoPlayer = () => {
+    const renderYouTubeVideo = () => {
         const videoId = extractVideoId(selectedChannel.url);
 
         if (!videoId) {
@@ -433,10 +515,7 @@ export default function ChannelsScreen() {
                 <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        Invalid YouTube Link
-                    </Text>
-                    <Text className="text-gray-400 text-sm text-center mt-2 px-6">
-                        Could not extract video ID from URL
+                        Invalid YouTube URL
                     </Text>
                 </View>
             );
@@ -449,13 +528,12 @@ export default function ChannelsScreen() {
                     videoId={videoId}
                     play={true}
                     onError={(error) => {
-                        console.error('YouTube error:', error);
-                        setErrorMessage('Unable to load YouTube video');
+                        console.error('❌ YouTube Error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                     }}
                     onReady={() => {
-                        console.log('YouTube player ready');
+                        console.log('✅ YouTube ready');
                         setVideoError(false);
                         setVideoLoading(false);
                     }}
@@ -466,17 +544,70 @@ export default function ChannelsScreen() {
                             setIsPlaying(true);
                         } else if (state === 'buffering') {
                             setVideoLoading(true);
-                        } else if (state === 'paused') {
-                            setIsPlaying(false);
                         }
                     }}
                     initialPlayerParams={{
                         controls: true,
                         modestbranding: true,
                         rel: false,
-                        showinfo: true,
-                        iv_load_policy: 3,
-                        cc_load_policy: 0,
+                        autoplay: 1,
+                        fs: 1,
+                        playsinline: 1,
+                    }}
+                    webViewProps={{
+                        androidLayerType: Platform.OS === 'android' ? 'hardware' : undefined,
+                    }}
+                />
+            </View>
+        );
+    };
+
+    // ==========================================
+    // RENDER YOUTUBE LIVE
+    // ==========================================
+
+    const renderYouTubeLive = () => {
+        const videoId = extractVideoId(selectedChannel.url);
+
+        if (!videoId) {
+            return (
+                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">
+                        Invalid YouTube Live URL
+                    </Text>
+                </View>
+            );
+        }
+
+        return (
+            <View className="w-full bg-black" style={{ height: 260 }}>
+                <YoutubePlayer
+                    height={260}
+                    videoId={videoId}
+                    play={true}
+                    onError={(error) => {
+                        console.error('❌ YouTube Live Error:', error);
+                        setVideoError(true);
+                        setVideoLoading(false);
+                    }}
+                    onReady={() => {
+                        console.log('✅ YouTube Live ready');
+                        setVideoError(false);
+                        setVideoLoading(false);
+                    }}
+                    onChangeState={(state) => {
+                        if (state === 'playing') {
+                            setVideoLoading(false);
+                            setIsPlaying(true);
+                        } else if (state === 'buffering') {
+                            setVideoLoading(true);
+                        }
+                    }}
+                    initialPlayerParams={{
+                        controls: true,
+                        rel: false,
+                        modestbranding: true,
                         autoplay: 1,
                         fs: 1,
                         playsinline: 1,
@@ -493,134 +624,29 @@ export default function ChannelsScreen() {
     // RENDER YOUTUBE CHANNEL/PLAYLIST
     // ==========================================
 
-    const renderYouTubeChannelOrPlaylist = () => {
-        const youtubeType = getYouTubeType(selectedChannel.url);
-
-        return (
-            <View className="w-full bg-black" style={{ height: 260 }}>
-                <View className="flex-1 items-center justify-center px-6 gap-4">
-                    <Ionicons name="logo-youtube" size={60} color="#ff0000" />
-                    <Text className="text-white text-center text-lg font-semibold">
-                        {youtubeType === 'channel' ? 'YouTube Channel' : 'YouTube Playlist'}
-                    </Text>
-                    <Text className="text-gray-300 text-sm text-center">
-                        {youtubeType === 'channel'
-                            ? 'Open this channel in YouTube app'
-                            : 'Open this playlist in YouTube app'}
-                    </Text>
-                    <TouchableOpacity
-                        onPress={() => openYouTubeApp(selectedChannel.url)}
-                        className="bg-red-600 px-6 py-3 rounded-lg mt-2"
-                    >
-                        <Text className="text-white font-semibold">Open in YouTube</Text>
-                    </TouchableOpacity>
-                </View>
-            </View>
-        );
-    };
-
-    // ==========================================
-    // RENDER YOUTUBE LIVE STREAM (AUTOPLAY)
-    // ==========================================
-
-    const renderYouTubeLive = () => {
-        const videoId = extractVideoId(selectedChannel.url);
-
-        if (!videoId) {
-            return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        Invalid YouTube Live Link
-                    </Text>
-                </View>
-            );
-        }
-
-        return (
-            <View className="w-full bg-black" style={{ height: 260 }}>
-                <YoutubePlayer
-                    height={260}
-                    videoId={videoId}
-                    play={true}
-                    onError={(error) => {
-                        console.error('YouTube Live error:', error);
-                        setErrorMessage('Unable to load YouTube live stream');
-                        setVideoError(true);
-                        setVideoLoading(false);
-                    }}
-                    onReady={() => {
-                        console.log('YouTube Live ready');
-                        setVideoError(false);
-                        setVideoLoading(false);
-                    }}
-                    onChangeState={(state) => {
-                        if (state === 'playing') {
-                            setVideoLoading(false);
-                            setIsPlaying(true);
-                        } else if (state === 'buffering') {
-                            setVideoLoading(true);
-                        }
-                    }}
-                    initialPlayerParams={{
-                        controls: true,
-                        rel: false,
-                        modestbranding: true,
-                        autoplay: 1,
-                        fs: 1,
-                        playsinline: 1,
-                    }}
-                    webViewProps={{
-                        androidLayerType: Platform.OS === 'android' ? 'hardware' : undefined,
-                    }}
+    const renderYouTubeChannelOrPlaylist = (isPlaylist) => (
+        <View className="w-full bg-black" style={{ height: 260 }}>
+            <View className="flex-1 items-center justify-center px-6 gap-4">
+                <Ionicons
+                    name={isPlaylist ? "list-outline" : "logo-youtube"}
+                    size={60}
+                    color={isPlaylist ? "#fbbf24" : "#ff0000"}
                 />
+                <Text className="text-white text-center text-lg font-semibold">
+                    {isPlaylist ? 'YouTube Playlist' : 'YouTube Channel'}
+                </Text>
+                <Text className="text-gray-300 text-sm text-center">
+                    Open in YouTube app to view
+                </Text>
+                <TouchableOpacity
+                    onPress={() => openYouTubeApp(selectedChannel.url)}
+                    className={`${isPlaylist ? 'bg-yellow-600' : 'bg-red-600'} px-6 py-3 rounded-lg mt-2`}
+                >
+                    <Text className="text-white font-semibold">Open in YouTube</Text>
+                </TouchableOpacity>
             </View>
-        );
-    };
-
-    // ==========================================
-    // MAIN PLAYER SELECTOR
-    // ==========================================
-
-    const renderPlayerContent = () => {
-        if (!selectedChannel?.url) {
-            return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        No Stream Available
-                    </Text>
-                    <Text className="text-gray-400 text-sm text-center mt-2 px-6">
-                        This channel does not have a stream URL configured
-                    </Text>
-                </View>
-            );
-        }
-
-        const youtubeType = getYouTubeType(selectedChannel.url);
-
-        if (youtubeType === 'video') {
-            return renderYouTubeVideoPlayer();
-        } else if (youtubeType === 'live') {
-            return renderYouTubeLive();
-        } else if (youtubeType === 'channel' || youtubeType === 'playlist') {
-            return renderYouTubeChannelOrPlaylist();
-        } else if (isStreamUrl(selectedChannel.url)) {
-            return renderStreamPlayer();
-        } else {
-            return (
-                <View className="w-full bg-black items-center justify-center px-6" style={{ height: 260 }}>
-                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        Unknown Stream Type
-                    </Text>
-                    <Text className="text-gray-400 text-xs text-center mt-2" selectable>
-                        {selectedChannel.url?.substring(0, 80)}...
-                    </Text>
-                </View>
-            );
-        }
-    };
+        </View>
+    );
 
     // ==========================================
     // RENDER STREAM TYPE BADGE
@@ -629,51 +655,120 @@ export default function ChannelsScreen() {
     const renderStreamTypeBadge = () => {
         if (!selectedChannel?.url) return null;
 
-        const youtubeType = getYouTubeType(selectedChannel.url);
-        let type = 'Stream';
+        const analysis = analyzeStreamUrl(selectedChannel.url);
         let color = 'bg-blue-500';
         let icon = 'tv-outline';
+        let label = 'Stream';
 
-        if (youtubeType === 'video') {
-            type = 'YouTube Video';
-            color = 'bg-red-600';
-            icon = 'logo-youtube';
-        } else if (youtubeType === 'live') {
-            type = '🔴 YouTube Live';
-            color = 'bg-red-600';
-            icon = 'radio-outline';
-        } else if (youtubeType === 'channel') {
-            type = 'YouTube Channel';
-            color = 'bg-red-600';
-            icon = 'logo-youtube';
-        } else if (youtubeType === 'playlist') {
-            type = 'YouTube Playlist';
-            color = 'bg-red-600';
-            icon = 'list-outline';
-        } else if (isIPTVStream(selectedChannel.url)) {
-            type = 'IPTV Stream';
-            color = 'bg-purple-600';
-            icon = 'server-outline';
-        } else if (isHLS(selectedChannel.url)) {
-            type = 'HLS Stream';
-            color = 'bg-blue-600';
-            icon = 'radio-outline';
-        } else if (isMP4(selectedChannel.url)) {
-            type = 'MP4 Video';
-            color = 'bg-green-600';
-            icon = 'videocam-outline';
+        switch (analysis.type) {
+            case 'youtube-video':
+                color = 'bg-red-600';
+                icon = 'logo-youtube';
+                label = 'YouTube Video';
+                break;
+            case 'youtube-live':
+                color = 'bg-red-600';
+                icon = 'radio-outline';
+                label = '🔴 YouTube Live';
+                break;
+            case 'youtube-channel':
+                color = 'bg-red-600';
+                icon = 'logo-youtube';
+                label = 'YouTube Channel';
+                break;
+            case 'youtube-playlist':
+                color = 'bg-red-600';
+                icon = 'list-outline';
+                label = 'YouTube Playlist';
+                break;
+            case 'hls':
+                color = 'bg-blue-600';
+                icon = 'radio-outline';
+                label = 'HLS Stream';
+                break;
+            case 'iptv':
+                color = 'bg-purple-600';
+                icon = 'server-outline';
+                label = 'IPTV Stream';
+                break;
+            case 'mp4':
+                color = 'bg-green-600';
+                icon = 'videocam-outline';
+                label = 'MP4 Video';
+                break;
+            case 'rtmp':
+                color = 'bg-indigo-600';
+                icon = 'radio-outline';
+                label = 'RTMP Stream';
+                break;
+            default:
+                color = 'bg-gray-600';
+                icon = 'help-circle-outline';
+                label = 'Unknown';
         }
 
         return (
             <View className={`${color} px-3 py-1.5 rounded-lg flex-row items-center`}>
                 <Ionicons name={icon} size={14} color="white" />
-                <Text className="text-white font-bold text-xs ml-1.5">{type}</Text>
+                <Text className="text-white font-bold text-xs ml-1.5">{label}</Text>
             </View>
         );
     };
 
     // ==========================================
-    // FORMAT DATE & DAYS
+    // MAIN PLAYER ROUTER
+    // ==========================================
+
+    const renderPlayerContent = () => {
+        if (!selectedChannel?.url) {
+            return (
+                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">
+                        No Stream URL
+                    </Text>
+                </View>
+            );
+        }
+
+        const analysis = analyzeStreamUrl(selectedChannel.url);
+
+        if (!analysis.isValid) {
+            return (
+                <View className="w-full bg-black items-center justify-center px-6" style={{ height: 260 }}>
+                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">
+                        Invalid Stream URL
+                    </Text>
+                    <Text className="text-gray-400 text-xs text-center mt-2">
+                        {selectedChannel.url?.substring(0, 80)}
+                    </Text>
+                </View>
+            );
+        }
+
+        switch (analysis.type) {
+            case 'youtube-video':
+                return renderYouTubeVideo();
+            case 'youtube-live':
+                return renderYouTubeLive();
+            case 'youtube-channel':
+                return renderYouTubeChannelOrPlaylist(false);
+            case 'youtube-playlist':
+                return renderYouTubeChannelOrPlaylist(true);
+            case 'hls':
+            case 'iptv':
+            case 'mp4':
+            case 'rtmp':
+            case 'stream':
+                return renderStreamPlayer();
+            default:
+                return renderStreamPlayer();
+        }
+    };
+
+    // ==========================================
+    // FORMAT HELPERS
     // ==========================================
 
     const getFormattedExpiryDate = () => {
@@ -742,7 +837,7 @@ export default function ChannelsScreen() {
                 </View>
 
                 {/* Stats Row 2 */}
-                <View className="flex-row justify-between items-center mb-3">
+                <View className="flex-row justify-between items-center">
                     <Text className="text-orange-100 text-xs">
                         Expires: {getFormattedExpiryDate()}
                     </Text>
@@ -756,12 +851,12 @@ export default function ChannelsScreen() {
 
                 {/* Packages */}
                 {packagesList.length > 0 && (
-                    <View className="pt-2 border-t border-orange-400 border-opacity-40">
+                    <View className="pt-2 border-t border-orange-400 border-opacity-40 mt-3">
                         <View className="flex-row flex-wrap gap-2 mt-2">
                             {packagesList.map((pkg, idx) => (
                                 <View key={idx} className="bg-orange-600 bg-opacity-40 px-3 py-1.5 rounded-full">
                                     <Text className="text-orange-50 text-xs font-semibold">
-                                        {pkg.name} • {pkg.channelCount} ch
+                                        {pkg.name} • {pkg.channelCount}
                                     </Text>
                                 </View>
                             ))}
@@ -778,7 +873,7 @@ export default function ChannelsScreen() {
                         No channels available
                     </Text>
                     <Text className="text-gray-400 text-center mt-2 text-sm">
-                        Please contact your cable operator
+                        Contact your provider
                     </Text>
                 </View>
             ) : (
@@ -791,7 +886,7 @@ export default function ChannelsScreen() {
                 </ScrollView>
             )}
 
-            {/* VIDEO PLAYER MODAL */}
+            {/* PLAYER MODAL */}
             <Modal
                 visible={showPlayer}
                 animationType="slide"
@@ -801,36 +896,31 @@ export default function ChannelsScreen() {
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-                    {/* Modal Header */}
+                    {/* Header */}
                     <View className="flex-row items-center px-4 py-3 bg-black/90 border-b border-gray-800">
-                        <TouchableOpacity
-                            onPress={closePlayer}
-                            className="flex-row items-center"
-                        >
+                        <TouchableOpacity onPress={closePlayer} className="flex-row items-center">
                             <Ionicons name="chevron-back" size={24} color="white" />
                             <Text className="text-white ml-2 text-base font-medium">Back</Text>
                         </TouchableOpacity>
-                        <Text
-                            className="text-white font-bold text-base flex-1 text-center mr-16"
-                            numberOfLines={1}
-                        >
+                        <Text className="text-white font-bold text-base flex-1 text-center mr-16" numberOfLines={1}>
                             {selectedChannel?.name}
                         </Text>
                     </View>
 
+                    {/* Content */}
                     <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
-                        {/* Video Player */}
+                        {/* Player */}
                         <View className="relative">
                             {renderPlayerContent()}
                             {videoLoading && !videoError && (
                                 <View className="absolute inset-0 items-center justify-center bg-black/70 z-10" style={{ height: 260 }}>
                                     <ActivityIndicator size="large" color="#f97316" />
-                                    <Text className="text-white mt-3 text-sm">Loading stream...</Text>
+                                    <Text className="text-white mt-3 text-sm">Loading...</Text>
                                 </View>
                             )}
                         </View>
 
-                        {/* Channel Info */}
+                        {/* Info Section */}
                         <View className="p-6">
                             <View className="flex-row items-center mb-4">
                                 {renderStreamTypeBadge()}
@@ -855,13 +945,13 @@ export default function ChannelsScreen() {
                             {selectedChannel?.packageNames && selectedChannel.packageNames.length > 0 && (
                                 <View className="mb-4">
                                     <Text className="text-gray-400 text-xs font-semibold mb-2">
-                                        AVAILABLE IN PACKAGES:
+                                        AVAILABLE IN:
                                     </Text>
                                     <View className="flex-row flex-wrap gap-2">
-                                        {selectedChannel.packageNames.map((pkgName, idx) => (
+                                        {selectedChannel.packageNames.map((pkg, idx) => (
                                             <View key={idx} className="bg-orange-600/40 px-3 py-1.5 rounded-lg">
                                                 <Text className="text-orange-100 text-xs font-semibold">
-                                                    {pkgName}
+                                                    {pkg}
                                                 </Text>
                                             </View>
                                         ))}
@@ -869,15 +959,15 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {/* Recommended Channels Section */}
+                            {/* Recommendations */}
                             {getRecommendedChannels().length > 0 && (
-                                <View className="mt-6">
+                                <View className="mt-6 pt-6 border-t border-gray-700">
                                     <View className="flex-row items-center justify-between mb-3">
                                         <Text className="text-white text-lg font-bold">
                                             More in {selectedChannel?.language?.name}
                                         </Text>
                                         <Text className="text-gray-400 text-xs">
-                                            {getRecommendedChannels().length} channels
+                                            {getRecommendedChannels().length}
                                         </Text>
                                     </View>
                                     <FlatList
@@ -885,7 +975,6 @@ export default function ChannelsScreen() {
                                         renderItem={renderRecommendedItem}
                                         keyExtractor={(item) => item._id}
                                         scrollEnabled={false}
-                                        contentContainerStyle={{ gap: 0 }}
                                     />
                                 </View>
                             )}

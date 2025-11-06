@@ -1,50 +1,94 @@
 {
-  "expo": {
-    "name": "Digital Cable Network",
-    "slug": "digital-cable-network",
-    "version": "1.0.0",
-    "orientation": "portrait",
-    "icon": "./assets/icon.png",
-    "scheme": "digitalcablenetwork",
-    "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
-    "ios": {
-      "supportsTablet": true,
-      "bundleIdentifier": "com.miteshhq.digitalcablenetwork"
-    },
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
-        "backgroundColor": "#ffffff"
-      },
-      "package": "com.miteshhq.digitalcablenetwork",
-      "versionCode": 1
-    },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/icon.png"
-    },
-    "plugins": [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          "image": "./assets/icon.png",
-          "imageWidth": 200,
-          "resizeMode": "contain",
-          "backgroundColor": "#ffffff"
+    "expo": {
+        "name": "Digital Cable Network",
+        "slug": "digital-cable-network",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "icon": "./assets/icon.png",
+        "scheme": "digitalcablenetwork",
+        "userInterfaceStyle": "dark",
+        "newArchEnabled": true,
+        "splash": {
+            "image": "./assets/icon.png",
+            "resizeMode": "contain",
+            "backgroundColor": "#ffffff"
+        },
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "com.miteshhq.digitalcablenetwork",
+            "infoPlist": {
+                "NSLocalNetworkUsageDescription": "Allow app to access local network for streaming",
+                "NSBonjourServices": [
+                    "_http._tcp",
+                    "_https._tcp"
+                ]
+            }
+        },
+        "android": {
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/icon.png",
+                "backgroundColor": "#ffffff"
+            },
+            "package": "com.miteshhq.digitalcablenetwork",
+            "versionCode": 1,
+            "usesCleartextTraffic": true,
+            "networkSecurityConfig": "@xml/network_security_config",
+            "permissions": [
+                "android.permission.INTERNET",
+                "android.permission.ACCESS_NETWORK_STATE",
+                "android.permission.MODIFY_AUDIO_SETTINGS",
+                "android.permission.CHANGE_NETWORK_STATE"
+            ],
+            "intentFilters": [
+                {
+                    "action": "android.intent.action.VIEW",
+                    "data": [
+                        {
+                            "scheme": "http"
+                        },
+                        {
+                            "scheme": "https"
+                        }
+                    ],
+                    "category": [
+                        "android.intent.category.BROWSABLE",
+                        "android.intent.category.DEFAULT"
+                    ]
+                }
+            ]
+        },
+        "web": {
+            "bundler": "metro",
+            "output": "static",
+            "favicon": "./assets/icon.png"
+        },
+        "plugins": [
+            "expo-router",
+            [
+                "expo-splash-screen",
+                {
+                    "image": "./assets/icon.png",
+                    "imageWidth": 200,
+                    "resizeMode": "contain",
+                    "backgroundColor": "#ffffff"
+                }
+            ],
+            [
+                "expo-av",
+                {
+                    "microphonePermission": "Allow Digital Cable Network to access your microphone",
+                    "audioAmbient": false
+                }
+            ]
+        ],
+        "experiments": {
+            "typedRoutes": true
+        },
+        "extra": {
+            "eas": {
+                "projectId": "213095c5-9164-4b78-932b-1320748e070b"
+            },
+            "router": {}
         }
-      ]
-    ],
-    "experiments": {
-      "typedRoutes": true
-    },
-    "extra": {
-      "eas": {
-        "projectId": "213095c5-9164-4b78-932b-1320748e070b"
-      },
-      "router": {}
     }
-  }
 }
