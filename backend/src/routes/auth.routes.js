@@ -300,6 +300,40 @@ router.get('/me', authenticateToken, async (req, res) => {
     }
 });
 
+// Verify Token
+router.get('/verify', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id).select('-password');
+
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        if (user.status !== 'Active') {
+            return res.status(401).json({
+                success: false,
+                message: 'User account is inactive'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Token is valid',
+            data: { user: user.toJSON() }
+        });
+
+    } catch (error) {
+        console.error('Token verification error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Token verification failed'
+        });
+    }
+});
+
 // Change Password
 router.put('/change-password', authenticateToken, async (req, res) => {
     try {

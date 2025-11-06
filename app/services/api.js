@@ -1,7 +1,7 @@
+// services/api.js
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// const API_BASE_URL = 'http://192.168.1.66:8000/api';
 const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
 
 const api = axios.create({
@@ -12,7 +12,7 @@ const api = axios.create({
     },
 });
 
-// Request interceptor to add auth token
+// Request interceptor
 api.interceptors.request.use(
     async (config) => {
         try {
@@ -25,25 +25,70 @@ api.interceptors.request.use(
         }
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
-// Response interceptor to handle errors
+// Response interceptor with 401 handling
+let isRefreshing = false;
+let failedQueue = [];
+
+const processQueue = (error, token = null) => {
+    failedQueue.forEach(prom => {
+        if (error) {
+            prom.reject(error);
+        } else {
+            prom.resolve(token);
+        }
+    });
+    isRefreshing = false;
+    failedQueue = [];
+};
+
 api.interceptors.response.use(
     (response) => response,
     async (error) => {
-        // Handle 401 - clear tokens
-        if (error.response?.status === 401) {
+        const originalRequest = error.config;
+
+        if (error.response?.status === 401 && !originalRequest._retry) {
+            if (isRefreshing) {
+                return new Promise((resolve, reject) => {
+                    failedQueue.push({ resolve, reject });
+                }).then(token => {
+                    originalRequest.headers.Authorization = `Bearer ${token}`;
+                    return api(originalRequest);
+                });
+            }
+
+            originalRequest._retry = true;
+            isRefreshing = true;
+
             try {
-                await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+                const refreshToken = await AsyncStorage.getItem('refreshToken');
+                if (!refreshToken) {
+                    throw new Error('No refresh token');
+                }
+
+                const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+                    refreshToken,
+                });
+
+                if (response.data.success) {
+                    const newAccessToken = response.data.data.accessToken;
+                    await AsyncStorage.setItem('accessToken', newAccessToken);
+                    api.defaults.headers.common.Authorization = `Bearer ${newAccessToken}`;
+                    processQueue(null, newAccessToken);
+                    return api(originalRequest);
+                }
             } catch (err) {
-                console.error('Error clearing tokens:', err);
+                // Refresh failed - clear everything
+                await AsyncStorage.multiRemove(['accessToken', 'refreshToken', 'user']);
+                processQueue(err, null);
+                // Let app handle logout via context
+                return Promise.reject(err);
             }
         }
 
-        // Handle network errors with better message
+        // Handle network errors
         if (!error.response) {
             console.error('Network Error:', error.message);
             return Promise.reject({

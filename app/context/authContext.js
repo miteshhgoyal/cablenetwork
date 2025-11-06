@@ -1,7 +1,7 @@
 // context/authContext.js
 import { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter } from 'expo-router';
 import api, { tokenService } from "../services/api";
 
 export const AuthContext = createContext();
@@ -19,55 +19,57 @@ export const AuthProvider = ({ children }) => {
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const router = useRouter();
-    const segments = useSegments();
 
+    // Single effect: Only check auth on mount, never navigate from here
     useEffect(() => {
-        checkAuth();
-    }, []);
+        const initializeAuth = async () => {
+            try {
+                let token = await AsyncStorage.getItem('accessToken');
 
-    useEffect(() => {
-        if (loading) return;
-
-        const inAuthGroup = segments[0] === '(auth)';
-
-        if (!isAuthenticated && !inAuthGroup) {
-            router.replace('/(auth)/signin');
-        } else if (isAuthenticated && inAuthGroup) {
-            router.replace('/(tabs)');
-        }
-    }, [isAuthenticated, loading, segments]);
-
-    const checkAuth = async () => {
-        try {
-            // Check for accessToken (new standard)
-            let token = await AsyncStorage.getItem('accessToken');
-
-            // Fallback to old 'token' key for existing users
-            if (!token) {
-                token = await AsyncStorage.getItem('token');
-                if (token) {
-                    // Migrate to new key
-                    await AsyncStorage.setItem('accessToken', token);
+                if (!token) {
+                    token = await AsyncStorage.getItem('token');
+                    if (token) {
+                        await AsyncStorage.setItem('accessToken', token);
+                    }
                 }
-            }
 
-            const savedUser = await AsyncStorage.getItem('user');
+                const savedUser = await AsyncStorage.getItem('user');
 
-            if (token && savedUser) {
-                setIsAuthenticated(true);
-                setUser(JSON.parse(savedUser));
-            } else {
+                if (token && savedUser) {
+                    // Verify token is still valid with backend
+                    try {
+                        const response = await api.get('/auth/verify');
+                        if (response.data.success) {
+                            setUser(JSON.parse(savedUser));
+                            setIsAuthenticated(true);
+                        } else {
+                            // Token invalid, clear everything
+                            await tokenService.clearTokens();
+                            setIsAuthenticated(false);
+                            setUser(null);
+                        }
+                    } catch (error) {
+                        console.error('Token verification failed:', error);
+                        // If verification fails, clear tokens
+                        await tokenService.clearTokens();
+                        setIsAuthenticated(false);
+                        setUser(null);
+                    }
+                } else {
+                    setIsAuthenticated(false);
+                    setUser(null);
+                }
+            } catch (error) {
+                console.error('Auth initialization error:', error);
                 setIsAuthenticated(false);
                 setUser(null);
+            } finally {
+                setLoading(false);
             }
-        } catch (error) {
-            console.error('Auth check error:', error);
-            setIsAuthenticated(false);
-            setUser(null);
-        } finally {
-            setLoading(false);
-        }
-    };
+        };
+
+        initializeAuth();
+    }, []); // Empty dependency - run ONLY on mount
 
     const login = async (credentials) => {
         try {
@@ -75,14 +77,11 @@ export const AuthProvider = ({ children }) => {
 
             if (response.data.success) {
                 const { token, accessToken, refreshToken, user: userData } = response.data.data;
-
-                // Store with accessToken key (use token if accessToken not provided)
                 const tokenToStore = accessToken || token;
 
                 if (tokenToStore) {
                     await AsyncStorage.setItem('accessToken', tokenToStore);
                 }
-
                 if (refreshToken) {
                     await AsyncStorage.setItem('refreshToken', refreshToken);
                 }
@@ -98,7 +97,6 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('Login error:', error);
-
             return {
                 success: false,
                 message: error.response?.data?.message || error.message || 'Login failed',
@@ -108,27 +106,21 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            // Call logout API
             try {
                 await api.post('/auth/logout');
             } catch (err) {
                 console.warn('Logout API failed:', err);
             }
 
-            // Clear all tokens
             await tokenService.clearTokens();
-            // Also clear old token key
             await AsyncStorage.removeItem('token');
 
             setIsAuthenticated(false);
             setUser(null);
-            router.replace('/(auth)/signin');
         } catch (error) {
             console.error('Logout error:', error);
-            // Force logout anyway
             setIsAuthenticated(false);
             setUser(null);
-            router.replace('/(auth)/signin');
         }
     };
 
@@ -138,7 +130,6 @@ export const AuthProvider = ({ children }) => {
         loading,
         login,
         logout,
-        checkAuth,
     };
 
     return (

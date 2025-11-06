@@ -9,20 +9,27 @@ function MainLayout() {
     const { isAuthenticated, loading } = useAuth();
     const segments = useSegments();
     const router = useRouter();
+    const [isNavigating, setIsNavigating] = React.useState(false);
 
     useEffect(() => {
-        if (loading) return;
+        // Don't navigate while loading or if already navigating
+        if (loading || isNavigating) return;
 
         const inAuthGroup = segments[0] === '(auth)';
 
-        setTimeout(() => {
-            if (isAuthenticated && inAuthGroup) {
-                router.replace('/(tabs)');
-            } else if (!isAuthenticated && !inAuthGroup) {
-                router.replace('/(auth)/signin');
-            }
-        }, 100);
-    }, [isAuthenticated, loading]);
+        // Only navigate if route doesn't match auth state
+        if (isAuthenticated && inAuthGroup) {
+            setIsNavigating(true);
+            router.replace('/(tabs)');
+        } else if (!isAuthenticated && !inAuthGroup) {
+            setIsNavigating(true);
+            router.replace('/(auth)/signin');
+        }
+
+        // Reset flag after navigation
+        const timer = setTimeout(() => setIsNavigating(false), 500);
+        return () => clearTimeout(timer);
+    }, [isAuthenticated, loading, segments]);
 
     if (loading) {
         return (
