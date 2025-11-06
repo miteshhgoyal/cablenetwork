@@ -462,79 +462,89 @@ const Channels = () => {
                   </select>
                 </div>
 
-                {/* URL Fields - visible to admin and distributor */}
-                {shouldShowUrlFields() && (
-                  <>
-                    <div className="md:col-span-2">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <label className="block text-sm font-semibold text-gray-700">
-                          Stream URL
-                        </label>
-                        {userRole === "distributor" && !canEditUrlFields() && (
-                          <Lock className="w-4 h-4 text-red-500" />
-                        )}
-                      </div>
-                      <input
-                        type="url"
-                        value={formData.url}
-                        onChange={(e) =>
-                          setFormData({ ...formData, url: e.target.value })
-                        }
-                        placeholder="https://example.com/stream"
-                        disabled={!canEditUrlFields()}
-                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          !canEditUrlFields()
-                            ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
-                            : "bg-gray-50 border-gray-200"
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* Image URL */}
-                    <div className="md:col-span-2">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <label className="block text-sm font-semibold text-gray-700">
-                          Image URL
-                        </label>
-                        {userRole === "distributor" && !canEditUrlFields() && (
-                          <Lock className="w-4 h-4 text-red-500" />
-                        )}
-                      </div>
-                      <input
-                        type="url"
-                        value={formData.imageUrl}
-                        onChange={(e) =>
-                          setFormData({
-                            ...formData,
-                            imageUrl: e.target.value,
-                          })
-                        }
-                        placeholder="https://example.com/image.jpg"
-                        disabled={!canEditUrlFields()}
-                        className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
-                          !canEditUrlFields()
-                            ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
-                            : "bg-gray-50 border-gray-200"
-                        }`}
-                        required
-                      />
-                    </div>
-
-                    {/* Message when URLs are locked for distributors */}
-                    {userRole === "distributor" &&
-                      selectedChannel &&
-                      !selectedChannel.urlsAccessible && (
-                        <div className="md:col-span-2 p-3 bg-red-50 border border-red-200 rounded-lg flex items-start space-x-2">
-                          <Lock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                          <p className="text-sm text-red-700">
-                            Stream URLs are locked by the administrator. You
-                            cannot modify these fields until access is granted.
-                          </p>
+                {shouldShowUrlFields() &&
+                  // This condition determines if URL fields should be visible AND editable
+                  (userRole === "admin" ||
+                  (userRole === "distributor" &&
+                    selectedChannel &&
+                    selectedChannel.urlsAccessible) ? (
+                    <>
+                      <div className="md:col-span-2">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <label className="block text-sm font-semibold text-gray-700">
+                            Stream URL
+                          </label>
+                          {userRole === "distributor" &&
+                            !canEditUrlFields() && (
+                              <Lock className="w-4 h-4 text-red-500" />
+                            )}
                         </div>
-                      )}
-                  </>
-                )}
+                        <input
+                          type="url"
+                          value={formData.url}
+                          onChange={(e) =>
+                            setFormData({ ...formData, url: e.target.value })
+                          }
+                          placeholder="https://example.com/stream"
+                          disabled={!canEditUrlFields()}
+                          className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            !canEditUrlFields()
+                              ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                          required
+                        />
+                      </div>
+
+                      {/* Image URL */}
+                      <div className="md:col-span-2">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <label className="block text-sm font-semibold text-gray-700">
+                            Image URL
+                          </label>
+                          {userRole === "distributor" &&
+                            !canEditUrlFields() && (
+                              <Lock className="w-4 h-4 text-red-500" />
+                            )}
+                        </div>
+                        <input
+                          type="url"
+                          value={formData.imageUrl}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              imageUrl: e.target.value,
+                            })
+                          }
+                          placeholder="https://example.com/image.jpg"
+                          disabled={!canEditUrlFields()}
+                          className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            !canEditUrlFields()
+                              ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                          required
+                        />
+                      </div>
+                    </>
+                  ) : userRole === "distributor" &&
+                    selectedChannel &&
+                    !selectedChannel.urlsAccessible ? (
+                    // Show restricted message for distributors without access
+                    <div className="md:col-span-2 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3">
+                      <Lock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                      <div>
+                        <h3 className="font-semibold text-red-900">
+                          URL Access Restricted
+                        </h3>
+                        <p className="text-sm text-red-700">
+                          You don't have permission to view or edit stream URLs
+                          and images for this channel. Contact your
+                          administrator to enable access.
+                        </p>
+                      </div>
+                    </div>
+                  ) : null)}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
