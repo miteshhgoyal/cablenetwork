@@ -44,7 +44,6 @@ export default function ChannelsScreen() {
     useEffect(() => {
         const subscription = AppState.addEventListener('change', nextAppState => {
             if (nextAppState === 'active') {
-                // App came to foreground, refresh channels
                 refreshChannels();
             }
         });
@@ -119,7 +118,8 @@ export default function ChannelsScreen() {
             return { type: 'mp4', isValid: true };
         }
 
-        if (url.match(/:\d{4}\//) || url.match(/\/live\//)) {
+        // ✅ IPTV Detection - Enhanced
+        if (url.match(/:\d{4}\//)) {
             return { type: 'iptv', isValid: true };
         }
 
@@ -163,17 +163,12 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // ENHANCED HTML PLAYER - FIXED AUTH
+    // ENHANCED HTML PLAYER - IPTV HEADERS FIX ✅
     // ==========================================
 
     const generateHTMLPlayer = (url) => {
         const isM3U8 = url.includes('.m3u8') || url.includes('m3u');
-        let urlDomain = '';
-        try {
-            urlDomain = new URL(url).origin;
-        } catch (e) {
-            urlDomain = '';
-        }
+        const isIPTV = url.match(/:\d{4}\//) || url.match(/\/\d+\/\d+\/\d+$/);
 
         return `
 <!DOCTYPE html>
@@ -185,14 +180,72 @@ export default function ChannelsScreen() {
     <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; overflow: hidden; }
-        #container { position: relative; width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center; }
-        video { width: 100%; height: 100%; object-fit: contain; background: #000; }
-        #loading { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #fff; font-size: 16px; text-align: center; z-index: 10; }
-        .spinner { border: 3px solid rgba(255,255,255,0.3); border-top: 3px solid #fff; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 10px; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        #error { display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ef4444; text-align: center; padding: 20px; z-index: 10; }
+        body { background: #000; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont; }
+        html, body { width: 100%; height: 100%; }
+        #container { 
+            position: relative; 
+            width: 100vw; 
+            height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
+        video { 
+            width: 100%; 
+            height: 100%; 
+            object-fit: contain; 
+            background: #000; 
+        }
+        #loading { 
+            display: none; 
+            position: fixed; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            color: #fff; 
+            font-size: 16px; 
+            text-align: center; 
+            z-index: 100; 
+        }
+        .spinner { 
+            border: 4px solid rgba(255,255,255,0.2); 
+            border-top: 4px solid #fff; 
+            border-radius: 50%; 
+            width: 50px; 
+            height: 50px; 
+            animation: spin 1s linear infinite; 
+            margin: 0 auto 15px; 
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
+        #error { 
+            display: none; 
+            position: fixed; 
+            top: 50%; 
+            left: 50%; 
+            transform: translate(-50%, -50%); 
+            color: #ef4444; 
+            text-align: center; 
+            padding: 30px; 
+            z-index: 100; 
+            background: rgba(0,0,0,0.9);
+            border-radius: 12px;
+            max-width: 80%;
+        }
         #error.show { display: block; }
+        .status { 
+            position: fixed; 
+            bottom: 20px; 
+            left: 20px; 
+            background: rgba(0,0,0,0.7); 
+            color: #fff; 
+            padding: 10px 15px; 
+            border-radius: 6px; 
+            font-size: 12px; 
+            z-index: 50;
+        }
     </style>
 </head>
 <body>
@@ -202,19 +255,22 @@ export default function ChannelsScreen() {
             <div>Loading stream...</div>
         </div>
         <div id="error">
-            <div style="font-size:40px;margin-bottom:10px;">⚠️</div>
-            <div id="errorText" style="font-size:14px;"></div>
+            <div style="font-size:50px;margin-bottom:15px;">⚠️</div>
+            <div id="errorText" style="font-size:14px;line-height:1.5;"></div>
         </div>
         <video id="video" controls autoplay playsinline webkit-playsinline crossorigin="anonymous"></video>
     </div>
+    <div class="status" id="status" style="display:none;"></div>
 
     <script>
         const video = document.getElementById('video');
         const loading = document.getElementById('loading');
         const errorDiv = document.getElementById('error');
         const errorText = document.getElementById('errorText');
+        const status = document.getElementById('status');
         const streamUrl = '${url}';
-        const urlDomain = '${urlDomain}';
+        const isIPTV = ${isIPTV};
+        const isM3U8 = ${isM3U8};
 
         function showError(message) {
             loading.style.display = 'none';
@@ -227,23 +283,44 @@ export default function ChannelsScreen() {
             loading.style.display = 'none';
         }
 
-        if (${isM3U8}) {
-            
+        function showStatus(msg) {
+            status.textContent = msg;
+            status.style.display = 'block';
+            setTimeout(() => { status.style.display = 'none'; }, 3000);
+        }
 
+        // ✅ IPTV Headers Setup
+        const setupIPTVHeaders = () => {
+            // Opera User-Agent works best with IPTV servers
+            const operaUA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 OPR/106.0.0.0';
+            return {
+                'User-Agent': operaUA,
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate',
+                'Connection': 'keep-alive',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Referer': window.location.origin + '/'
+            };
+        };
+
+        if (isM3U8) {
+            // HLS Playback
             if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                
+                // Native Safari HLS
                 video.src = streamUrl;
                 video.addEventListener('loadstart', () => { loading.style.display = 'block'; });
                 video.addEventListener('canplay', () => { 
                     hideLoading(); 
-                    video.play().catch(err => showError('Failed to play: ' + err.message)); 
+                    video.play().catch(err => showError('Play failed: ' + err.message)); 
                 });
                 video.addEventListener('error', (e) => {
-                    const errorMsg = video.error ? 'Error Code: ' + video.error.code : 'Stream error';
+                    const errorMsg = video.error ? 'Error ' + video.error.code : 'Stream error';
                     showError(errorMsg);
                 });
             } else if (Hls.isSupported()) {
-                
+                // HLS.js for browsers
                 const hls = new Hls({
                     debug: false,
                     enableWorker: true,
@@ -255,28 +332,27 @@ export default function ChannelsScreen() {
                     levelLoadingTimeOut: 20000,
                     xhrSetup: function(xhr, url) {
                         xhr.withCredentials = false;
-                        xhr.timeout = 30000; // ✅ Add timeout
+                        xhr.timeout = 30000;
                         
-                        // Better User-Agent for IPTV providers
-                        xhr.setRequestHeader('User-Agent', 
-                            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36');
-                        
-                        xhr.setRequestHeader('Accept', '*/*');
-                        xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
-                        xhr.setRequestHeader('Accept-Encoding', 'identity;q=1, *;q=0');
-                        
-                        // ✅ SAFE: Defensive domain extraction
+                        // ✅ Apply IPTV headers if needed
+                        const headers = isIPTV ? setupIPTVHeaders() : {
+                            'User-Agent': 'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36',
+                            'Accept': '*/*',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Accept-Encoding': 'identity;q=1, *;q=0'
+                        };
+
+                        Object.entries(headers).forEach(([key, val]) => {
+                            try {
+                                xhr.setRequestHeader(key, val);
+                            } catch (e) {}
+                        });
+
+                        // Set origin from URL
                         try {
                             const urlObj = new URL(url);
-                            xhr.setRequestHeader('Referer', urlObj.origin + '/');
                             xhr.setRequestHeader('Origin', urlObj.origin);
-                        } catch (e) {
-                            // Silently fail, don't break app
-                        }
-                        
-                        xhr.setRequestHeader('Connection', 'keep-alive');
-                        xhr.setRequestHeader('Cache-Control', 'no-cache');
-                        xhr.setRequestHeader('Pragma', 'no-cache');
+                        } catch (e) {}
                     }  
                 });
 
@@ -284,9 +360,8 @@ export default function ChannelsScreen() {
                 hls.attachMedia(video);
 
                 hls.on(Hls.Events.MANIFEST_PARSED, () => {
-                    
                     hideLoading();
-                    video.play().catch(err => showError('Failed to start: ' + err.message));
+                    video.play().catch(err => showError('Start failed: ' + err.message));
                 });
 
                 hls.on(Hls.Events.ERROR, (event, data) => {
@@ -295,20 +370,13 @@ export default function ChannelsScreen() {
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                // Retry network errors
-                                setTimeout(() => hls.startLoad(), 1000);
+                                setTimeout(() => hls.startLoad(), 2000);
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
                                 hls.recoverMediaError();
                                 break;
                             default:
-                                // For fatal errors, notify but don't crash
-                                console.error('Fatal HLS error:', data.type);
-                                // Trigger fallback on React side
-                                window.parent?.postMessage?.({ 
-                                    type: 'HLS_FATAL_ERROR', 
-                                    data: data 
-                                }, '*');
+                                showError('Cannot load HLS stream');
                                 break;
                         }
                     }
@@ -316,24 +384,58 @@ export default function ChannelsScreen() {
 
                 window.addEventListener('beforeunload', () => { if (hls) hls.destroy(); });
             } else {
-                showError('HLS not supported');
+                showError('HLS not supported on this device');
             }
         } else {
-            
-            video.src = streamUrl;
-            video.addEventListener('loadstart', () => { loading.style.display = 'block'; });
-            video.addEventListener('canplay', () => { 
-                hideLoading(); 
-                video.play().catch(err => showError('Failed to play: ' + err.message)); 
-            });
-            video.addEventListener('error', (e) => {
-                const errorMsg = video.error ? 'Error Code: ' + video.error.code : 'Stream error';
-                showError(errorMsg);
-            });
+            // ✅ Direct Stream or IPTV
+            // For IPTV links, use fetch with Opera headers
+            if (isIPTV) {
+                fetch(streamUrl, { 
+                    headers: setupIPTVHeaders(),
+                    mode: 'no-cors',
+                    credentials: 'omit'
+                })
+                .then(response => {
+                    // With no-cors, we can't read response details
+                    video.src = streamUrl;
+                    video.addEventListener('loadstart', () => { loading.style.display = 'block'; });
+                    video.addEventListener('canplay', () => { 
+                        hideLoading(); 
+                        video.play().catch(err => showError('Play: ' + err.message)); 
+                    });
+                    video.addEventListener('error', (e) => {
+                        showError('Stream unreachable');
+                    });
+                })
+                .catch(err => {
+                    // Fallback: Still try to play
+                    video.src = streamUrl;
+                    video.addEventListener('loadstart', () => { loading.style.display = 'block'; });
+                    video.addEventListener('canplay', () => { 
+                        hideLoading(); 
+                        video.play().catch(err => showError('Play: ' + err.message)); 
+                    });
+                    video.addEventListener('error', () => {
+                        showError('Stream unreachable');
+                    });
+                });
+            } else {
+                video.src = streamUrl;
+                video.addEventListener('loadstart', () => { loading.style.display = 'block'; });
+                video.addEventListener('canplay', () => { 
+                    hideLoading(); 
+                    video.play().catch(err => showError('Play: ' + err.message)); 
+                });
+                video.addEventListener('error', (e) => {
+                    showError(video.error ? 'Error ' + video.error.code : 'Stream error');
+                });
+            }
         }
 
         video.addEventListener('waiting', () => { loading.style.display = 'block'; });
         video.addEventListener('playing', () => { hideLoading(); });
+        video.addEventListener('pause', () => {});
+        video.addEventListener('ended', () => { showStatus('Stream ended'); });
     </script>
 </body>
 </html>
@@ -341,7 +443,7 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // YOUTUBE WEBVIEW - FIXED AUTOPLAY
+    // YOUTUBE WEBVIEW - FIXED AUTOPLAY ✅
     // ==========================================
 
     const generateYouTubeHTML = (videoId, isPlaylist = false, playlistId = null) => {
@@ -354,13 +456,52 @@ export default function ChannelsScreen() {
     <title>YouTube Player</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #000; overflow: hidden; width: 100vw; height: 100vh; }
-        #player-container { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body { background: #000; }
+        #player-container { 
+            position: relative; 
+            width: 100%; 
+            height: 100%; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+        }
         #player { width: 100%; height: 100%; }
+        #loading-yt { 
+            display: flex;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            align-items: center;
+            justify-content: center;
+            background: #000;
+            color: #fff;
+            font-size: 14px;
+            z-index: 10;
+        }
+        .spinner-yt {
+            border: 3px solid rgba(255,255,255,0.2);
+            border-top: 3px solid #fff;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        @keyframes spin { 
+            0% { transform: rotate(0deg); } 
+            100% { transform: rotate(360deg); } 
+        }
     </style>
 </head>
 <body>
     <div id="player-container">
+        <div id="loading-yt">
+            <div class="spinner-yt"></div>
+            <span>Loading YouTube...</span>
+        </div>
         <div id="player"></div>
     </div>
 
@@ -371,10 +512,9 @@ export default function ChannelsScreen() {
         firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
 
         var player;
+        const loadingDiv = document.getElementById('loading-yt');
 
         function onYouTubeIframeAPIReady() {
-            
-
             var playerVars = {
                 'autoplay': 1,
                 'controls': 1,
@@ -383,6 +523,8 @@ export default function ChannelsScreen() {
                 'fs': 1,
                 'playsinline': 1,
                 'enablejsapi': 1,
+                'html5': 1,
+                'iv_load_policy': 3,
                 'origin': window.location.origin
             };
 
@@ -397,18 +539,45 @@ export default function ChannelsScreen() {
                 playerVars: playerVars,
                 events: {
                     'onReady': onPlayerReady,
-                    'onStateChange': onPlayerStateChange
+                    'onStateChange': onPlayerStateChange,
+                    'onError': onPlayerError
                 }
             });
         }
 
         function onPlayerReady(event) {
-            
-            event.target.playVideo();
+            // ✅ Hide loading and start playback
+            loadingDiv.style.display = 'none';
+            setTimeout(() => {
+                try {
+                    event.target.playVideo();
+                } catch (e) {
+                    console.error('Play error:', e);
+                }
+            }, 100);
         }
 
         function onPlayerStateChange(event) {
+            // YT.PlayerState.UNSTARTED = -1
+            // YT.PlayerState.ENDED = 0
+            // YT.PlayerState.PLAYING = 1
+            // YT.PlayerState.PAUSED = 2
+            // YT.PlayerState.BUFFERING = 3
+            // YT.PlayerState.CUED = 5
             
+            if (event.data === 1) { // PLAYING
+                loadingDiv.style.display = 'none';
+            } else if (event.data === 3) { // BUFFERING
+                loadingDiv.style.display = 'flex';
+            }
+        }
+
+        function onPlayerError(event) {
+            console.error('YouTube Error:', event.data);
+            // 2 = Invalid video ID
+            // 5 = HTML5 player error
+            // 100 = Video not found
+            // 101/150 = Video cannot be played
         }
     </script>
 </body>
@@ -421,27 +590,16 @@ export default function ChannelsScreen() {
     // ==========================================
 
     const handleChannelPress = (channel) => {
-        // ✅ SAFE: Validate channel URL exists
         if (!channel?.url || channel.url.trim() === '') {
             Alert.alert('Invalid Channel', 'This channel has no playback URL');
             return;
         }
 
-        // Stop existing video
         if (videoRef.current) {
             videoRef.current.stopAsync().catch(() => { });
         }
 
-        // ✅ SAFE: Detect problematic streaming domains
-        const isProblematiDomain =
-            channel.url?.includes('starshare.st') ||
-            channel.url?.includes('afpanel.one');
-
-        setSelectedChannel({
-            ...channel,
-            _isProblematiDomain: isProblematiDomain
-        });
-
+        setSelectedChannel(channel);
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
@@ -475,7 +633,6 @@ export default function ChannelsScreen() {
     };
 
     const switchToWebViewPlayer = () => {
-
         setPlayerMode('webview');
         setUseWebViewPlayer(true);
         setVideoError(false);
@@ -484,7 +641,6 @@ export default function ChannelsScreen() {
     };
 
     const switchToYouTubeWebView = () => {
-
         setPlayerMode('youtube-webview');
         setVideoError(false);
         setVideoLoading(true);
@@ -509,17 +665,15 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // YOUTUBE STATE CHANGE - FIXED
+    // YOUTUBE STATE CHANGE
     // ==========================================
 
     const onYouTubeStateChange = useCallback((state) => {
-
-
         if (state === 'playing') {
-            setVideoLoading(false); // ✅ Hide loading
+            setVideoLoading(false);
             setIsPlaying(true);
             setVideoError(false);
-            setYoutubeReady(true); // ✅ Mark as ready
+            setYoutubeReady(true);
         } else if (state === 'buffering') {
             setVideoLoading(true);
         } else if (state === 'ended') {
@@ -529,10 +683,6 @@ export default function ChannelsScreen() {
                 const nextIndex = (currentPlaylistIndex + 1) % playlistVideoIds.length;
                 setCurrentPlaylistIndex(nextIndex);
                 setVideoLoading(true);
-            } else if (analysis.type === 'youtube-video' || analysis.type === 'youtube-live') {
-                if (youtubePlayerRef.current) {
-                    youtubePlayerRef.current.seekTo(0);
-                }
             }
         } else if (state === 'unstarted') {
             setVideoLoading(true);
@@ -629,7 +779,6 @@ export default function ChannelsScreen() {
                     </Text>
                 </View>
             </View>
-
             <View className="bg-gray-50 py-2">
                 <FlatList
                     data={section.data}
@@ -666,7 +815,6 @@ export default function ChannelsScreen() {
                     originWhitelist={['*']}
                     mixedContentMode="always"
                     onLoad={() => {
-
                         setVideoLoading(false);
                     }}
                     onError={(syntheticEvent) => {
@@ -680,7 +828,7 @@ export default function ChannelsScreen() {
                     <View className="absolute inset-0 items-center justify-center bg-black/90 px-6">
                         <Ionicons name="alert-circle-outline" size={50} color="#ef4444" />
                         <Text className="text-white text-center mt-3 text-base font-semibold">
-                            WebView Player Failed
+                            Player Failed
                         </Text>
                     </View>
                 )}
@@ -722,9 +870,8 @@ export default function ChannelsScreen() {
                     allowsFullscreenVideo={true}
                     originWhitelist={['*']}
                     onLoad={() => {
-
                         setVideoLoading(false);
-                        setYoutubeReady(true); // ✅ Mark ready
+                        setYoutubeReady(true);
                     }}
                     onError={(syntheticEvent) => {
                         const { nativeEvent } = syntheticEvent;
@@ -739,7 +886,6 @@ export default function ChannelsScreen() {
 
     const renderStreamPlayer = () => {
         const streamUrl = selectedChannel.url;
-        const isProblematiDomain = selectedChannel?._isProblematiDomain;
 
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
@@ -749,14 +895,6 @@ export default function ChannelsScreen() {
                         <Text className="text-white text-center mt-4 text-lg font-semibold">
                             Stream Failed
                         </Text>
-
-                        {/* ✅ SAFE: Show specific message for problematic domains */}
-                        {isProblematiDomain && (
-                            <Text className="text-gray-300 text-xs text-center mt-1 px-4">
-                                Known issue with this provider
-                            </Text>
-                        )}
-
                         <Text className="text-gray-400 text-xs text-center mt-2 px-4">
                             {errorMessage || 'Unable to load stream'}
                         </Text>
@@ -785,24 +923,17 @@ export default function ChannelsScreen() {
                                 <Text className="text-white font-semibold text-sm">Retry</Text>
                             </TouchableOpacity>
 
-                            {/* ✅ SAFE: Auto-switch for problematic domains */}
                             <TouchableOpacity
-                                onPress={() => {
-                                    if (isProblematiDomain) {
-
-                                    }
-                                    switchToWebViewPlayer();
-                                }}
-                                className={isProblematiDomain ? "bg-blue-600 px-5 py-2.5 rounded-lg" : "bg-blue-600 px-5 py-2.5 rounded-lg"}
+                                onPress={() => switchToWebViewPlayer()}
+                                className="bg-blue-600 px-5 py-2.5 rounded-lg"
                             >
                                 <Text className="text-white font-semibold text-sm">
-                                    {isProblematiDomain ? '🌐 Browser Player' : 'Browser Player'}
+                                    🌐 Browser Player
                                 </Text>
                             </TouchableOpacity>
                         </View>
                     </View>
                 ) : (
-                    // Rest of your Video component stays unchanged
                     <Video
                         ref={videoRef}
                         source={{ uri: streamUrl }}
@@ -843,11 +974,6 @@ export default function ChannelsScreen() {
                                 setIsPlaying(status.isPlaying);
                             }
                         }}
-                        onBuffer={({ isBuffering }) => {
-                            if (isBuffering) {
-                                // Buffering logic
-                            }
-                        }}
                     />
                 )}
             </View>
@@ -874,24 +1000,23 @@ export default function ChannelsScreen() {
                     ref={youtubePlayerRef}
                     height={260}
                     videoId={videoId}
-                    play={isPlaying} // ✅ FIX: Use state instead of hardcoded true
-                    forceAndroidAutoplay={true} // ✅ FIX: Force autoplay on Android
+                    play={isPlaying}
+                    forceAndroidAutoplay={true}
                     onError={(error) => {
                         console.error('❌ YouTube Error:', error);
                         switchToYouTubeWebView();
                     }}
                     onReady={() => {
-
                         setVideoError(false);
-                        setVideoLoading(false); // ✅ FIX: Hide loading immediately
-                        setYoutubeReady(true); // ✅ FIX: Mark as ready
+                        setVideoLoading(false);
+                        setYoutubeReady(true);
                     }}
                     onChangeState={onYouTubeStateChange}
                     initialPlayerParams={{
                         controls: true,
                         modestbranding: true,
                         rel: false,
-                        loop: true, // ✅ FIX: Enable looping
+                        loop: true,
                         fs: 1,
                         playsinline: 1,
                         playlist: videoId,
@@ -900,6 +1025,7 @@ export default function ChannelsScreen() {
                         androidLayerType: Platform.OS === 'android' ? 'hardware' : undefined,
                         allowsFullscreenVideo: true,
                         javaScriptEnabled: true,
+                        mediaPlaybackRequiresUserAction: false,
                     }}
                 />
             </View>
@@ -926,17 +1052,16 @@ export default function ChannelsScreen() {
                     ref={youtubePlayerRef}
                     height={260}
                     videoId={videoId}
-                    play={isPlaying} // ✅ FIX
-                    forceAndroidAutoplay={true} // ✅ FIX
+                    play={isPlaying}
+                    forceAndroidAutoplay={true}
                     onError={(error) => {
                         console.error('❌ YouTube Live Error:', error);
                         switchToYouTubeWebView();
                     }}
                     onReady={() => {
-
                         setVideoError(false);
-                        setVideoLoading(false); // ✅ FIX
-                        setYoutubeReady(true); // ✅ FIX
+                        setVideoLoading(false);
+                        setYoutubeReady(true);
                     }}
                     onChangeState={onYouTubeStateChange}
                     initialPlayerParams={{
@@ -950,6 +1075,7 @@ export default function ChannelsScreen() {
                         androidLayerType: Platform.OS === 'android' ? 'hardware' : undefined,
                         allowsFullscreenVideo: true,
                         javaScriptEnabled: true,
+                        mediaPlaybackRequiresUserAction: false,
                     }}
                 />
             </View>
@@ -982,17 +1108,16 @@ export default function ChannelsScreen() {
                     height={260}
                     videoId={currentVideoId || ''}
                     playList={playlistId}
-                    play={isPlaying} // ✅ FIX
-                    forceAndroidAutoplay={true} // ✅ FIX
+                    play={isPlaying}
+                    forceAndroidAutoplay={true}
                     onError={(error) => {
                         console.error('❌ YouTube Playlist Error:', error);
                         switchToYouTubeWebView();
                     }}
                     onReady={() => {
-
                         setVideoError(false);
-                        setVideoLoading(false); // ✅ FIX
-                        setYoutubeReady(true); // ✅ FIX
+                        setVideoLoading(false);
+                        setYoutubeReady(true);
                     }}
                     onChangeState={onYouTubeStateChange}
                     initialPlayerParams={{
@@ -1009,6 +1134,7 @@ export default function ChannelsScreen() {
                         androidLayerType: Platform.OS === 'android' ? 'hardware' : undefined,
                         allowsFullscreenVideo: true,
                         javaScriptEnabled: true,
+                        mediaPlaybackRequiresUserAction: false,
                     }}
                 />
                 {playlistVideoIds.length > 0 && (
@@ -1302,7 +1428,7 @@ export default function ChannelsScreen() {
                     <ScrollView className="flex-1" showsVerticalScrollIndicator={false}>
                         <View className="relative">
                             {renderPlayerContent()}
-                            {videoLoading && !videoError && !webViewError && !youtubeReady && ( // ✅ FIX: Hide if YouTube ready
+                            {videoLoading && !videoError && !webViewError && !youtubeReady && (
                                 <View className="absolute inset-0 items-center justify-center bg-black/70 z-10" style={{ height: 260 }}>
                                     <ActivityIndicator size="large" color="#f97316" />
                                     <Text className="text-white mt-3 text-sm">
