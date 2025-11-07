@@ -50,11 +50,25 @@ if __name__ == "__main__":
     # Define the files you want to search for
     files_to_find = [
         'auth.routes.js',
-        'AuthContext.jsx',
-        'Login.jsx',
-        'Register.jsx',
-        'User.js',
+        'categories.routes.js',
+        'channels.routes.js',
+        'credit.routes.js',
+        'customer.routes.js',
+        'dashboard.routes.js',
+        'distributors.routes.js',
+        'ott.routes.js',
+        'packages.routes.js',
         'profile.routes.js',
+        'resellers.routes.js',
+        'subscribers.routes.js',
+
+        'Category.js',
+        'Channel.js',
+        'Credit.js',
+        'Ott.js',
+        'Package.js',
+        'Subscriber.js',
+        'User.js',
     ]
     
     # Start the search from current directory

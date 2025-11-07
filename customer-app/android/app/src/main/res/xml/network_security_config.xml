@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <network-security-config>
-    <!-- Allow cleartext for all streaming domains and IPs -->
     <domain-config cleartextTrafficPermitted="true">
+        <!-- Explicit problematic domains -->
+        <domain includeSubdomains="true">starshare.st</domain>
+        <domain includeSubdomains="true">afpanel.one</domain>
+        
         <!-- IP-based streams -->
         <domain includeSubdomains="true">103.175.73.12</domain>
         <domain includeSubdomains="true">210.89.51.165</domain>
@@ -14,8 +17,10 @@
         <domain includeSubdomains="true">*.mp4</domain>
         <domain includeSubdomains="true">localhost</domain>
         <domain includeSubdomains="true">127.0.0.1</domain>
-
-        <!-- Add wildcard for any domain starting with numbers (IP addresses) -->
+    </domain-config>
+    
+    <!-- Trust all certificates for streaming (use cautiously) -->
+    <domain-config cleartextTrafficPermitted="true">
         <domain includeSubdomains="true">*</domain>
     </domain-config>
 </network-security-config>

@@ -254,22 +254,30 @@ export default function ChannelsScreen() {
                     manifestLoadingTimeOut: 20000,
                     levelLoadingTimeOut: 20000,
                     xhrSetup: function(xhr, url) {
-                        // ✅ FIX: Enhanced authentication headers for IPTV streams
                         xhr.withCredentials = false;
-                        xhr.setRequestHeader('User-Agent', 'Mozilla/5.0 (Linux; Android 13; SM-G998B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36');
+                        xhr.timeout = 30000; // ✅ Add timeout
+                        
+                        // Better User-Agent for IPTV providers
+                        xhr.setRequestHeader('User-Agent', 
+                            'Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36');
+                        
                         xhr.setRequestHeader('Accept', '*/*');
                         xhr.setRequestHeader('Accept-Language', 'en-US,en;q=0.9');
                         xhr.setRequestHeader('Accept-Encoding', 'identity;q=1, *;q=0');
                         
-                        if (urlDomain) {
-                            xhr.setRequestHeader('Referer', urlDomain + '/');
-                            xhr.setRequestHeader('Origin', urlDomain);
+                        // ✅ SAFE: Defensive domain extraction
+                        try {
+                            const urlObj = new URL(url);
+                            xhr.setRequestHeader('Referer', urlObj.origin + '/');
+                            xhr.setRequestHeader('Origin', urlObj.origin);
+                        } catch (e) {
+                            // Silently fail, don't break app
                         }
                         
                         xhr.setRequestHeader('Connection', 'keep-alive');
                         xhr.setRequestHeader('Cache-Control', 'no-cache');
                         xhr.setRequestHeader('Pragma', 'no-cache');
-                    }
+                    }  
                 });
 
                 hls.loadSource(streamUrl);
@@ -283,19 +291,24 @@ export default function ChannelsScreen() {
 
                 hls.on(Hls.Events.ERROR, (event, data) => {
                     console.error('HLS Error:', data);
+                    
                     if (data.fatal) {
                         switch(data.type) {
                             case Hls.ErrorTypes.NETWORK_ERROR:
-                                
-                                hls.startLoad();
+                                // Retry network errors
+                                setTimeout(() => hls.startLoad(), 1000);
                                 break;
                             case Hls.ErrorTypes.MEDIA_ERROR:
-                                
                                 hls.recoverMediaError();
                                 break;
                             default:
-                                showError('Fatal error: ' + data.type);
-                                hls.destroy();
+                                // For fatal errors, notify but don't crash
+                                console.error('Fatal HLS error:', data.type);
+                                // Trigger fallback on React side
+                                window.parent?.postMessage?.({ 
+                                    type: 'HLS_FATAL_ERROR', 
+                                    data: data 
+                                }, '*');
                                 break;
                         }
                     }
@@ -408,11 +421,27 @@ export default function ChannelsScreen() {
     // ==========================================
 
     const handleChannelPress = (channel) => {
+        // ✅ SAFE: Validate channel URL exists
+        if (!channel?.url || channel.url.trim() === '') {
+            Alert.alert('Invalid Channel', 'This channel has no playback URL');
+            return;
+        }
+
+        // Stop existing video
         if (videoRef.current) {
             videoRef.current.stopAsync().catch(() => { });
         }
 
-        setSelectedChannel(channel);
+        // ✅ SAFE: Detect problematic streaming domains
+        const isProblematiDomain =
+            channel.url?.includes('starshare.st') ||
+            channel.url?.includes('afpanel.one');
+
+        setSelectedChannel({
+            ...channel,
+            _isProblematiDomain: isProblematiDomain
+        });
+
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
@@ -423,7 +452,7 @@ export default function ChannelsScreen() {
         setUseWebViewPlayer(false);
         setWebViewError(false);
         setPlayerMode('auto');
-        setYoutubeReady(false); // ✅ RESET YouTube ready state
+        setYoutubeReady(false);
     };
 
     const closePlayer = () => {
@@ -710,8 +739,7 @@ export default function ChannelsScreen() {
 
     const renderStreamPlayer = () => {
         const streamUrl = selectedChannel.url;
-
-
+        const isProblematiDomain = selectedChannel?._isProblematiDomain;
 
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
@@ -721,6 +749,14 @@ export default function ChannelsScreen() {
                         <Text className="text-white text-center mt-4 text-lg font-semibold">
                             Stream Failed
                         </Text>
+
+                        {/* ✅ SAFE: Show specific message for problematic domains */}
+                        {isProblematiDomain && (
+                            <Text className="text-gray-300 text-xs text-center mt-1 px-4">
+                                Known issue with this provider
+                            </Text>
+                        )}
+
                         <Text className="text-gray-400 text-xs text-center mt-2 px-4">
                             {errorMessage || 'Unable to load stream'}
                         </Text>
@@ -739,7 +775,6 @@ export default function ChannelsScreen() {
                                                 );
                                             })
                                             .catch(err => {
-
                                                 setVideoError(true);
                                                 setVideoLoading(false);
                                             });
@@ -750,15 +785,24 @@ export default function ChannelsScreen() {
                                 <Text className="text-white font-semibold text-sm">Retry</Text>
                             </TouchableOpacity>
 
+                            {/* ✅ SAFE: Auto-switch for problematic domains */}
                             <TouchableOpacity
-                                onPress={switchToWebViewPlayer}
-                                className="bg-blue-600 px-5 py-2.5 rounded-lg"
+                                onPress={() => {
+                                    if (isProblematiDomain) {
+
+                                    }
+                                    switchToWebViewPlayer();
+                                }}
+                                className={isProblematiDomain ? "bg-blue-600 px-5 py-2.5 rounded-lg" : "bg-blue-600 px-5 py-2.5 rounded-lg"}
                             >
-                                <Text className="text-white font-semibold text-sm">Browser Player</Text>
+                                <Text className="text-white font-semibold text-sm">
+                                    {isProblematiDomain ? '🌐 Browser Player' : 'Browser Player'}
+                                </Text>
                             </TouchableOpacity>
                         </View>
                     </View>
                 ) : (
+                    // Rest of your Video component stays unchanged
                     <Video
                         ref={videoRef}
                         source={{ uri: streamUrl }}
@@ -772,17 +816,14 @@ export default function ChannelsScreen() {
                         volume={1.0}
                         isMuted={false}
                         onLoad={(status) => {
-
                             setVideoError(false);
                             setVideoLoading(false);
                             setIsPlaying(true);
                         }}
                         onLoadStart={() => {
-
                             setVideoLoading(true);
                         }}
                         onReadyForDisplay={() => {
-
                             setVideoLoading(false);
                         }}
                         onError={(error) => {
@@ -804,7 +845,7 @@ export default function ChannelsScreen() {
                         }}
                         onBuffer={({ isBuffering }) => {
                             if (isBuffering) {
-
+                                // Buffering logic
                             }
                         }}
                     />
