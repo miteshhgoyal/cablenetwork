@@ -1,4 +1,3 @@
-// frontend/src/pages/distributors/Distributors.jsx
 import React, { useState, useEffect } from "react";
 import api from "../services/api.js";
 import {
@@ -12,6 +11,7 @@ import {
   Filter,
   Eye,
   EyeOff,
+  AlertCircle,
 } from "lucide-react";
 
 const Distributors = () => {
@@ -30,10 +30,13 @@ const Distributors = () => {
     email: "",
     password: "",
     phone: "",
-    partnerCode: "",
     status: "Active",
+    balance: "",
   });
+  const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const MIN_BALANCE = 10000;
 
   useEffect(() => {
     fetchDistributors();
@@ -56,6 +59,7 @@ const Distributors = () => {
 
   const handleOpenModal = (mode, distributor = null) => {
     setModalMode(mode);
+    setBalanceError("");
     if (mode === "edit" && distributor) {
       setSelectedDistributor(distributor);
       setFormData({
@@ -63,8 +67,8 @@ const Distributors = () => {
         email: distributor.email,
         password: "",
         phone: distributor.phone,
-        partnerCode: distributor.partnerCode || "",
         status: distributor.status,
+        balance: distributor.balance || "",
       });
     } else {
       setFormData({
@@ -72,8 +76,8 @@ const Distributors = () => {
         email: "",
         password: "",
         phone: "",
-        partnerCode: "",
         status: "Active",
+        balance: "",
       });
     }
     setShowModal(true);
@@ -83,22 +87,56 @@ const Distributors = () => {
     setShowModal(false);
     setSelectedDistributor(null);
     setShowPassword(false);
+    setBalanceError("");
     setFormData({
       name: "",
       email: "",
       password: "",
       phone: "",
-      partnerCode: "",
       status: "Active",
+      balance: "",
     });
+  };
+
+  const validateBalance = (amount) => {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount < MIN_BALANCE) {
+      setBalanceError(
+        `Balance amount cannot be less than ₹${MIN_BALANCE.toLocaleString(
+          "en-IN"
+        )}`
+      );
+      return false;
+    }
+    setBalanceError("");
+    return true;
+  };
+
+  const handleBalanceChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, balance: value });
+    if (value) {
+      validateBalance(value);
+    } else {
+      setBalanceError("");
+    }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate balance before submission
+    if (!formData.balance || !validateBalance(formData.balance)) {
+      return;
+    }
+
     setSubmitting(true);
 
     try {
-      const submitData = { ...formData };
+      const submitData = {
+        ...formData,
+        balance: parseFloat(formData.balance),
+      };
 
       // Remove password if empty during edit
       if (modalMode === "edit" && !submitData.password) {
@@ -140,8 +178,7 @@ const Distributors = () => {
     return (
       distributor.name.toLowerCase().includes(searchLower) ||
       distributor.email.toLowerCase().includes(searchLower) ||
-      distributor.phone.toLowerCase().includes(searchLower) ||
-      distributor.partnerCode?.toLowerCase().includes(searchLower)
+      distributor.phone.toLowerCase().includes(searchLower)
     );
   });
 
@@ -192,7 +229,7 @@ const Distributors = () => {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, email, phone, or partner code..."
+              placeholder="Search by name, email, or phone..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -247,6 +284,9 @@ const Distributors = () => {
                       S.No
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Serial Number
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Name
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -259,6 +299,9 @@ const Distributors = () => {
                       Phone
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Balance
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -269,7 +312,7 @@ const Distributors = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredDistributors.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td colSpan="9" className="px-6 py-12 text-center">
                         <p className="text-gray-500">No distributors found</p>
                       </td>
                     </tr>
@@ -281,6 +324,11 @@ const Distributors = () => {
                       >
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {index + 1}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          <span className="font-mono text-blue-600 font-semibold">
+                            {distributor.serialNumber || "N/A"}
+                          </span>
                         </td>
                         <td className="px-6 py-4 text-sm font-medium text-gray-900">
                           {distributor.name}
@@ -295,6 +343,11 @@ const Distributors = () => {
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {distributor.phone}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900 font-medium">
+                          ₹
+                          {distributor.balance?.toLocaleString("en-IN") ||
+                            "0"}
                         </td>
                         <td className="px-6 py-4 text-sm">
                           <span
@@ -444,25 +497,6 @@ const Distributors = () => {
                   />
                 </div>
 
-                {/* Partner Code */}
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Partner Code
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.partnerCode}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        partnerCode: e.target.value,
-                      })
-                    }
-                    placeholder="Enter partner code"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  />
-                </div>
-
                 {/* Status */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -480,12 +514,41 @@ const Distributors = () => {
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
+
+                {/* Balance Amount */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Balance Amount (₹) *
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.balance}
+                    onChange={handleBalanceChange}
+                    placeholder="Enter balance amount"
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent ${
+                      balanceError
+                        ? "border-red-300 focus:ring-red-500"
+                        : "border-gray-200 focus:ring-blue-500"
+                    }`}
+                    required
+                    min="10000"
+                    step="100"
+                  />
+                  {balanceError && (
+                    <div className="mt-2 flex items-center space-x-2 text-red-600">
+                      <AlertCircle className="w-4 h-4" />
+                      <span className="text-sm font-medium">
+                        {balanceError}
+                      </span>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || balanceError}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
                 >
                   {submitting

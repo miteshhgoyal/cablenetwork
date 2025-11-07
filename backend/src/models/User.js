@@ -42,9 +42,17 @@ const userSchema = new mongoose.Schema({
     resetPasswordToken: String,
     resetPasswordExpires: Date,
 
-    // Last login timestamp - ADD THIS
+    // Last login timestamp
     lastLogin: {
         type: Date
+    },
+
+    // Distributor fields
+    serialNumber: {
+        type: Number,
+        sparse: true, // Only enforce uniqueness if field exists
+        min: 100000,
+        max: 999999
     },
 
     // Reseller fields
@@ -66,7 +74,6 @@ const userSchema = new mongoose.Schema({
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        // Don't require it by default - let application logic handle it
     },
 
 }, {
@@ -77,6 +84,7 @@ const userSchema = new mongoose.Schema({
 userSchema.index({ email: 1 });
 userSchema.index({ role: 1 });
 userSchema.index({ status: 1 });
+userSchema.index({ serialNumber: 1 }, { sparse: true }); // NEW: Index for serial number
 
 // Hide sensitive fields from JSON
 userSchema.set('toJSON', {
@@ -85,6 +93,46 @@ userSchema.set('toJSON', {
         delete ret.resetPasswordToken;
         delete ret.resetPasswordExpires;
         return ret;
+    }
+});
+
+// NEW: Function to generate unique 6-digit serial number for distributors
+async function generateUniqueSerialNumber() {
+    const maxAttempts = 10; // Prevent infinite loops
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        // Generate random 6-digit number (100000 to 999999)
+        const serialNumber = Math.floor(100000 + Math.random() * 900000);
+
+        // Check if this serial number already exists for distributors
+        const exists = await mongoose.model('User').findOne({
+            serialNumber: serialNumber,
+            role: 'distributor'
+        });
+
+        if (!exists) {
+            return serialNumber;
+        }
+    }
+
+    // Fallback: Use timestamp-based approach if random fails
+    const timestamp = Date.now();
+    const lastSixDigits = parseInt(timestamp.toString().slice(-6));
+    return lastSixDigits;
+}
+
+// NEW: Pre-save hook to auto-generate serial number for distributors
+userSchema.pre('save', async function (next) {
+    try {
+        // Only generate serial number for NEW distributor documents
+        if (this.isNew && this.role === 'distributor' && !this.serialNumber) {
+            this.serialNumber = await generateUniqueSerialNumber();
+        }
+
+        next();
+    } catch (error) {
+        console.error('❌ Error generating serial number:', error);
+        next(error);
     }
 });
 

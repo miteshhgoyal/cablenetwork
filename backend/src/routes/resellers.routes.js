@@ -39,10 +39,12 @@ router.get('/', authenticateToken, async (req, res) => {
             ];
         }
 
+
         // Add status filter
         if (status) {
             query.status = status;
         }
+
 
         const resellers = await User.find(query)
             .populate('packages', 'name cost duration')
@@ -50,10 +52,12 @@ router.get('/', authenticateToken, async (req, res) => {
             .select('-password')
             .sort({ createdAt: -1 });
 
+
         res.json({
             success: true,
             data: { resellers }
         });
+
 
     } catch (error) {
         console.error('Get resellers error:', error);
@@ -71,10 +75,12 @@ router.get('/packages', authenticateToken, async (req, res) => {
             .select('name cost duration')
             .sort({ name: 1 });
 
+
         res.json({
             success: true,
             data: { packages }
         });
+
 
     } catch (error) {
         console.error('Get packages error:', error);
@@ -91,6 +97,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
+
         const reseller = await User.findOne({
             _id: req.params.id,
             role: 'reseller'
@@ -99,12 +106,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
             .populate('createdBy', 'name email status')
             .select('-password');
 
+
         if (!reseller) {
             return res.status(404).json({
                 success: false,
                 message: 'Reseller not found'
             });
         }
+
 
         // Check access permissions
         if (currentUser.role === 'distributor' &&
@@ -115,10 +124,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
         res.json({
             success: true,
             data: { reseller }
         });
+
 
     } catch (error) {
         console.error('Get reseller error:', error);
@@ -135,6 +146,7 @@ router.post('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
+
         // Only admin and distributor can create resellers
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
@@ -143,13 +155,15 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // NEW: Check if distributor is Active (if current user is distributor)
+
+        // Check if distributor is Active (if current user is distributor)
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
             return res.status(403).json({
                 success: false,
                 message: 'Your account is inactive. Cannot create resellers.'
             });
         }
+
 
         const {
             name,
@@ -159,8 +173,10 @@ router.post('/', authenticateToken, async (req, res) => {
             subscriberLimit,
             partnerCode,
             packages,
-            status
+            status,
+            balance
         } = req.body;
+
 
         // Validation
         if (!name || !email || !password || !phone) {
@@ -170,12 +186,14 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
         if (password.length < 6) {
             return res.status(400).json({
                 success: false,
                 message: 'Password must be at least 6 characters'
             });
         }
+
 
         // Check if email already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -185,6 +203,25 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Email already exists'
             });
         }
+
+
+        // Validate balance - Minimum ₹1,000
+        if (!balance) {
+            return res.status(400).json({
+                success: false,
+                message: 'Balance amount is required'
+            });
+        }
+
+
+        const initialBalance = parseFloat(balance);
+        if (isNaN(initialBalance) || initialBalance < 1000) {
+            return res.status(400).json({
+                success: false,
+                message: 'Minimum balance must be ₹1,000 or more'
+            });
+        }
+
 
         // Create reseller
         const reseller = new User({
@@ -198,14 +235,17 @@ router.post('/', authenticateToken, async (req, res) => {
             packages: packages || [],
             status: status || 'Active',
             createdBy: userId,
-            balance: 0
+            balance: initialBalance
         });
 
+
         await reseller.save();
+
 
         // Populate before sending
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
+
 
         res.status(201).json({
             success: true,
@@ -213,8 +253,10 @@ router.post('/', authenticateToken, async (req, res) => {
             data: { reseller: reseller.toJSON() }
         });
 
+
     } catch (error) {
         console.error('Create reseller error:', error);
+
 
         if (error.code === 11000) {
             return res.status(400).json({
@@ -222,6 +264,7 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Email already exists'
             });
         }
+
 
         res.status(500).json({
             success: false,
@@ -257,7 +300,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // NEW: Check if distributor is Active (if current user is distributor)
+        // Check if distributor is Active (if current user is distributor)
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
             return res.status(403).json({
                 success: false,
@@ -273,7 +316,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
             subscriberLimit,
             partnerCode,
             packages,
-            status
+            status,
+            balance 
         } = req.body;
 
         // Validation
@@ -299,6 +343,18 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
+        // Validate balance if provided (optional in edit mode)
+        if (balance !== undefined && balance !== null && balance !== '') {
+            const numBalance = parseFloat(balance);
+            if (isNaN(numBalance) || numBalance < 1000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Balance amount cannot be less than ₹1,000'
+                });
+            }
+            reseller.balance = numBalance; 
+        }
+
         // Update fields
         reseller.name = name.trim();
         reseller.email = email.toLowerCase().trim();
@@ -307,7 +363,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         reseller.partnerCode = partnerCode?.trim() || '';
         reseller.packages = packages || [];
 
-        // NEW: Validate status
+        // Validate status
         if (status && ['Active', 'Inactive'].includes(status)) {
             reseller.status = status;
         }
@@ -361,6 +417,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
         // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
@@ -370,7 +427,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // NEW: Check if distributor is Active (if current user is distributor)
+
+        // Check if distributor is Active (if current user is distributor)
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
             return res.status(403).json({
                 success: false,
@@ -384,6 +442,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             success: true,
             message: 'Reseller deleted successfully'
         });
+
 
     } catch (error) {
         console.error('Delete reseller error:', error);

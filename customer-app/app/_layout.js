@@ -18,14 +18,6 @@ function MainLayout() {
         const inAuthGroup = segments[0] === '(auth)';
         const inTabsGroup = segments[0] === '(tabs)';
 
-        console.log('Navigation State:', {
-            isAuthenticated,
-            inAuthGroup,
-            inTabsGroup,
-            segments,
-            loading
-        });
-
         // Redirect authenticated users from auth screens to tabs
         if (isAuthenticated && inAuthGroup) {
             router.replace('/(tabs)');

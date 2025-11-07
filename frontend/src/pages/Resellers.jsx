@@ -13,6 +13,7 @@ import {
   Filter,
   Eye,
   EyeOff,
+  AlertCircle,
 } from "lucide-react";
 
 const Resellers = () => {
@@ -37,8 +38,12 @@ const Resellers = () => {
     partnerCode: "",
     packages: [],
     status: "Active",
+    balance: "",
   });
+  const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  const MIN_BALANCE = 1000;
 
   useEffect(() => {
     fetchResellers();
@@ -69,19 +74,45 @@ const Resellers = () => {
     }
   };
 
+  const validateBalance = (amount) => {
+    const numAmount = parseFloat(amount);
+    if (isNaN(numAmount) || numAmount < MIN_BALANCE) {
+      setBalanceError(
+        `Balance amount cannot be less than ₹${MIN_BALANCE.toLocaleString(
+          "en-IN"
+        )}`
+      );
+      return false;
+    }
+    setBalanceError("");
+    return true;
+  };
+
+  const handleBalanceChange = (e) => {
+    const value = e.target.value;
+    setFormData({ ...formData, balance: value });
+    if (value) {
+      validateBalance(value);
+    } else {
+      setBalanceError("");
+    }
+  };
+
   const handleOpenModal = (mode, reseller = null) => {
     setModalMode(mode);
+    setBalanceError("");
     if (mode === "edit" && reseller) {
       setSelectedReseller(reseller);
       setFormData({
         name: reseller.name,
         email: reseller.email,
-        password: "", // Don't show password
+        password: "",
         phone: reseller.phone,
         subscriberLimit: reseller.subscriberLimit || "",
         partnerCode: reseller.partnerCode || "",
         packages: reseller.packages?.map((p) => p._id) || [],
         status: reseller.status,
+        balance: reseller.balance ? reseller.balance.toString() : "",
       });
     } else {
       setFormData({
@@ -93,6 +124,7 @@ const Resellers = () => {
         partnerCode: "",
         packages: [],
         status: "Active",
+        balance: "",
       });
     }
     setShowModal(true);
@@ -102,6 +134,7 @@ const Resellers = () => {
     setShowModal(false);
     setSelectedReseller(null);
     setShowPassword(false);
+    setBalanceError("");
     setFormData({
       name: "",
       email: "",
@@ -111,15 +144,29 @@ const Resellers = () => {
       partnerCode: "",
       packages: [],
       status: "Active",
+      balance: "",
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Validate balance before submission (only for create mode)
+    if (modalMode === "create") {
+      if (!formData.balance || !validateBalance(formData.balance)) {
+        return;
+      }
+    }
+
     setSubmitting(true);
 
     try {
       const submitData = { ...formData };
+
+      // Convert balance to number if present
+      if (submitData.balance) {
+        submitData.balance = parseFloat(submitData.balance);
+      }
 
       // Remove password if empty during edit
       if (modalMode === "edit" && !submitData.password) {
@@ -275,6 +322,9 @@ const Resellers = () => {
                       Phone
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Balance
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Created By
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -288,7 +338,7 @@ const Resellers = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredResellers.length === 0 ? (
                     <tr>
-                      <td colSpan="7" className="px-6 py-12 text-center">
+                      <td colSpan="8" className="px-6 py-12 text-center">
                         <p className="text-gray-500">No resellers found</p>
                       </td>
                     </tr>
@@ -309,6 +359,9 @@ const Resellers = () => {
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {reseller.phone}
+                        </td>
+                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">
+                          ₹{reseller.balance?.toLocaleString("en-IN") || "0"}
                         </td>
                         <td className="px-6 py-4 text-sm">
                           <div className="flex flex-col space-y-1">
@@ -464,6 +517,31 @@ const Resellers = () => {
                   />
                 </div>
 
+                {/* Balance Amount */}
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Balance Amount (₹) {modalMode === "create" ? "*" : ""}
+                  </label>
+                  <input
+                    type="number"
+                    value={formData.balance}
+                    onChange={handleBalanceChange}
+                    placeholder="Enter balance amount"
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      balanceError ? "border-red-300" : "border-gray-200"
+                    }`}
+                    min="0"
+                    step="0.01"
+                    required={modalMode === "create"}
+                  />
+                  {balanceError && (
+                    <div className="flex items-center mt-2">
+                      <AlertCircle className="w-4 h-4 text-red-600 mr-2" />
+                      <p className="text-xs text-red-600">{balanceError}</p>
+                    </div>
+                  )}
+                </div>
+
                 {/* Subscriber Limit */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -553,7 +631,7 @@ const Resellers = () => {
               <div className="flex items-center space-x-3 pt-4">
                 <button
                   type="submit"
-                  disabled={submitting}
+                  disabled={submitting || !!balanceError}
                   className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
                 >
                   {submitting

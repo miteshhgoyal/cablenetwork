@@ -182,4 +182,153 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// Add this route AFTER the login route
+router.get('/refresh-channels', async (req, res) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'No token provided'
+            });
+        }
+
+        // Verify token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+        // Find subscriber
+        const subscriber = await Subscriber.findById(decoded.id);
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check expiry
+        if (new Date() > new Date(subscriber.expiryDate)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Subscription expired'
+            });
+        }
+
+        // Find reseller to get latest packages
+        const reseller = await User.findById(subscriber.resellerId).populate('packages');
+
+        if (!reseller) {
+            return res.status(404).json({
+                success: false,
+                message: 'Reseller not found'
+            });
+        }
+
+        // Update subscriber packages with latest from reseller
+        const mergedPackages = [
+            ...new Map(
+                [
+                    ...subscriber.packages,
+                    ...reseller.packages.map(pkg => pkg._id)
+                ].map(id => [id.toString(), id])
+            ).values()
+        ];
+
+        subscriber.packages = mergedPackages;
+        await subscriber.save();
+
+        // Populate ALL packages and their channels
+        await subscriber.populate({
+            path: 'packages',
+            select: 'name cost duration channels',
+            populate: {
+                path: 'channels',
+                populate: [
+                    { path: 'language', select: 'name' },
+                    { path: 'genre', select: 'name' }
+                ]
+            }
+        });
+
+        // Build channels map with package tracking
+        const channelMap = new Map();
+        const packagesList = [];
+
+        subscriber.packages.forEach(pkg => {
+            packagesList.push({
+                _id: pkg._id,
+                name: pkg.name,
+                cost: pkg.cost,
+                duration: pkg.duration,
+                channelCount: pkg.channels?.length || 0
+            });
+
+            if (pkg.channels && Array.isArray(pkg.channels)) {
+                pkg.channels.forEach(channel => {
+                    if (channel._id) {
+                        const channelId = channel._id.toString();
+
+                        if (channelMap.has(channelId)) {
+                            const existing = channelMap.get(channelId);
+                            if (!existing.packageNames.includes(pkg.name)) {
+                                existing.packageNames.push(pkg.name);
+                            }
+                        } else {
+                            channelMap.set(channelId, {
+                                _id: channel._id,
+                                name: channel.name,
+                                lcn: channel.lcn,
+                                imageUrl: channel.imageUrl,
+                                url: channel.url,
+                                genre: channel.genre,
+                                language: channel.language,
+                                packageNames: [pkg.name]
+                            });
+                        }
+                    }
+                });
+            }
+        });
+
+        const channels = Array.from(channelMap.values());
+
+        // Get primary package info
+        await subscriber.populate({
+            path: 'primaryPackageId',
+            select: 'name'
+        });
+
+        res.json({
+            success: true,
+            data: {
+                subscriber: {
+                    name: subscriber.subscriberName,
+                    expiryDate: subscriber.expiryDate,
+                    packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
+                    totalPackages: subscriber.packages.length,
+                    totalChannels: channels.length
+                },
+                channels,
+                packagesList
+            }
+        });
+
+    } catch (error) {
+        console.error('Refresh channels error:', error);
+
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid token'
+            });
+        }
+
+        res.status(500).json({
+            success: false,
+            message: 'Failed to refresh channels'
+        });
+    }
+});
+
 export default router;

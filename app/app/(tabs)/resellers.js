@@ -22,9 +22,11 @@ import {
     Filter,
     Eye,
     EyeOff,
+    AlertCircle,
 } from 'lucide-react-native';
 import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
 
 
 const Resellers = () => {
@@ -49,8 +51,13 @@ const Resellers = () => {
         partnerCode: '',
         packages: [],
         status: 'Active',
+        balance: '',
     });
+    const [balanceError, setBalanceError] = useState('');
     const [submitting, setSubmitting] = useState(false);
+
+    const MIN_BALANCE = 1000;
+
 
 
     useEffect(() => {
@@ -59,12 +66,12 @@ const Resellers = () => {
     }, [statusFilter]);
 
 
+
     const fetchResellers = async () => {
         try {
             setLoading(true);
             const params = new URLSearchParams();
             if (statusFilter) params.append('status', statusFilter);
-
 
             const response = await api.get(`/resellers?${params.toString()}`);
             setResellers(response.data.data.resellers);
@@ -78,6 +85,7 @@ const Resellers = () => {
     };
 
 
+
     const fetchPackages = async () => {
         try {
             const response = await api.get('/resellers/packages');
@@ -88,14 +96,38 @@ const Resellers = () => {
     };
 
 
+
     const onRefresh = () => {
         setRefreshing(true);
         fetchResellers();
     };
 
 
+
+    const validateBalance = (amount) => {
+        const numAmount = parseFloat(amount);
+        if (isNaN(numAmount) || numAmount < MIN_BALANCE) {
+            setBalanceError(`Balance amount cannot be less than ₹${MIN_BALANCE.toLocaleString('en-IN')}`);
+            return false;
+        }
+        setBalanceError('');
+        return true;
+    };
+
+    const handleBalanceChange = (text) => {
+        setFormData({ ...formData, balance: text });
+        if (text) {
+            validateBalance(text);
+        } else {
+            setBalanceError('');
+        }
+    };
+
+
+
     const handleOpenModal = (mode, reseller = null) => {
         setModalMode(mode);
+        setBalanceError('');
         if (mode === 'edit' && reseller) {
             setSelectedReseller(reseller);
             setFormData({
@@ -107,6 +139,7 @@ const Resellers = () => {
                 partnerCode: reseller.partnerCode || '',
                 packages: reseller.packages?.map((p) => p._id) || [],
                 status: reseller.status,
+                balance: reseller.balance ? reseller.balance.toString() : '',
             });
         } else {
             setFormData({
@@ -118,16 +151,19 @@ const Resellers = () => {
                 partnerCode: '',
                 packages: [],
                 status: 'Active',
+                balance: '',
             });
         }
         setShowModal(true);
     };
 
 
+
     const handleCloseModal = () => {
         setShowModal(false);
         setSelectedReseller(null);
         setShowPassword(false);
+        setBalanceError('');
         setFormData({
             name: '',
             email: '',
@@ -137,8 +173,10 @@ const Resellers = () => {
             partnerCode: '',
             packages: [],
             status: 'Active',
+            balance: '',
         });
     };
+
 
 
     const handleSubmit = async () => {
@@ -163,18 +201,29 @@ const Resellers = () => {
             return;
         }
 
+        // Validate balance for create mode
+        if (modalMode === 'create') {
+            if (!formData.balance.trim()) {
+                Alert.alert('Error', 'Balance amount is required');
+                return;
+            }
+            if (!validateBalance(formData.balance)) {
+                Alert.alert('Error', `Balance amount cannot be less than ₹${MIN_BALANCE.toLocaleString('en-IN')}`);
+                return;
+            }
+        }
 
         setSubmitting(true);
 
-
         try {
-            const submitData = { ...formData };
-
+            const submitData = {
+                ...formData,
+                balance: formData.balance ? parseFloat(formData.balance) : undefined
+            };
 
             if (modalMode === 'edit' && !submitData.password) {
                 delete submitData.password;
             }
-
 
             if (modalMode === 'create') {
                 await api.post('/resellers', submitData);
@@ -194,6 +243,7 @@ const Resellers = () => {
     };
 
 
+
     const handleDelete = async () => {
         setSubmitting(true);
         try {
@@ -211,6 +261,7 @@ const Resellers = () => {
     };
 
 
+
     const togglePackageSelection = (packageId) => {
         setFormData({
             ...formData,
@@ -219,6 +270,7 @@ const Resellers = () => {
                 : [...formData.packages, packageId],
         });
     };
+
 
 
     const filteredResellers = resellers.filter((reseller) => {
@@ -230,6 +282,7 @@ const Resellers = () => {
             reseller.partnerCode?.toLowerCase().includes(searchLower)
         );
     });
+
 
 
     return (
@@ -250,7 +303,6 @@ const Resellers = () => {
                     </View>
                 </View>
 
-
                 {/* Action Buttons */}
                 <View style={{ flexDirection: 'row' }}>
                     <TouchableOpacity
@@ -270,7 +322,6 @@ const Resellers = () => {
                 </View>
             </View>
 
-
             {/* Search and Filters */}
             <View className="px-4 py-4">
                 <View className="relative mb-4">
@@ -285,7 +336,6 @@ const Resellers = () => {
                         className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl text-gray-900"
                     />
                 </View>
-
 
                 {showFilters && (
                     <View className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
@@ -304,7 +354,6 @@ const Resellers = () => {
                             </Picker>
                         </View>
 
-
                         {statusFilter && (
                             <TouchableOpacity
                                 onPress={() => setStatusFilter('')}
@@ -318,7 +367,6 @@ const Resellers = () => {
                     </View>
                 )}
             </View>
-
 
             {/* Content */}
             {loading ? (
@@ -356,8 +404,12 @@ const Resellers = () => {
                                                 {reseller.phone}
                                             </Text>
 
+                                            {/* Balance Display */}
+                                            <Text className="text-sm font-semibold text-gray-900 mb-2">
+                                                Balance: ₹{reseller.balance?.toLocaleString('en-IN') || '0'}
+                                            </Text>
 
-                                            {/* Created By Section - NEW */}
+                                            {/* Created By Section */}
                                             {reseller.createdBy && (
                                                 <View style={{ backgroundColor: '#f0fdf4', paddingHorizontal: 8, paddingVertical: 6, borderRadius: 6, marginBottom: 8, borderLeftWidth: 3, borderLeftColor: '#22c55e' }}>
                                                     <Text className="text-xs text-gray-600 font-semibold mb-1">
@@ -372,7 +424,6 @@ const Resellers = () => {
                                                 </View>
                                             )}
 
-
                                             <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                                                 {reseller.partnerCode && (
                                                     <Text className="text-xs text-blue-600 font-semibold mr-3">
@@ -385,7 +436,6 @@ const Resellers = () => {
                                                     </Text>
                                                 )}
                                             </View>
-
 
                                             <View
                                                 style={{
@@ -410,7 +460,6 @@ const Resellers = () => {
                                             </View>
                                         </View>
 
-
                                         {/* Action Buttons */}
                                         <View style={{ flexDirection: 'row' }}>
                                             <TouchableOpacity
@@ -430,7 +479,6 @@ const Resellers = () => {
                                             </TouchableOpacity>
                                         </View>
                                     </View>
-
 
                                     {/* Packages Display */}
                                     {reseller.packages && reseller.packages.length > 0 && (
@@ -475,7 +523,6 @@ const Resellers = () => {
                 </ScrollView>
             )}
 
-
             {/* Add/Edit Modal */}
             <Modal
                 visible={showModal}
@@ -493,7 +540,6 @@ const Resellers = () => {
                                 <X size={20} color="#6b7280" />
                             </TouchableOpacity>
                         </View>
-
 
                         <ScrollView className="px-6 py-4" keyboardShouldPersistTaps="handled">
                             <View>
@@ -513,7 +559,6 @@ const Resellers = () => {
                                     />
                                 </View>
 
-
                                 {/* Email */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -531,7 +576,6 @@ const Resellers = () => {
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
                                     />
                                 </View>
-
 
                                 {/* Password */}
                                 <View style={{ marginBottom: 16 }}>
@@ -567,7 +611,6 @@ const Resellers = () => {
                                     </View>
                                 </View>
 
-
                                 {/* Phone */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -585,6 +628,29 @@ const Resellers = () => {
                                     />
                                 </View>
 
+                                {/* Balance Amount */}
+                                <View style={{ marginBottom: 16 }}>
+                                    <Text className="text-sm font-semibold text-gray-700 mb-2">
+                                        Balance Amount (₹) {modalMode === 'create' ? '*' : ''}
+                                    </Text>
+                                    <TextInput
+                                        value={formData.balance}
+                                        onChangeText={handleBalanceChange}
+                                        placeholder="Enter balance amount"
+                                        placeholderTextColor="#9ca3af"
+                                        keyboardType="decimal-pad"
+                                        className={`w-full px-4 py-3 bg-gray-50 border rounded-xl text-gray-900 ${balanceError ? 'border-red-300' : 'border-gray-200'
+                                            }`}
+                                    />
+                                    {balanceError && (
+                                        <View style={{ marginTop: 8, flexDirection: 'row', alignItems: 'center' }}>
+                                            <AlertCircle size={16} color="#dc2626" style={{ marginRight: 8 }} />
+                                            <Text className="text-xs font-medium text-red-600">
+                                                {balanceError}
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
 
                                 {/* Subscriber Limit */}
                                 <View style={{ marginBottom: 16 }}>
@@ -603,7 +669,6 @@ const Resellers = () => {
                                     />
                                 </View>
 
-
                                 {/* Partner Code */}
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -619,7 +684,6 @@ const Resellers = () => {
                                         className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl text-gray-900"
                                     />
                                 </View>
-
 
                                 {/* Status */}
                                 <View style={{ marginBottom: 16 }}>
@@ -639,7 +703,6 @@ const Resellers = () => {
                                         </Picker>
                                     </View>
                                 </View>
-
 
                                 {/* Packages */}
                                 <View style={{ marginBottom: 24 }}>
@@ -678,13 +741,12 @@ const Resellers = () => {
                                     </Text>
                                 </View>
 
-
                                 {/* Buttons */}
                                 <View style={{ flexDirection: 'row', marginBottom: 24 }}>
                                     <TouchableOpacity
                                         onPress={handleSubmit}
-                                        disabled={submitting}
-                                        style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8, opacity: submitting ? 0.5 : 1 }}
+                                        disabled={submitting || !!balanceError}
+                                        style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8, opacity: submitting || balanceError ? 0.5 : 1 }}
                                     >
                                         <Text className="text-white text-center font-semibold">
                                             {submitting
@@ -708,7 +770,6 @@ const Resellers = () => {
                     </View>
                 </View>
             </Modal>
-
 
             {/* Delete Confirmation Modal */}
             <Modal
@@ -760,6 +821,5 @@ const Resellers = () => {
         </SafeAreaView>
     );
 };
-
 
 export default Resellers;

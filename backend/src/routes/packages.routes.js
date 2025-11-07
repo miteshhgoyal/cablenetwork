@@ -109,6 +109,14 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+        // Validate cost is at least 50 rupees
+        if (isNaN(cost) || cost < 50) {
+            return res.status(400).json({
+                success: false,
+                message: 'Package cost must be at least ₹50'
+            });
+        }
+
         // Check if package name already exists
         const existingPackage = await Package.findOne({
             name: name.trim()
@@ -170,6 +178,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
             return res.status(400).json({
                 success: false,
                 message: 'Name, cost, and duration are required'
+            });
+        }
+
+        // Validate cost is at least 50 rupees
+        if (isNaN(cost) || cost < 50) {
+            return res.status(400).json({
+                success: false,
+                message: 'Package cost must be at least ₹50'
             });
         }
 

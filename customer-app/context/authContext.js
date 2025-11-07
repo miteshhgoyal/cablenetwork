@@ -18,9 +18,10 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
     const [user, setUser] = useState(null);
     const [channels, setChannels] = useState([]);
-    const [packagesList, setPackagesList] = useState([]); // NEW: Store package list
+    const [packagesList, setPackagesList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
+    const [refreshing, setRefreshing] = useState(false); // NEW: Track refresh state
     const router = useRouter();
     const segments = useSegments();
 
@@ -33,7 +34,7 @@ export const AuthProvider = ({ children }) => {
             const token = await AsyncStorage.getItem('token');
             const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
-            const savedPackages = await AsyncStorage.getItem('packagesList'); // NEW
+            const savedPackages = await AsyncStorage.getItem('packagesList');
 
             if (token && savedChannels && savedUser) {
                 const parsedChannels = JSON.parse(savedChannels);
@@ -79,7 +80,7 @@ export const AuthProvider = ({ children }) => {
                 await AsyncStorage.setItem('token', token);
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || [])); // NEW
+                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
 
                 // Update state
                 setUser(subscriber);
@@ -98,6 +99,57 @@ export const AuthProvider = ({ children }) => {
                 success: false,
                 message: error.response?.data?.message || 'Invalid partner code'
             };
+        }
+    };
+
+    // NEW: Refresh channels from database
+    const refreshChannels = async () => {
+        try {
+            setRefreshing(true);
+
+            const token = await AsyncStorage.getItem('token');
+
+            if (!token) {
+                return { success: false, message: 'Not authenticated' };
+            }
+
+            const response = await api.get('/customer/refresh-channels', {
+                headers: {
+                    Authorization: `Bearer ${token}`
+                }
+            });
+
+            if (response.data.success) {
+                const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
+
+                // Update AsyncStorage
+                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
+
+                // Update state
+                setUser(subscriber);
+                setChannels(fetchedChannels);
+                setPackagesList(fetchedPackages || []);
+                return { success: true };
+            } else {
+                return { success: false, message: 'Refresh failed' };
+            }
+        } catch (error) {
+            console.error('❌ Refresh error:', error);
+
+            // If token expired, logout
+            if (error.response?.status === 401) {
+                await logout();
+                return { success: false, message: 'Session expired' };
+            }
+
+            return {
+                success: false,
+                message: error.response?.data?.message || 'Failed to refresh'
+            };
+        } finally {
+            setRefreshing(false);
         }
     };
 
@@ -125,9 +177,11 @@ export const AuthProvider = ({ children }) => {
         packagesList,
         isAuthenticated,
         loading,
+        refreshing,
         login,
         logout,
         checkAuth,
+        refreshChannels,
     };
 
     return (
