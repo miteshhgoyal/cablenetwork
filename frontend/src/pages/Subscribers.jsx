@@ -68,7 +68,7 @@ const Subscribers = () => {
 
   const fetchResellers = async () => {
     try {
-      const response = await api.get("/subscribers/resellers");
+      const response = await api.get("/resellers");
       setResellers(response.data.data.resellers);
     } catch (error) {
       console.error("Failed to fetch resellers:", error);
@@ -77,7 +77,7 @@ const Subscribers = () => {
 
   const fetchPackages = async () => {
     try {
-      const response = await api.get("/subscribers/packages");
+      const response = await api.get("/packages");
       setPackages(response.data.data.packages);
     } catch (error) {
       console.error("Failed to fetch packages:", error);
