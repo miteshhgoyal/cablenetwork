@@ -1,4 +1,4 @@
-// app/(tabs)/channels.js - COMPLETE FILE WITH REACT-NATIVE-YOUTUBE-BRIDGE
+// app/(tabs)/channels.js - COMPLETE FILE WITH SOUND + ALWAYS PROXY
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
     View,
@@ -30,10 +30,6 @@ export default function ChannelsScreen() {
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
-
-    // Proxy management
-    const [useProxy, setUseProxy] = useState(false);
-    const [proxyAttempted, setProxyAttempted] = useState(false);
 
     const videoRef = useRef(null);
     const webViewRef = useRef(null);
@@ -167,29 +163,30 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // GET CURRENT STREAM URL (PROXY OR DIRECT)
+    // GET CURRENT STREAM URL (ALWAYS USE PROXY)
     // ==========================================
 
     const getCurrentStreamUrl = () => {
         if (!selectedChannel) return '';
 
-        if (useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
-
+        // Always prefer proxy if available
+        if (selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
+            console.log('🔒 Using proxy URL (always enabled)');
             return selectedChannel.proxyUrl;
         }
 
-
+        console.log('🌐 Using direct URL (proxy not available)');
         return selectedChannel.url;
     };
 
     // ==========================================
-    // YOUTUBE PLAYER COMPONENTS (YOUTUBE BRIDGE)
+    // YOUTUBE PLAYER COMPONENTS (WITH SOUND)
     // ==========================================
 
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: true,
+            muted: false,  // ✅ Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -197,7 +194,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-
+            console.log('✅ YouTube player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -220,13 +217,6 @@ export default function ChannelsScreen() {
                     player={player}
                     style={{ width: '100%', height: 260 }}
                 />
-                <TouchableOpacity
-                    className="absolute bottom-4 right-4 bg-orange-500 px-4 py-3 rounded-lg shadow-lg"
-                    onPress={() => player.unMute()}
-                    style={{ elevation: 5 }}
-                >
-                    <Text className="text-white font-bold text-sm">🔊 Unmute</Text>
-                </TouchableOpacity>
             </View>
         );
     };
@@ -234,7 +224,7 @@ export default function ChannelsScreen() {
     const YouTubeLivePlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: true,
+            muted: false,  // ✅ Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -242,7 +232,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-
+            console.log('✅ YouTube live player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -265,13 +255,6 @@ export default function ChannelsScreen() {
                     player={player}
                     style={{ width: '100%', height: 260 }}
                 />
-                <TouchableOpacity
-                    className="absolute bottom-4 right-4 bg-orange-500 px-4 py-3 rounded-lg shadow-lg"
-                    onPress={() => player.unMute()}
-                    style={{ elevation: 5 }}
-                >
-                    <Text className="text-white font-bold text-sm">🔊 Unmute</Text>
-                </TouchableOpacity>
             </View>
         );
     };
@@ -279,7 +262,7 @@ export default function ChannelsScreen() {
     const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: true,
+            muted: false,  // ✅ Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -290,7 +273,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-
+            console.log('✅ YouTube playlist player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -312,13 +295,6 @@ export default function ChannelsScreen() {
                 <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
                     <Text className="text-white text-xs font-bold">📋 PLAYLIST</Text>
                 </View>
-                <TouchableOpacity
-                    className="absolute bottom-4 right-4 bg-orange-500 px-4 py-3 rounded-lg shadow-lg"
-                    onPress={() => player.unMute()}
-                    style={{ elevation: 5 }}
-                >
-                    <Text className="text-white font-bold text-sm">🔊 Unmute</Text>
-                </TouchableOpacity>
             </View>
         );
     };
@@ -486,27 +462,11 @@ export default function ChannelsScreen() {
                             {errorMessage || 'Unable to load the stream'}
                         </Text>
 
-                        {serverInfo?.proxyEnabled && !useProxy && !proxyAttempted && (
-                            <TouchableOpacity
-                                className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setUseProxy(true);
-                                    setProxyAttempted(true);
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">🔒 Try Proxy Connection</Text>
-                            </TouchableOpacity>
-                        )}
-
                         <TouchableOpacity
-                            className="mt-3 bg-gray-700 px-6 py-3 rounded-lg"
+                            className="mt-4 bg-gray-700 px-6 py-3 rounded-lg"
                             onPress={() => {
                                 setVideoError(false);
                                 setVideoLoading(true);
-                                setUseProxy(false);
-                                setProxyAttempted(false);
                             }}
                         >
                             <Text className="text-white font-semibold">🔄 Retry</Text>
@@ -528,9 +488,10 @@ export default function ChannelsScreen() {
                     onLoad={() => {
                         setVideoLoading(false);
                         setVideoError(false);
-
+                        console.log('✅ Video loaded successfully');
                     }}
                     onError={(error) => {
+                        console.error('❌ Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                         setErrorMessage('Failed to load stream. Please check your connection.');
@@ -553,8 +514,6 @@ export default function ChannelsScreen() {
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
-        setUseProxy(false);
-        setProxyAttempted(false);
         setYoutubeReady(false);
         setCurrentPlaylistIndex(0);
         setPlaylistVideoIds([]);
@@ -733,20 +692,11 @@ export default function ChannelsScreen() {
                             <Text className="text-white text-lg font-semibold ml-2">Back</Text>
                         </TouchableOpacity>
 
-                        {serverInfo?.proxyEnabled && (
-                            <View className="flex-row items-center">
-                                <Text className="text-gray-400 text-sm mr-2">Proxy</Text>
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setUseProxy(!useProxy);
-                                        setVideoError(false);
-                                        setVideoLoading(true);
-                                        setProxyAttempted(false);
-                                    }}
-                                    className={`w-12 h-6 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`}
-                                >
-                                    <View className={`w-5 h-5 rounded-full bg-white ${useProxy ? 'self-end mr-0.5' : 'self-start ml-0.5'}`} />
-                                </TouchableOpacity>
+                        {/* Proxy Status Indicator */}
+                        {serverInfo?.proxyEnabled && selectedChannel?.proxyUrl && (
+                            <View className="flex-row items-center bg-green-600 px-3 py-1.5 rounded-full">
+                                <Ionicons name="shield-checkmark" size={16} color="white" />
+                                <Text className="text-white text-xs font-bold ml-1.5">Proxy Active</Text>
                             </View>
                         )}
                     </View>
