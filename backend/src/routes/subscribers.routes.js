@@ -7,9 +7,7 @@ import Package from '../models/Package.js';
 
 const router = express.Router();
 
-// ==========================================
-// GET ALL SUBSCRIBERS (with filters)
-// ==========================================
+// GET ALL SUBSCRIBERS
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search, status, resellerId } = req.query;
@@ -21,11 +19,8 @@ router.get('/', authenticateToken, async (req, res) => {
         // Role-based filtering
         switch (user.role) {
             case 'admin':
-                // Admin can see all subscribers
                 break;
-
             case 'distributor':
-                // Distributor sees only their resellers' subscribers
                 const distributorResellers = await User.find({
                     role: 'reseller',
                     createdBy: userId
@@ -33,12 +28,9 @@ router.get('/', authenticateToken, async (req, res) => {
                 const resellerIds = distributorResellers.map(r => r._id);
                 query.resellerId = { $in: resellerIds };
                 break;
-
             case 'reseller':
-                // Reseller sees only their own subscribers
                 query.resellerId = userId;
                 break;
-
             default:
                 return res.status(403).json({
                     success: false,
@@ -46,17 +38,11 @@ router.get('/', authenticateToken, async (req, res) => {
                 });
         }
 
-        // Add status filter
-        if (status) {
-            query.status = status;
-        }
-
-        // Add reseller filter (for admin/distributor)
+        if (status) query.status = status;
         if (resellerId && ['admin', 'distributor'].includes(user.role)) {
             query.resellerId = resellerId;
         }
 
-        // Add search filter
         if (search) {
             const searchConditions = {
                 $or: [
@@ -66,7 +52,6 @@ router.get('/', authenticateToken, async (req, res) => {
                 ]
             };
 
-            // Combine with existing query
             if (Object.keys(query).length > 0) {
                 query = { $and: [query, searchConditions] };
             } else {
@@ -76,7 +61,8 @@ router.get('/', authenticateToken, async (req, res) => {
 
         const subscribers = await Subscriber.find(query)
             .populate('resellerId', 'name email')
-            .populate('package', 'name cost duration')
+            .populate('packages', 'name cost duration')
+            .populate('primaryPackageId', 'name cost duration')
             .sort({ createdAt: -1 });
 
         res.json({
@@ -93,9 +79,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
-// GET RESELLERS LIST (for filter dropdown)
-// ==========================================
+// GET RESELLERS LIST
 router.get('/resellers', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -104,12 +88,10 @@ router.get('/resellers', authenticateToken, async (req, res) => {
         let resellers = [];
 
         if (user.role === 'admin') {
-            // Admin can see all resellers
             resellers = await User.find({ role: 'reseller' })
                 .select('name email')
                 .sort({ name: 1 });
         } else if (user.role === 'distributor') {
-            // Distributor sees only their resellers
             resellers = await User.find({
                 role: 'reseller',
                 createdBy: userId
@@ -132,9 +114,7 @@ router.get('/resellers', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
-// GET PACKAGES LIST (for dropdown)
-// ==========================================
+// GET PACKAGES LIST
 router.get('/packages', authenticateToken, async (req, res) => {
     try {
         const packages = await Package.find()
@@ -155,9 +135,7 @@ router.get('/packages', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
 // GET SINGLE SUBSCRIBER DETAILS
-// ==========================================
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -165,7 +143,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
         const subscriber = await Subscriber.findById(req.params.id)
             .populate('resellerId', 'name email phone')
-            .populate('package', 'name cost duration');
+            .populate('packages', 'name cost duration')
+            .populate('primaryPackageId', 'name cost duration');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -211,16 +190,13 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
 // UPDATE SUBSCRIBER
-// ==========================================
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const user = await User.findById(userId);
         const { subscriberName, macAddress, serialNumber, status, expiryDate, package: packageId } = req.body;
 
-        // Find subscriber
         const subscriber = await Subscriber.findById(req.params.id);
 
         if (!subscriber) {
@@ -253,7 +229,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-        // Validation
         if (!subscriberName || !macAddress || !serialNumber) {
             return res.status(400).json({
                 success: false,
@@ -261,7 +236,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if MAC address already exists (excluding current subscriber)
+        // Check if MAC address already exists
         const existingSubscriber = await Subscriber.findOne({
             macAddress: macAddress.trim(),
             _id: { $ne: req.params.id }
@@ -285,14 +260,19 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
 
         if (packageId) {
-            subscriber.package = packageId;
+            subscriber.primaryPackageId = packageId;
+            // Also update packages array if not already there
+            if (!subscriber.packages.includes(packageId)) {
+                subscriber.packages.push(packageId);
+            }
         }
 
         await subscriber.save();
 
         // Populate and return
         await subscriber.populate('resellerId', 'name email');
-        await subscriber.populate('package', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration');
+        await subscriber.populate('primaryPackageId', 'name cost duration');
 
         res.json({
             success: true,
@@ -309,9 +289,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// ==========================================
 // DELETE SUBSCRIBER
-// ==========================================
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;

@@ -11,6 +11,10 @@ import {
   Edit2,
   Trash2,
   X,
+  MapPin,
+  Smartphone,
+  Shield,
+  Clock,
   Package as PackageIcon,
 } from "lucide-react";
 
@@ -93,7 +97,7 @@ const Subscribers = () => {
       serialNumber: subscriber.serialNumber,
       status: subscriber.status,
       expiryDate: new Date(subscriber.expiryDate).toISOString().split("T")[0],
-      package: subscriber.package?._id || "",
+      package: subscriber.primaryPackageId?._id || "",
     });
     setShowEditModal(true);
   };
@@ -159,10 +163,22 @@ const Subscribers = () => {
   };
 
   const formatDate = (date) => {
+    if (!date) return "N/A";
     return new Date(date).toLocaleDateString("en-US", {
       month: "2-digit",
       day: "2-digit",
       year: "numeric",
+    });
+  };
+
+  const formatDateTime = (date) => {
+    if (!date) return "N/A";
+    return new Date(date).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
     });
   };
 
@@ -216,7 +232,6 @@ const Subscribers = () => {
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Status Filter */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Status
@@ -233,7 +248,6 @@ const Subscribers = () => {
                   </select>
                 </div>
 
-                {/* Reseller Filter (only for admin/distributor) */}
                 {user.role !== "reseller" && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -255,7 +269,6 @@ const Subscribers = () => {
                 )}
               </div>
 
-              {/* Clear Filters */}
               {(statusFilter || resellerFilter) && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
@@ -395,14 +408,221 @@ const Subscribers = () => {
         )}
       </div>
 
-      {/* View Modal - Keep existing */}
       {showViewModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          {/* ... existing view modal code ... */}
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl my-8">
+            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200 rounded-t-2xl">
+              <h2 className="text-xl font-bold text-gray-900">
+                Subscriber Details
+              </h2>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">Subscriber Name</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {selectedSubscriber.subscriberName}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">MAC Address</p>
+                  <p className="text-lg font-mono font-semibold text-gray-900">
+                    {selectedSubscriber.macAddress}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">Serial Number</p>
+                  <p className="text-lg font-mono font-semibold text-gray-900">
+                    {selectedSubscriber.serialNumber}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">Status</p>
+                  <span
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
+                      selectedSubscriber.status
+                    )}`}
+                  >
+                    {selectedSubscriber.status}
+                  </span>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">Expiry Date</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {formatDate(selectedSubscriber.expiryDate)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4">
+                  <p className="text-sm text-gray-600 mb-1">Reseller</p>
+                  <p className="text-lg font-semibold text-gray-900">
+                    {selectedSubscriber.resellerId?.name || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Packages */}
+              <div className="bg-blue-50 rounded-xl p-4">
+                <div className="flex items-center space-x-2 mb-3">
+                  <PackageIcon className="w-5 h-5 text-blue-600" />
+                  <h3 className="text-lg font-semibold text-gray-900">
+                    Packages
+                  </h3>
+                </div>
+                <div className="space-y-2">
+                  {selectedSubscriber.packages &&
+                  selectedSubscriber.packages.length > 0 ? (
+                    selectedSubscriber.packages.map((pkg, idx) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between bg-white rounded-lg p-3"
+                      >
+                        <span className="font-medium text-gray-900">
+                          {pkg.name}
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          ₹{pkg.cost} / {pkg.duration} days
+                        </span>
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-gray-600">No packages assigned</p>
+                  )}
+                </div>
+              </div>
+
+              {/* Location Info */}
+              {selectedSubscriber.lastLocation && (
+                <div className="bg-green-50 rounded-xl p-4">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <MapPin className="w-5 h-5 text-green-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Location Tracking
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">Latitude</p>
+                      <p className="text-sm font-mono font-semibold text-gray-900">
+                        {selectedSubscriber.lastLocation.coordinates[1] ||
+                          "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">Longitude</p>
+                      <p className="text-sm font-mono font-semibold text-gray-900">
+                        {selectedSubscriber.lastLocation.coordinates[0] ||
+                          "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3 md:col-span-2">
+                      <p className="text-xs text-gray-600 mb-1">Last Updated</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {formatDateTime(
+                          selectedSubscriber.lastLocation.timestamp
+                        )}
+                      </p>
+                    </div>
+                    {selectedSubscriber.lastLocation.address && (
+                      <div className="bg-white rounded-lg p-3 md:col-span-2">
+                        <p className="text-xs text-gray-600 mb-1">Address</p>
+                        <p className="text-sm font-semibold text-gray-900">
+                          {selectedSubscriber.lastLocation.address}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Device Security Info */}
+              {selectedSubscriber.deviceInfo && (
+                <div className="bg-purple-50 rounded-xl p-4">
+                  <div className="flex items-center space-x-2 mb-3">
+                    <Shield className="w-5 h-5 text-purple-600" />
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Device Security
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">Device Model</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.deviceModel || "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">OS Version</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.osVersion || "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">App Version</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.appVersion || "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">
+                        Last IP Address
+                      </p>
+                      <p className="text-sm font-mono font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.lastIPAddress || "N/A"}
+                      </p>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">
+                        Rooted/Jailbroken
+                      </p>
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
+                          selectedSubscriber.deviceInfo.isRooted
+                            ? "bg-red-100 text-red-700"
+                            : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {selectedSubscriber.deviceInfo.isRooted ? "Yes" : "No"}
+                      </span>
+                    </div>
+                    <div className="bg-white rounded-lg p-3">
+                      <p className="text-xs text-gray-600 mb-1">VPN Active</p>
+                      <span
+                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
+                          selectedSubscriber.deviceInfo.isVPNActive
+                            ? "bg-yellow-100 text-yellow-700"
+                            : "bg-green-100 text-green-700"
+                        }`}
+                      >
+                        {selectedSubscriber.deviceInfo.isVPNActive
+                          ? "Yes"
+                          : "No"}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 rounded-b-2xl">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-full px-4 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-all font-medium"
+              >
+                Close
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {/* Edit Modal */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -552,7 +772,6 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* Delete Modal */}
       {showDeleteModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
