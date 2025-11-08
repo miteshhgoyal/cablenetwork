@@ -16,7 +16,6 @@ router.get('/', authenticateToken, async (req, res) => {
 
         let query = {};
 
-        // Role-based filtering
         switch (user.role) {
             case 'admin':
                 break;
@@ -135,7 +134,7 @@ router.get('/packages', authenticateToken, async (req, res) => {
     }
 });
 
-// GET SINGLE SUBSCRIBER DETAILS
+// GET SINGLE SUBSCRIBER
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -153,7 +152,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check access permissions
+        // Check permissions
         if (user.role === 'reseller' && subscriber.resellerId._id.toString() !== userId) {
             return res.status(403).json({
                 success: false,
@@ -236,7 +235,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if MAC address already exists
         const existingSubscriber = await Subscriber.findOne({
             macAddress: macAddress.trim(),
             _id: { $ne: req.params.id }
@@ -249,7 +247,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Update fields
         subscriber.subscriberName = subscriberName.trim();
         subscriber.macAddress = macAddress.trim();
         subscriber.serialNumber = serialNumber.trim();
@@ -261,7 +258,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
         if (packageId) {
             subscriber.primaryPackageId = packageId;
-            // Also update packages array if not already there
             if (!subscriber.packages.includes(packageId)) {
                 subscriber.packages.push(packageId);
             }
@@ -269,7 +265,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
         await subscriber.save();
 
-        // Populate and return
         await subscriber.populate('resellerId', 'name email');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');

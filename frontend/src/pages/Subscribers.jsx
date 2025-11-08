@@ -12,9 +12,7 @@ import {
   Trash2,
   X,
   MapPin,
-  Smartphone,
   Shield,
-  Clock,
   Package as PackageIcon,
 } from "lucide-react";
 
@@ -68,7 +66,7 @@ const Subscribers = () => {
 
   const fetchResellers = async () => {
     try {
-      const response = await api.get("/resellers");
+      const response = await api.get("/subscribers/resellers");
       setResellers(response.data.data.resellers);
     } catch (error) {
       console.error("Failed to fetch resellers:", error);
@@ -77,7 +75,7 @@ const Subscribers = () => {
 
   const fetchPackages = async () => {
     try {
-      const response = await api.get("/packages");
+      const response = await api.get("/subscribers/packages");
       setPackages(response.data.data.packages);
     } catch (error) {
       console.error("Failed to fetch packages:", error);
@@ -176,7 +174,6 @@ const Subscribers = () => {
     return new Date(date).toLocaleString("en-US", {
       month: "short",
       day: "numeric",
-      year: "numeric",
       hour: "2-digit",
       minute: "2-digit",
     });
@@ -184,7 +181,7 @@ const Subscribers = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header */}
+      {/* Header - Same as before */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -197,7 +194,7 @@ const Subscribers = () => {
                   Subscribers
                 </h1>
                 <p className="text-sm text-gray-600">
-                  View and manage subscriber information
+                  View and manage subscriber information with location tracking
                 </p>
               </div>
             </div>
@@ -214,9 +211,8 @@ const Subscribers = () => {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search and Filters */}
+        {/* Search and Filters - Same as before */}
         <div className="mb-6 space-y-4">
-          {/* Search Bar */}
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
@@ -228,7 +224,6 @@ const Subscribers = () => {
             />
           </div>
 
-          {/* Filter Panel */}
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -286,7 +281,7 @@ const Subscribers = () => {
           )}
         </div>
 
-        {/* Stats Cards */}
+        {/* Stats Cards - Same as before */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
           <div className="bg-white rounded-xl p-4 border border-gray-200">
             <p className="text-sm text-gray-600 mb-1">Total Subscribers</p>
@@ -311,7 +306,7 @@ const Subscribers = () => {
           </div>
         </div>
 
-        {/* Table */}
+        {/* UPDATED TABLE - With Location & Device Info */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader className="w-8 h-8 text-blue-600 animate-spin" />
@@ -322,22 +317,25 @@ const Subscribers = () => {
               <table className="w-full">
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
                       S.No
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Subscriber Name
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
+                      Subscriber
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
                       MAC Address
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Expiry Date
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
+                      Location
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
+                      Device
+                    </th>
+                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase">
                       Actions
                     </th>
                   </tr>
@@ -345,7 +343,7 @@ const Subscribers = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredSubscribers.length === 0 ? (
                     <tr>
-                      <td colSpan="6" className="px-6 py-12 text-center">
+                      <td colSpan="7" className="px-6 py-12 text-center">
                         <p className="text-gray-500">No subscribers found</p>
                       </td>
                     </tr>
@@ -358,8 +356,15 @@ const Subscribers = () => {
                         <td className="px-6 py-4 text-sm text-gray-900">
                           {index + 1}
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {subscriber.subscriberName}
+                        <td className="px-6 py-4">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">
+                              {subscriber.subscriberName}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              Expires: {formatDate(subscriber.expiryDate)}
+                            </p>
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-600 font-mono">
                           {subscriber.macAddress}
@@ -373,8 +378,70 @@ const Subscribers = () => {
                             {subscriber.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {formatDate(subscriber.expiryDate)}
+                        <td className="px-6 py-4">
+                          {subscriber.lastLocation &&
+                          subscriber.lastLocation.coordinates[0] !== 0 ? (
+                            <div className="flex items-start space-x-1">
+                              <MapPin className="w-4 h-4 text-green-600 mt-0.5" />
+                              <div>
+                                <p className="text-xs font-mono text-gray-900">
+                                  {subscriber.lastLocation.coordinates[1].toFixed(
+                                    4
+                                  )}
+                                  ,{" "}
+                                  {subscriber.lastLocation.coordinates[0].toFixed(
+                                    4
+                                  )}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {formatDateTime(
+                                    subscriber.lastLocation.timestamp
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              No location
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-6 py-4">
+                          {subscriber.deviceInfo &&
+                          subscriber.deviceInfo.deviceModel ? (
+                            <div className="flex items-start space-x-1">
+                              <Shield
+                                className={`w-4 h-4 mt-0.5 ${
+                                  subscriber.deviceInfo.isRooted ||
+                                  subscriber.deviceInfo.isVPNActive
+                                    ? "text-red-600"
+                                    : "text-green-600"
+                                }`}
+                              />
+                              <div>
+                                <p className="text-xs font-medium text-gray-900">
+                                  {subscriber.deviceInfo.deviceModel}
+                                </p>
+                                <p className="text-xs text-gray-500">
+                                  {subscriber.deviceInfo.osVersion}
+                                </p>
+                                {(subscriber.deviceInfo.isRooted ||
+                                  subscriber.deviceInfo.isVPNActive) && (
+                                  <p className="text-xs text-red-600 font-medium">
+                                    {subscriber.deviceInfo.isRooted && "Rooted"}
+                                    {subscriber.deviceInfo.isRooted &&
+                                      subscriber.deviceInfo.isVPNActive &&
+                                      " | "}
+                                    {subscriber.deviceInfo.isVPNActive && "VPN"}
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">
+                              No device info
+                            </span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm text-right">
                           <div className="flex items-center justify-end space-x-2">
@@ -408,10 +475,11 @@ const Subscribers = () => {
         )}
       </div>
 
+      {/* VIEW MODAL */}
       {showViewModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl my-8">
-            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200 rounded-t-2xl">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">
                 Subscriber Details
               </h2>
@@ -423,8 +491,7 @@ const Subscribers = () => {
               </button>
             </div>
 
-            <div className="p-6 space-y-6">
-              {/* Basic Info */}
+            <div className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="bg-gray-50 rounded-xl p-4">
                   <p className="text-sm text-gray-600 mb-1">Subscriber Name</p>
@@ -468,150 +535,30 @@ const Subscribers = () => {
                 </div>
               </div>
 
-              {/* Packages */}
-              <div className="bg-blue-50 rounded-xl p-4">
-                <div className="flex items-center space-x-2 mb-3">
-                  <PackageIcon className="w-5 h-5 text-blue-600" />
-                  <h3 className="text-lg font-semibold text-gray-900">
-                    Packages
-                  </h3>
-                </div>
-                <div className="space-y-2">
-                  {selectedSubscriber.packages &&
-                  selectedSubscriber.packages.length > 0 ? (
-                    selectedSubscriber.packages.map((pkg, idx) => (
-                      <div
-                        key={idx}
-                        className="flex items-center justify-between bg-white rounded-lg p-3"
-                      >
-                        <span className="font-medium text-gray-900">
-                          {pkg.name}
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          ₹{pkg.cost} / {pkg.duration} days
-                        </span>
-                      </div>
-                    ))
-                  ) : (
-                    <p className="text-gray-600">No packages assigned</p>
-                  )}
-                </div>
-              </div>
-
-              {/* Location Info */}
-              {selectedSubscriber.lastLocation && (
-                <div className="bg-green-50 rounded-xl p-4">
-                  <div className="flex items-center space-x-2 mb-3">
-                    <MapPin className="w-5 h-5 text-green-600" />
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Location Tracking
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">Latitude</p>
-                      <p className="text-sm font-mono font-semibold text-gray-900">
-                        {selectedSubscriber.lastLocation.coordinates[1] ||
-                          "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">Longitude</p>
-                      <p className="text-sm font-mono font-semibold text-gray-900">
-                        {selectedSubscriber.lastLocation.coordinates[0] ||
-                          "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3 md:col-span-2">
-                      <p className="text-xs text-gray-600 mb-1">Last Updated</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {formatDateTime(
-                          selectedSubscriber.lastLocation.timestamp
-                        )}
-                      </p>
-                    </div>
-                    {selectedSubscriber.lastLocation.address && (
-                      <div className="bg-white rounded-lg p-3 md:col-span-2">
-                        <p className="text-xs text-gray-600 mb-1">Address</p>
-                        <p className="text-sm font-semibold text-gray-900">
-                          {selectedSubscriber.lastLocation.address}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {/* Device Security Info */}
-              {selectedSubscriber.deviceInfo && (
-                <div className="bg-purple-50 rounded-xl p-4">
-                  <div className="flex items-center space-x-2 mb-3">
-                    <Shield className="w-5 h-5 text-purple-600" />
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      Device Security
-                    </h3>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">Device Model</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {selectedSubscriber.deviceInfo.deviceModel || "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">OS Version</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {selectedSubscriber.deviceInfo.osVersion || "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">App Version</p>
-                      <p className="text-sm font-semibold text-gray-900">
-                        {selectedSubscriber.deviceInfo.appVersion || "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">
-                        Last IP Address
-                      </p>
-                      <p className="text-sm font-mono font-semibold text-gray-900">
-                        {selectedSubscriber.deviceInfo.lastIPAddress || "N/A"}
-                      </p>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">
-                        Rooted/Jailbroken
-                      </p>
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
-                          selectedSubscriber.deviceInfo.isRooted
-                            ? "bg-red-100 text-red-700"
-                            : "bg-green-100 text-green-700"
-                        }`}
-                      >
-                        {selectedSubscriber.deviceInfo.isRooted ? "Yes" : "No"}
-                      </span>
-                    </div>
-                    <div className="bg-white rounded-lg p-3">
-                      <p className="text-xs text-gray-600 mb-1">VPN Active</p>
-                      <span
-                        className={`inline-flex items-center px-2 py-1 rounded text-xs font-semibold ${
-                          selectedSubscriber.deviceInfo.isVPNActive
-                            ? "bg-yellow-100 text-yellow-700"
-                            : "bg-green-100 text-green-700"
-                        }`}
-                      >
-                        {selectedSubscriber.deviceInfo.isVPNActive
-                          ? "Yes"
-                          : "No"}
-                      </span>
+              {selectedSubscriber.packages &&
+                selectedSubscriber.packages.length > 0 && (
+                  <div className="bg-blue-50 rounded-xl p-4">
+                    <p className="text-sm text-gray-600 mb-2">Packages</p>
+                    <div className="space-y-2">
+                      {selectedSubscriber.packages.map((pkg, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between bg-white rounded-lg p-3"
+                        >
+                          <span className="font-medium text-gray-900">
+                            {pkg.name}
+                          </span>
+                          <span className="text-sm text-gray-600">
+                            ₹{pkg.cost} / {pkg.duration} days
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
-              )}
+                )}
             </div>
 
-            <div className="px-6 py-4 bg-gray-50 rounded-b-2xl">
+            <div className="px-6 py-4 bg-gray-50">
               <button
                 onClick={() => setShowViewModal(false)}
                 className="w-full px-4 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-all font-medium"
@@ -623,6 +570,7 @@ const Subscribers = () => {
         </div>
       )}
 
+      {/* EDIT MODAL */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -640,7 +588,6 @@ const Subscribers = () => {
 
             <form onSubmit={handleUpdate} className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Subscriber Name */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Subscriber Name *
@@ -659,7 +606,6 @@ const Subscribers = () => {
                   />
                 </div>
 
-                {/* MAC Address */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     MAC Address *
@@ -675,7 +621,6 @@ const Subscribers = () => {
                   />
                 </div>
 
-                {/* Serial Number */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Serial Number *
@@ -694,7 +639,6 @@ const Subscribers = () => {
                   />
                 </div>
 
-                {/* Status */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Status *
@@ -713,7 +657,6 @@ const Subscribers = () => {
                   </select>
                 </div>
 
-                {/* Expiry Date */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Expiry Date *
@@ -729,7 +672,6 @@ const Subscribers = () => {
                   />
                 </div>
 
-                {/* Package */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Package
@@ -772,6 +714,7 @@ const Subscribers = () => {
         </div>
       )}
 
+      {/* DELETE MODAL */}
       {showDeleteModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
