@@ -27,7 +27,7 @@
     "@react-navigation/stack": "^7.4.7",
     "axios": "^1.13.1",
     "expo": "54.0.23",
-    "expo-av": "^16.0.7",
+    "expo-av": "~16.0.7",
     "expo-blur": "~15.0.7",
     "expo-clipboard": "~8.0.7",
     "expo-constants": "~18.0.10",
@@ -68,13 +68,15 @@
     "react-native-share": "^12.2.0",
     "react-native-svg": "^15.12.1",
     "react-native-web": "^0.21.0",
-    "react-native-webview": "^13.15.0",
+    "react-native-webview": "^13.16.0",
     "react-native-worklets": "0.5.1",
-    "react-native-youtube-iframe": "^2.4.1",
+    "react-native-youtube": "^2.0.2",
+    "react-native-youtube-bridge": "^2.1.4",
     "tailwindcss": "^3.4.17"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",
+    "@react-native-community/cli": "latest",
     "@types/react": "~19.1.10",
     "@types/react-native": "^0.72.8",
     "@typescript-eslint/eslint-plugin": "^8.40.0",
@@ -82,8 +84,7 @@
     "eslint-config-expo": "~10.0.0",
     "eslint-config-prettier": "^10.1.8",
     "prettier": "^3.6.2",
-    "typescript": "~5.9.2",
-    "@react-native-community/cli": "latest"
+    "typescript": "~5.9.2"
   },
   "private": true
 }
