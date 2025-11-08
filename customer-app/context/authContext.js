@@ -36,7 +36,7 @@ export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [serverInfo, setServerInfo] = useState(null);
-    const [securityIntervalId, setSecurityIntervalId] = useState(null); // NEW: Track security monitoring
+    const [securityIntervalId, setSecurityIntervalId] = useState(null);
     const router = useRouter();
     const segments = useSegments();
 
@@ -64,11 +64,11 @@ export const AuthProvider = ({ children }) => {
                 setPackagesList(parsedPackages);
                 setServerInfo(parsedServerInfo);
 
-                // NEW: Start security monitoring if user is already logged in
+                // Start security monitoring (will use stored token)
                 const intervalId = startSecurityMonitoring();
                 setSecurityIntervalId(intervalId);
 
-                console.log('✅ User already authenticated, security monitoring started');
+                console.log('✅ User already authenticated');
             } else {
                 setIsAuthenticated(false);
                 setUser(null);
@@ -79,10 +79,6 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             console.error('❌ Auth check error:', error);
             setIsAuthenticated(false);
-            setUser(null);
-            setChannels([]);
-            setPackagesList([]);
-            setServerInfo(null);
         } finally {
             setLoading(false);
         }
@@ -92,19 +88,6 @@ export const AuthProvider = ({ children }) => {
         try {
             const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
             const deviceName = Device.deviceName || 'User Device';
-
-            // NEW: Check device security BEFORE login
-            console.log('🔒 Checking device security...');
-            const securityCheck = await checkDeviceSecurity();
-
-            if (securityCheck.isVPNActive) {
-                Alert.alert(
-                    '⚠️ VPN Detected',
-                    'Please disable VPN to use this app for security reasons.',
-                    [{ text: 'OK' }]
-                );
-                return { success: false, message: 'VPN detected. Please disable VPN.' };
-            }
 
             console.log('📡 Attempting login...');
             const response = await api.post(`/customer/login`, {
@@ -139,24 +122,31 @@ export const AuthProvider = ({ children }) => {
                 setServerInfo(fetchedServerInfo || null);
                 setIsAuthenticated(true);
 
-                console.log('✅ Login successful with proxy support:', fetchedServerInfo?.proxyEnabled);
+                console.log('✅ Login successful');
 
-                // NEW: Request location permissions and start tracking
+                // NOW check security AFTER login (with token available)
+                console.log('🔒 Checking device security...');
+                const securityCheck = await checkDeviceSecurity();
+
+                if (securityCheck.isVPNActive) {
+                    Alert.alert(
+                        '⚠️ VPN Detected',
+                        'VPN is active. This may affect streaming quality.',
+                        [{ text: 'OK' }]
+                    );
+                }
+
+                // Request location permissions and start tracking
                 console.log('📍 Requesting location permissions...');
                 const locationPermission = await requestLocationPermissions();
                 if (locationPermission.success) {
                     console.log('📍 Starting location tracking...');
                     await startLocationTracking();
                 } else {
-                    console.warn('⚠️ Location permission denied:', locationPermission.message);
-                    Alert.alert(
-                        'Location Permission',
-                        'Location tracking is disabled. Some features may not work properly.',
-                        [{ text: 'OK' }]
-                    );
+                    console.warn('⚠️ Location permission denied');
                 }
 
-                // NEW: Start security monitoring
+                // Start security monitoring (will run every 10 mins)
                 console.log('🔒 Starting security monitoring...');
                 const intervalId = startSecurityMonitoring();
                 setSecurityIntervalId(intervalId);
@@ -167,7 +157,6 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('❌ Login error:', error);
-            console.error('Error details:', error.response?.data);
             return {
                 success: false,
                 message: error.response?.data?.message || 'Invalid partner code'
@@ -199,7 +188,6 @@ export const AuthProvider = ({ children }) => {
                     serverInfo: fetchedServerInfo
                 } = response.data.data;
 
-                // Update AsyncStorage
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
@@ -208,14 +196,12 @@ export const AuthProvider = ({ children }) => {
                     await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                 }
 
-                // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
 
-                console.log('✅ Channels refreshed with proxy support');
-
+                console.log('✅ Channels refreshed');
                 return { success: true };
             } else {
                 return { success: false, message: 'Refresh failed' };
@@ -241,12 +227,10 @@ export const AuthProvider = ({ children }) => {
         try {
             console.log('🚪 Logging out...');
 
-            // NEW: Stop location tracking
-            console.log('📍 Stopping location tracking...');
+            // Stop location tracking
             await stopLocationTracking();
 
-            // NEW: Stop security monitoring
-            console.log('🔒 Stopping security monitoring...');
+            // Stop security monitoring
             stopSecurityMonitoring(securityIntervalId);
             setSecurityIntervalId(null);
 

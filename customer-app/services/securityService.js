@@ -1,7 +1,7 @@
 // services/securityService.js
 import * as Device from 'expo-device';
 import NetInfo from '@react-native-community/netinfo';
-import DeviceInfo from 'react-native-device-info';
+import Constants from 'expo-constants';
 import api from './api';
 
 export const checkDeviceSecurity = async () => {
@@ -13,10 +13,10 @@ export const checkDeviceSecurity = async () => {
         const netInfo = await NetInfo.fetch();
         const isVPNActive = netInfo.type === 'vpn';
 
-        // Get device info
+        // Get device info (Expo compatible)
         const deviceModel = Device.modelName || 'Unknown';
         const osVersion = Device.osVersion || 'Unknown';
-        const appVersion = DeviceInfo.getVersion();
+        const appVersion = Constants.expoConfig?.version || '1.0.0';
 
         console.log('📱 Device Info:', { deviceModel, osVersion, appVersion, isEmulator, isVPNActive });
 
