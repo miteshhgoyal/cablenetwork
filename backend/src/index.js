@@ -17,6 +17,7 @@ import ottRoutes from './routes/ott.routes.js';
 import creditRoutes from './routes/credit.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 import customerRoutes from './routes/customer.routes.js';
+import proxyRoutes from './routes/proxy.routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -49,6 +50,7 @@ app.use('/api/ott', ottRoutes);
 app.use('/api/credit', creditRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/customer', customerRoutes);
+app.use('/api/proxy', proxyRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

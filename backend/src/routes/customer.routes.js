@@ -6,6 +6,34 @@ import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
+// Helper function to generate proxy URL
+const generateProxyUrl = (originalUrl) => {
+    if (!originalUrl) return null;
+
+    const API_URL = process.env.API_URL || 'http://localhost:8000';
+
+    // Check if it's an M3U8 stream
+    const isM3U8 = originalUrl.includes('.m3u8') || originalUrl.includes('m3u');
+    const proxyEndpoint = isM3U8 ? '/api/proxy/m3u8' : '/api/proxy/stream';
+
+    return `${API_URL}${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
+};
+
+// Helper function to build channel response with proxy URLs
+const buildChannelResponse = (channelMap) => {
+    return Array.from(channelMap.values()).map(channel => ({
+        _id: channel._id,
+        name: channel.name,
+        lcn: channel.lcn,
+        imageUrl: channel.imageUrl,
+        url: channel.url,
+        proxyUrl: generateProxyUrl(channel.url), // Add proxy URL
+        genre: channel.genre,
+        language: channel.language,
+        packageNames: channel.packageNames
+    }));
+};
+
 // Simple Login with Partner Code + MAC Address
 router.post('/login', async (req, res) => {
     try {
@@ -98,7 +126,7 @@ router.post('/login', async (req, res) => {
             }
         });
 
-        // FIXED: Create channels map with package information
+        // Create channels map with package information
         const channelMap = new Map();
         const packagesList = [];
 
@@ -134,7 +162,7 @@ router.post('/login', async (req, res) => {
                                 url: channel.url,
                                 genre: channel.genre,
                                 language: channel.language,
-                                packageNames: [pkg.name] // FIXED: Add package tracking
+                                packageNames: [pkg.name]
                             });
                         }
                     }
@@ -142,7 +170,8 @@ router.post('/login', async (req, res) => {
             }
         });
 
-        const channels = Array.from(channelMap.values());
+        // Build channels with proxy URLs
+        const channels = buildChannelResponse(channelMap);
 
         // Get primary package info
         await subscriber.populate({
@@ -167,9 +196,14 @@ router.post('/login', async (req, res) => {
                     totalPackages: subscriber.packages.length,
                     totalChannels: channels.length
                 },
-                channels, // Now includes packageNames
-                packagesList, // FIXED: Add complete package list
-                token
+                channels, // Now includes packageNames AND proxyUrl
+                packagesList,
+                token,
+                // Add server info for client reference
+                serverInfo: {
+                    proxyEnabled: true,
+                    apiUrl: process.env.API_URL || 'http://localhost:8000'
+                }
             }
         });
 
@@ -182,7 +216,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Add this route AFTER the login route
+// Refresh channels route
 router.get('/refresh-channels', async (req, res) => {
     try {
         const token = req.headers.authorization?.replace('Bearer ', '');
@@ -291,7 +325,8 @@ router.get('/refresh-channels', async (req, res) => {
             }
         });
 
-        const channels = Array.from(channelMap.values());
+        // Build channels with proxy URLs
+        const channels = buildChannelResponse(channelMap);
 
         // Get primary package info
         await subscriber.populate({
@@ -309,8 +344,12 @@ router.get('/refresh-channels', async (req, res) => {
                     totalPackages: subscriber.packages.length,
                     totalChannels: channels.length
                 },
-                channels,
-                packagesList
+                channels, // Now includes proxyUrl
+                packagesList,
+                serverInfo: {
+                    proxyEnabled: true,
+                    apiUrl: process.env.API_URL || 'http://localhost:8000'
+                }
             }
         });
 
