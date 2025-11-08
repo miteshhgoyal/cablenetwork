@@ -672,7 +672,7 @@ const Subscribers = () => {
                   />
                 </div>
 
-                <div>
+                {/* <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Package
                   </label>
@@ -690,7 +690,7 @@ const Subscribers = () => {
                       </option>
                     ))}
                   </select>
-                </div>
+                </div> */}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
