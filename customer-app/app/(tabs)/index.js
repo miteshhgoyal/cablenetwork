@@ -174,11 +174,11 @@ export default function ChannelsScreen() {
         if (!selectedChannel) return '';
 
         if (useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
-            console.log('🔒 Using proxy URL');
+
             return selectedChannel.proxyUrl;
         }
 
-        console.log('🌐 Using direct URL');
+
         return selectedChannel.url;
     };
 
@@ -197,7 +197,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube player ready');
+
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -242,7 +242,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube live player ready');
+
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -290,7 +290,7 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube playlist player ready');
+
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -528,18 +528,17 @@ export default function ChannelsScreen() {
                     onLoad={() => {
                         setVideoLoading(false);
                         setVideoError(false);
-                        console.log('✅ Video loaded successfully');
+
                     }}
-                    onError((error) => {
-                    console.error('❌ Video error:', error);
-                setVideoError(true);
-                setVideoLoading(false);
-                setErrorMessage('Failed to load stream. Please check your connection.');
+                    onError={(error) => {
+                        setVideoError(true);
+                        setVideoLoading(false);
+                        setErrorMessage('Failed to load stream. Please check your connection.');
                     }}
-                onLoadStart={() => {
-                    setVideoLoading(true);
-                    setVideoError(false);
-                }}
+                    onLoadStart={() => {
+                        setVideoLoading(true);
+                        setVideoError(false);
+                    }}
                 />
             </View>
         );
