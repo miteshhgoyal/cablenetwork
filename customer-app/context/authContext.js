@@ -4,6 +4,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useSegments } from 'expo-router';
 import api from "../services/api";
 import * as Device from 'expo-device';
+import { Alert } from 'react-native';
+
+// Import location and security services
+import {
+    startLocationTracking,
+    stopLocationTracking,
+    requestLocationPermissions
+} from '../services/locationService';
+import {
+    checkDeviceSecurity,
+    startSecurityMonitoring,
+    stopSecurityMonitoring
+} from '../services/securityService';
 
 export const AuthContext = createContext();
 
@@ -23,6 +36,7 @@ export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [serverInfo, setServerInfo] = useState(null);
+    const [securityIntervalId, setSecurityIntervalId] = useState(null); // NEW: Track security monitoring
     const router = useRouter();
     const segments = useSegments();
 
@@ -49,6 +63,12 @@ export const AuthProvider = ({ children }) => {
                 setUser(parsedUser);
                 setPackagesList(parsedPackages);
                 setServerInfo(parsedServerInfo);
+
+                // NEW: Start security monitoring if user is already logged in
+                const intervalId = startSecurityMonitoring();
+                setSecurityIntervalId(intervalId);
+
+                console.log('✅ User already authenticated, security monitoring started');
             } else {
                 setIsAuthenticated(false);
                 setUser(null);
@@ -73,6 +93,20 @@ export const AuthProvider = ({ children }) => {
             const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
             const deviceName = Device.deviceName || 'User Device';
 
+            // NEW: Check device security BEFORE login
+            console.log('🔒 Checking device security...');
+            const securityCheck = await checkDeviceSecurity();
+
+            if (securityCheck.isVPNActive) {
+                Alert.alert(
+                    '⚠️ VPN Detected',
+                    'Please disable VPN to use this app for security reasons.',
+                    [{ text: 'OK' }]
+                );
+                return { success: false, message: 'VPN detected. Please disable VPN.' };
+            }
+
+            console.log('📡 Attempting login...');
             const response = await api.post(`/customer/login`, {
                 partnerCode: partnerCode.trim(),
                 macAddress,
@@ -94,7 +128,6 @@ export const AuthProvider = ({ children }) => {
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
 
-
                 if (fetchedServerInfo) {
                     await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                 }
@@ -104,10 +137,29 @@ export const AuthProvider = ({ children }) => {
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
-
                 setIsAuthenticated(true);
 
                 console.log('✅ Login successful with proxy support:', fetchedServerInfo?.proxyEnabled);
+
+                // NEW: Request location permissions and start tracking
+                console.log('📍 Requesting location permissions...');
+                const locationPermission = await requestLocationPermissions();
+                if (locationPermission.success) {
+                    console.log('📍 Starting location tracking...');
+                    await startLocationTracking();
+                } else {
+                    console.warn('⚠️ Location permission denied:', locationPermission.message);
+                    Alert.alert(
+                        'Location Permission',
+                        'Location tracking is disabled. Some features may not work properly.',
+                        [{ text: 'OK' }]
+                    );
+                }
+
+                // NEW: Start security monitoring
+                console.log('🔒 Starting security monitoring...');
+                const intervalId = startSecurityMonitoring();
+                setSecurityIntervalId(intervalId);
 
                 return { success: true };
             } else {
@@ -123,7 +175,6 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // UPDATED: Refresh channels with proxy info
     const refreshChannels = async () => {
         try {
             setRefreshing(true);
@@ -172,7 +223,6 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             console.error('❌ Refresh error:', error);
 
-            // If token expired, logout
             if (error.response?.status === 401) {
                 await logout();
                 return { success: false, message: 'Session expired' };
@@ -189,6 +239,17 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
+            console.log('🚪 Logging out...');
+
+            // NEW: Stop location tracking
+            console.log('📍 Stopping location tracking...');
+            await stopLocationTracking();
+
+            // NEW: Stop security monitoring
+            console.log('🔒 Stopping security monitoring...');
+            stopSecurityMonitoring(securityIntervalId);
+            setSecurityIntervalId(null);
+
             await AsyncStorage.multiRemove(['token', 'channels', 'user', 'packagesList', 'serverInfo']);
 
             setIsAuthenticated(false);
@@ -201,6 +262,8 @@ export const AuthProvider = ({ children }) => {
             if (!inAuthGroup) {
                 router.replace('/(auth)/signin');
             }
+
+            console.log('✅ Logout successful');
         } catch (error) {
             console.error('❌ Logout error:', error);
         }

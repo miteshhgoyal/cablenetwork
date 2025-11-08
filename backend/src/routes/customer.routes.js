@@ -6,6 +6,68 @@ import jwt from 'jsonwebtoken';
 
 const router = express.Router();
 
+// ==========================================
+// AUTHENTICATION MIDDLEWARE (INLINE)
+// ==========================================
+const authenticateToken = async (req, res, next) => {
+    try {
+        const token = req.headers.authorization?.replace('Bearer ', '');
+
+        if (!token) {
+            return res.status(401).json({
+                success: false,
+                message: 'No token provided'
+            });
+        }
+
+        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+
+        // Find subscriber
+        const subscriber = await Subscriber.findById(decoded.id);
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check expiry
+        if (new Date() > new Date(subscriber.expiryDate)) {
+            return res.status(403).json({
+                success: false,
+                message: 'Subscription expired'
+            });
+        }
+
+        // Attach user to request
+        req.user = {
+            id: subscriber._id,
+            resellerId: subscriber.resellerId
+        };
+
+        next();
+    } catch (error) {
+        console.error('Auth error:', error);
+
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Invalid token'
+            });
+        }
+
+        return res.status(500).json({
+            success: false,
+            message: 'Authentication failed'
+        });
+    }
+};
+
+// ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
 // Helper function to generate proxy URL
 const generateProxyUrl = (originalUrl) => {
     if (!originalUrl) return null;
@@ -33,6 +95,10 @@ const buildChannelResponse = (channelMap) => {
         packageNames: channel.packageNames
     }));
 };
+
+// ==========================================
+// PUBLIC ROUTES (NO AUTH REQUIRED)
+// ==========================================
 
 // Simple Login with Partner Code + MAC Address
 router.post('/login', async (req, res) => {
@@ -216,36 +282,20 @@ router.post('/login', async (req, res) => {
     }
 });
 
+// ==========================================
+// PROTECTED ROUTES (AUTH REQUIRED)
+// ==========================================
+
 // Refresh channels route
-router.get('/refresh-channels', async (req, res) => {
+router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
-        const token = req.headers.authorization?.replace('Bearer ', '');
-
-        if (!token) {
-            return res.status(401).json({
-                success: false,
-                message: 'No token provided'
-            });
-        }
-
-        // Verify token
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-
-        // Find subscriber
-        const subscriber = await Subscriber.findById(decoded.id);
+        // Find subscriber (already verified by middleware)
+        const subscriber = await Subscriber.findById(req.user.id);
 
         if (!subscriber) {
             return res.status(404).json({
                 success: false,
                 message: 'Subscriber not found'
-            });
-        }
-
-        // Check expiry
-        if (new Date() > new Date(subscriber.expiryDate)) {
-            return res.status(403).json({
-                success: false,
-                message: 'Subscription expired'
             });
         }
 
@@ -355,17 +405,134 @@ router.get('/refresh-channels', async (req, res) => {
 
     } catch (error) {
         console.error('Refresh channels error:', error);
-
-        if (error.name === 'JsonWebTokenError') {
-            return res.status(401).json({
-                success: false,
-                message: 'Invalid token'
-            });
-        }
-
         res.status(500).json({
             success: false,
             message: 'Failed to refresh channels'
+        });
+    }
+});
+
+// Update location endpoint
+router.post('/update-location', authenticateToken, async (req, res) => {
+    try {
+        const { latitude, longitude, address } = req.body;
+
+        if (!latitude || !longitude) {
+            return res.status(400).json({
+                success: false,
+                message: 'Latitude and longitude required'
+            });
+        }
+
+        const subscriber = await Subscriber.findByIdAndUpdate(
+            req.user.id,
+            {
+                lastLocation: {
+                    type: 'Point',
+                    coordinates: [longitude, latitude],
+                    timestamp: new Date(),
+                    address: address || null
+                },
+                $push: {
+                    locationHistory: {
+                        $each: [{
+                            coordinates: [longitude, latitude],
+                            timestamp: new Date(),
+                            address: address || null
+                        }],
+                        $slice: -100 // Keep only last 100 locations
+                    }
+                }
+            },
+            { new: true }
+        );
+
+        res.json({
+            success: true,
+            message: 'Location updated',
+            data: {
+                coordinates: subscriber.lastLocation.coordinates,
+                timestamp: subscriber.lastLocation.timestamp
+            }
+        });
+    } catch (error) {
+        console.error('Update location error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update location'
+        });
+    }
+});
+
+// Update device security info endpoint
+router.post('/update-security-info', authenticateToken, async (req, res) => {
+    try {
+        const { isRooted, isVPNActive, deviceModel, osVersion, appVersion } = req.body;
+        const clientIP = req.ip || req.connection.remoteAddress;
+
+        await Subscriber.findByIdAndUpdate(req.user.id, {
+            deviceInfo: {
+                isRooted: isRooted || false,
+                isVPNActive: isVPNActive || false,
+                lastIPAddress: clientIP,
+                deviceModel: deviceModel || '',
+                osVersion: osVersion || '',
+                appVersion: appVersion || ''
+            }
+        });
+
+        // Log security warnings if device is compromised
+        if (isRooted || isVPNActive) {
+            console.warn(`⚠️ Security Alert: Subscriber ${req.user.id}`, {
+                isRooted,
+                isVPNActive,
+                ip: clientIP
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Security info updated',
+            warnings: {
+                rooted: isRooted,
+                vpn: isVPNActive
+            }
+        });
+    } catch (error) {
+        console.error('Update security info error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update security info'
+        });
+    }
+});
+
+// Get subscriber profile
+router.get('/profile', authenticateToken, async (req, res) => {
+    try {
+        const subscriber = await Subscriber.findById(req.user.id)
+            .populate('primaryPackageId', 'name cost duration')
+            .populate('packages', 'name')
+            .select('subscriberName macAddress status expiryDate lastLocation deviceInfo');
+
+        res.json({
+            success: true,
+            data: {
+                name: subscriber.subscriberName,
+                macAddress: subscriber.macAddress,
+                status: subscriber.status,
+                expiryDate: subscriber.expiryDate,
+                primaryPackage: subscriber.primaryPackageId,
+                totalPackages: subscriber.packages.length,
+                lastLocation: subscriber.lastLocation,
+                deviceInfo: subscriber.deviceInfo
+            }
+        });
+    } catch (error) {
+        console.error('Get profile error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get profile'
         });
     }
 });
