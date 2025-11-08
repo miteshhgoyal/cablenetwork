@@ -21,7 +21,8 @@ export const AuthProvider = ({ children }) => {
     const [packagesList, setPackagesList] = useState([]);
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
-    const [refreshing, setRefreshing] = useState(false); // NEW: Track refresh state
+    const [refreshing, setRefreshing] = useState(false);
+    const [serverInfo, setServerInfo] = useState(null);
     const router = useRouter();
     const segments = useSegments();
 
@@ -35,21 +36,25 @@ export const AuthProvider = ({ children }) => {
             const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
             const savedPackages = await AsyncStorage.getItem('packagesList');
+            const savedServerInfo = await AsyncStorage.getItem('serverInfo');
 
             if (token && savedChannels && savedUser) {
                 const parsedChannels = JSON.parse(savedChannels);
                 const parsedUser = JSON.parse(savedUser);
                 const parsedPackages = savedPackages ? JSON.parse(savedPackages) : [];
+                const parsedServerInfo = savedServerInfo ? JSON.parse(savedServerInfo) : null;
 
                 setIsAuthenticated(true);
                 setChannels(parsedChannels);
                 setUser(parsedUser);
                 setPackagesList(parsedPackages);
+                setServerInfo(parsedServerInfo);
             } else {
                 setIsAuthenticated(false);
                 setUser(null);
                 setChannels([]);
                 setPackagesList([]);
+                setServerInfo(null);
             }
         } catch (error) {
             console.error('❌ Auth check error:', error);
@@ -57,6 +62,7 @@ export const AuthProvider = ({ children }) => {
             setUser(null);
             setChannels([]);
             setPackagesList([]);
+            setServerInfo(null);
         } finally {
             setLoading(false);
         }
@@ -74,7 +80,13 @@ export const AuthProvider = ({ children }) => {
             });
 
             if (response.data.success) {
-                const { token, subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
+                const {
+                    token,
+                    subscriber,
+                    channels: fetchedChannels,
+                    packagesList: fetchedPackages,
+                    serverInfo: fetchedServerInfo
+                } = response.data.data;
 
                 // Save to AsyncStorage
                 await AsyncStorage.setItem('token', token);
@@ -82,11 +94,20 @@ export const AuthProvider = ({ children }) => {
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
 
+
+                if (fetchedServerInfo) {
+                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+                }
+
                 // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
+                setServerInfo(fetchedServerInfo || null);
+
                 setIsAuthenticated(true);
+
+                console.log('✅ Login successful with proxy support:', fetchedServerInfo?.proxyEnabled);
 
                 return { success: true };
             } else {
@@ -102,7 +123,7 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // NEW: Refresh channels from database
+    // UPDATED: Refresh channels with proxy info
     const refreshChannels = async () => {
         try {
             setRefreshing(true);
@@ -120,17 +141,30 @@ export const AuthProvider = ({ children }) => {
             });
 
             if (response.data.success) {
-                const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
+                const {
+                    subscriber,
+                    channels: fetchedChannels,
+                    packagesList: fetchedPackages,
+                    serverInfo: fetchedServerInfo
+                } = response.data.data;
 
                 // Update AsyncStorage
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
 
+                if (fetchedServerInfo) {
+                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+                }
+
                 // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
+                setServerInfo(fetchedServerInfo || null);
+
+                console.log('✅ Channels refreshed with proxy support');
+
                 return { success: true };
             } else {
                 return { success: false, message: 'Refresh failed' };
@@ -155,12 +189,13 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            await AsyncStorage.multiRemove(['token', 'channels', 'user', 'packagesList']);
+            await AsyncStorage.multiRemove(['token', 'channels', 'user', 'packagesList', 'serverInfo']);
 
             setIsAuthenticated(false);
             setChannels([]);
             setUser(null);
             setPackagesList([]);
+            setServerInfo(null);
 
             const inAuthGroup = segments[0] === '(auth)';
             if (!inAuthGroup) {
@@ -175,6 +210,7 @@ export const AuthProvider = ({ children }) => {
         user,
         channels,
         packagesList,
+        serverInfo,
         isAuthenticated,
         loading,
         refreshing,
