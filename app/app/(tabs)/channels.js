@@ -220,9 +220,31 @@ const Channels = () => {
         }
     };
 
+    // Group channels by language
+    const groupChannelsByLanguage = (channelsList) => {
+        const grouped = channelsList.reduce((acc, channel) => {
+            const languageName = channel.language?.name || 'Unknown Language';
+            if (!acc[languageName]) {
+                acc[languageName] = [];
+            }
+            acc[languageName].push(channel);
+            return acc;
+        }, {});
+
+        // Sort languages alphabetically
+        return Object.keys(grouped)
+            .sort()
+            .reduce((acc, key) => {
+                acc[key] = grouped[key];
+                return acc;
+            }, {});
+    };
+
     const filteredChannels = channels.filter((channel) =>
         channel.name.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const groupedChannels = groupChannelsByLanguage(filteredChannels);
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
@@ -285,7 +307,7 @@ const Channels = () => {
                 </View>
             )}
 
-            {/* Content */}
+            {/* Content - Grouped by Language */}
             {loading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator size="large" color="#2563eb" />
@@ -297,113 +319,127 @@ const Channels = () => {
                         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
                     }
                 >
-                    {filteredChannels.length === 0 ? (
+                    {Object.keys(groupedChannels).length === 0 ? (
                         <View className="py-12">
                             <Text className="text-center text-gray-500">
                                 No channels found
                             </Text>
                         </View>
                     ) : (
-                        <View style={{ marginBottom: 16 }}>
-                            {filteredChannels.map((channel, index) => (
-                                <View
-                                    key={channel._id}
-                                    className="bg-white rounded-xl border border-gray-200 p-4"
-                                    style={{ marginBottom: 12 }}
-                                >
-                                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                                        {/* Channel Image */}
-                                        <View className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden mr-3">
-                                            {channel.imageUrl ? (
-                                                <Image
-                                                    source={{ uri: channel.imageUrl }}
-                                                    className="w-full h-full"
-                                                    resizeMode="cover"
-                                                />
-                                            ) : (
-                                                <View className="w-full h-full items-center justify-center bg-gray-200">
-                                                    <Radio size={24} color="#6b7280" />
-                                                </View>
-                                            )}
-                                        </View>
-
-                                        {/* Channel Info */}
-                                        <View style={{ flex: 1 }}>
-                                            <Text className="text-base font-bold text-gray-900" style={{ marginBottom: 8 }}>
-                                                {channel.name}
-                                            </Text>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
-                                                <View className="bg-blue-50 px-2 py-1 rounded" style={{ marginRight: 8 }}>
-                                                    <Text className="text-xs font-medium text-blue-700">
-                                                        LCN {channel.lcn}
-                                                    </Text>
-                                                </View>
-                                                <View className="bg-purple-50 px-2 py-1 rounded">
-                                                    <Text className="text-xs font-medium text-purple-700">
-                                                        {channel.language?.name || 'N/A'}
-                                                    </Text>
-                                                </View>
-                                            </View>
-                                            <Text className="text-xs text-gray-500">
-                                                {channel.genre?.name || 'N/A'}
-                                            </Text>
-                                        </View>
-
-                                        {/* Action Buttons */}
-                                        <View style={{ flexDirection: 'row', marginLeft: 8 }}>
-                                            {(userRole === 'admin' || userRole === 'distributor') && (
-                                                <TouchableOpacity
-                                                    onPress={() => handleOpenModal('edit', channel)}
-                                                    className="p-2 bg-blue-50 rounded-lg"
-                                                    style={{ marginRight: 8 }}
-                                                >
-                                                    <Edit2 size={18} color="#2563eb" />
-                                                </TouchableOpacity>
-                                            )}
-                                            {userRole === 'admin' && (
-                                                <TouchableOpacity
-                                                    onPress={() => {
-                                                        setSelectedChannel(channel);
-                                                        setShowDeleteModal(true);
-                                                    }}
-                                                    className="p-2 bg-red-50 rounded-lg"
-                                                >
-                                                    <Trash2 size={18} color="#dc2626" />
-                                                </TouchableOpacity>
-                                            )}
-                                        </View>
-                                    </View>
-
-                                    {/* Admin URL Access Toggle */}
-                                    {userRole === 'admin' && (
-                                        <TouchableOpacity
-                                            onPress={() => handleToggleUrlAccess(channel)}
-                                            disabled={urlAccessToggling === channel._id}
-                                            className={`mt-3 p-2 rounded-lg flex-row items-center justify-center ${channel.urlsAccessible
-                                                ? 'bg-green-100'
-                                                : 'bg-red-100'
-                                                } ${urlAccessToggling === channel._id ? 'opacity-50' : ''}`}
-                                        >
-                                            {urlAccessToggling === channel._id ? (
-                                                <ActivityIndicator size="small" color={channel.urlsAccessible ? '#15803d' : '#dc2626'} />
-                                            ) : (
-                                                <>
-                                                    {channel.urlsAccessible ? (
-                                                        <Unlock size={16} color="#15803d" style={{ marginRight: 6 }} />
-                                                    ) : (
-                                                        <Lock size={16} color="#dc2626" style={{ marginRight: 6 }} />
-                                                    )}
-                                                    <Text className={`text-xs font-semibold ${channel.urlsAccessible ? 'text-green-700' : 'text-red-700'
-                                                        }`}>
-                                                        {channel.urlsAccessible ? 'URLs Enabled' : 'URLs Disabled'}
-                                                    </Text>
-                                                </>
-                                            )}
-                                        </TouchableOpacity>
-                                    )}
+                        Object.entries(groupedChannels).map(([language, languageChannels]) => (
+                            <View key={language} style={{ marginBottom: 24 }}>
+                                {/* Language Header */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 8 }}>
+                                    <View style={{ width: 4, height: 24, backgroundColor: '#2563eb', borderRadius: 2, marginRight: 12 }} />
+                                    <Text className="text-lg font-bold text-gray-900">
+                                        {language}
+                                    </Text>
+                                    <Text className="text-sm text-gray-500 ml-2">
+                                        ({languageChannels.length} {languageChannels.length === 1 ? 'channel' : 'channels'})
+                                    </Text>
                                 </View>
-                            ))}
-                        </View>
+
+                                {/* Channels for this Language */}
+                                {languageChannels.map((channel, index) => (
+                                    <View
+                                        key={channel._id}
+                                        className="bg-white rounded-xl border border-gray-200 p-4"
+                                        style={{ marginBottom: 12 }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                                            {/* Channel Image */}
+                                            <View className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden mr-3">
+                                                {channel.imageUrl ? (
+                                                    <Image
+                                                        source={{ uri: channel.imageUrl }}
+                                                        className="w-full h-full"
+                                                        resizeMode="cover"
+                                                    />
+                                                ) : (
+                                                    <View className="w-full h-full items-center justify-center bg-gray-200">
+                                                        <Radio size={24} color="#6b7280" />
+                                                    </View>
+                                                )}
+                                            </View>
+
+                                            {/* Channel Info */}
+                                            <View style={{ flex: 1 }}>
+                                                <Text className="text-base font-bold text-gray-900" style={{ marginBottom: 8 }}>
+                                                    {channel.name}
+                                                </Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                                    <View className="bg-blue-50 px-2 py-1 rounded" style={{ marginRight: 8 }}>
+                                                        <Text className="text-xs font-medium text-blue-700">
+                                                            LCN {channel.lcn}
+                                                        </Text>
+                                                    </View>
+                                                    <View className="bg-gray-100 px-2 py-1 rounded">
+                                                        <Text className="text-xs font-medium text-gray-700">
+                                                            #{index + 1}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+                                                <Text className="text-xs text-gray-500">
+                                                    {channel.genre?.name || 'N/A'}
+                                                </Text>
+                                            </View>
+
+                                            {/* Action Buttons */}
+                                            <View style={{ flexDirection: 'row', marginLeft: 8 }}>
+                                                {(userRole === 'admin' || userRole === 'distributor') && (
+                                                    <TouchableOpacity
+                                                        onPress={() => handleOpenModal('edit', channel)}
+                                                        className="p-2 bg-blue-50 rounded-lg"
+                                                        style={{ marginRight: 8 }}
+                                                    >
+                                                        <Edit2 size={18} color="#2563eb" />
+                                                    </TouchableOpacity>
+                                                )}
+                                                {userRole === 'admin' && (
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            setSelectedChannel(channel);
+                                                            setShowDeleteModal(true);
+                                                        }}
+                                                        className="p-2 bg-red-50 rounded-lg"
+                                                    >
+                                                        <Trash2 size={18} color="#dc2626" />
+                                                    </TouchableOpacity>
+                                                )}
+                                            </View>
+                                        </View>
+
+                                        {/* Admin URL Access Toggle */}
+                                        {userRole === 'admin' && (
+                                            <TouchableOpacity
+                                                onPress={() => handleToggleUrlAccess(channel)}
+                                                disabled={urlAccessToggling === channel._id}
+                                                className={`mt-3 p-2 rounded-lg flex-row items-center justify-center ${channel.urlsAccessible
+                                                    ? 'bg-green-100'
+                                                    : 'bg-red-100'
+                                                    } ${urlAccessToggling === channel._id ? 'opacity-50' : ''}`}
+                                            >
+                                                {urlAccessToggling === channel._id ? (
+                                                    <ActivityIndicator size="small" color={channel.urlsAccessible ? '#15803d' : '#dc2626'} />
+                                                ) : (
+                                                    <>
+                                                        {channel.urlsAccessible ? (
+                                                            <Unlock size={16} color="#15803d" style={{ marginRight: 6 }} />
+                                                        ) : (
+                                                            <Lock size={16} color="#dc2626" style={{ marginRight: 6 }} />
+                                                        )}
+                                                        <Text className={`text-xs font-semibold ${channel.urlsAccessible ? 'text-green-700' : 'text-red-700'
+                                                            }`}>
+                                                            {channel.urlsAccessible ? 'URLs Enabled' : 'URLs Disabled'}
+                                                        </Text>
+                                                    </>
+                                                )}
+                                            </TouchableOpacity>
+                                        )}
+                                    </View>
+                                ))}
+                            </View>
+                        ))
                     )}
                 </ScrollView>
             )}
@@ -579,7 +615,6 @@ const Channels = () => {
                                         </View>
                                     </>
                                 ) : userRole === 'distributor' && selectedChannel && !selectedChannel.urlsAccessible ? (
-                                    // Restricted message for distributors without access
                                     <View className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg flex-row items-start">
                                         <Lock size={18} color="#dc2626" style={{ marginRight: 12, marginTop: 2 }} />
                                         <Text className="text-xs text-red-700 flex-1">

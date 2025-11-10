@@ -198,9 +198,31 @@ const Ott = () => {
         }
     };
 
+    // Group OTT content by language
+    const groupContentByLanguage = (contentList) => {
+        const grouped = contentList.reduce((acc, content) => {
+            const languageName = content.language?.name || 'Unknown Language';
+            if (!acc[languageName]) {
+                acc[languageName] = [];
+            }
+            acc[languageName].push(content);
+            return acc;
+        }, {});
+
+        // Sort languages alphabetically
+        return Object.keys(grouped)
+            .sort()
+            .reduce((acc, key) => {
+                acc[key] = grouped[key];
+                return acc;
+            }, {});
+    };
+
     const filteredOttContent = ottContent.filter((ott) =>
         ott.title.toLowerCase().includes(searchTerm.toLowerCase())
     );
+
+    const groupedContent = groupContentByLanguage(filteredOttContent);
 
     return (
         <SafeAreaView className="flex-1 bg-gray-50">
@@ -287,7 +309,7 @@ const Ott = () => {
                 )}
             </View>
 
-            {/* Content */}
+            {/* Content - Grouped by Language */}
             {loading ? (
                 <View className="flex-1 items-center justify-center">
                     <ActivityIndicator size="large" color="#2563eb" />
@@ -299,122 +321,137 @@ const Ott = () => {
                         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
                     }
                 >
-                    {filteredOttContent.length === 0 ? (
+                    {Object.keys(groupedContent).length === 0 ? (
                         <View className="py-12">
                             <Text className="text-center text-gray-500">
                                 No OTT content found
                             </Text>
                         </View>
                     ) : (
-                        <View style={{ marginBottom: 16 }}>
-                            {filteredOttContent.map((ott, index) => (
-                                <View
-                                    key={ott._id}
-                                    className="bg-white rounded-xl border border-gray-200 p-4"
-                                    style={{ marginBottom: 12 }}
-                                >
-                                    <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-                                        {/* Poster Image */}
-                                        <View className="w-20 h-28 bg-gray-100 rounded-lg overflow-hidden mr-3">
-                                            {ott.verticalUrl ? (
-                                                <Image
-                                                    source={{ uri: ott.verticalUrl }}
-                                                    className="w-full h-full"
-                                                    resizeMode="cover"
-                                                />
-                                            ) : (
-                                                <View className="w-full h-full items-center justify-center bg-gray-200">
-                                                    <Film size={24} color="#6b7280" />
-                                                </View>
-                                            )}
-                                        </View>
+                        Object.entries(groupedContent).map(([language, languageContent]) => (
+                            <View key={language} style={{ marginBottom: 24 }}>
+                                {/* Language Header */}
+                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12, paddingHorizontal: 8 }}>
+                                    <View style={{ width: 4, height: 24, backgroundColor: '#2563eb', borderRadius: 2, marginRight: 12 }} />
+                                    <Text className="text-lg font-bold text-gray-900">
+                                        {language}
+                                    </Text>
+                                    <Text className="text-sm text-gray-500 ml-2">
+                                        ({languageContent.length} {languageContent.length === 1 ? 'item' : 'items'})
+                                    </Text>
+                                </View>
 
-                                        {/* Content Info */}
-                                        <View style={{ flex: 1 }}>
-                                            <View
-                                                style={{
-                                                    alignSelf: 'flex-start',
-                                                    paddingHorizontal: 12,
-                                                    paddingVertical: 4,
-                                                    borderRadius: 20,
-                                                    flexDirection: 'row',
-                                                    alignItems: 'center',
-                                                    marginBottom: 8,
-                                                    borderWidth: 1,
-                                                    backgroundColor: ott.type === 'Movie' ? '#dbeafe' : '#f3e8ff',
-                                                    borderColor: ott.type === 'Movie' ? '#bfdbfe' : '#e9d5ff',
-                                                }}
-                                            >
-                                                {ott.type === 'Movie' ? (
-                                                    <Film size={12} color="#2563eb" />
+                                {/* Content for this Language */}
+                                {languageContent.map((ott, index) => (
+                                    <View
+                                        key={ott._id}
+                                        className="bg-white rounded-xl border border-gray-200 p-4"
+                                        style={{ marginBottom: 12 }}
+                                    >
+                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+                                            {/* Poster Image */}
+                                            <View className="w-20 h-28 bg-gray-100 rounded-lg overflow-hidden mr-3">
+                                                {ott.verticalUrl ? (
+                                                    <Image
+                                                        source={{ uri: ott.verticalUrl }}
+                                                        className="w-full h-full"
+                                                        resizeMode="cover"
+                                                    />
                                                 ) : (
-                                                    <Tv size={12} color="#9333ea" />
-                                                )}
-                                                <Text
-                                                    style={{
-                                                        fontSize: 12,
-                                                        fontWeight: '600',
-                                                        marginLeft: 4,
-                                                        color: ott.type === 'Movie' ? '#2563eb' : '#9333ea',
-                                                    }}
-                                                >
-                                                    {ott.type}
-                                                </Text>
-                                            </View>
-
-                                            <Text className="text-base font-bold text-gray-900 mb-1">
-                                                {ott.title}
-                                            </Text>
-
-                                            <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
-                                                <View className="bg-gray-100 px-2 py-1 rounded mr-2 mb-2">
-                                                    <Text className="text-xs text-gray-700">
-                                                        {ott.genre?.name || 'N/A'}
-                                                    </Text>
-                                                </View>
-                                                <View className="bg-gray-100 px-2 py-1 rounded mr-2 mb-2">
-                                                    <Text className="text-xs text-gray-700">
-                                                        {ott.language?.name || 'N/A'}
-                                                    </Text>
-                                                </View>
-                                                {ott.type === 'Web Series' && ott.seasonsCount && (
-                                                    <View className="bg-gray-100 px-2 py-1 rounded mb-2">
-                                                        <Text className="text-xs text-gray-700">
-                                                            {ott.seasonsCount} Season{ott.seasonsCount > 1 ? 's' : ''}
-                                                        </Text>
+                                                    <View className="w-full h-full items-center justify-center bg-gray-200">
+                                                        <Film size={24} color="#6b7280" />
                                                     </View>
                                                 )}
                                             </View>
 
-                                            {/* Action Buttons */}
-                                            <View style={{ flexDirection: 'row', marginTop: 8 }}>
-                                                <TouchableOpacity
-                                                    onPress={() => handleOpenModal('edit', ott)}
-                                                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#dbeafe', borderRadius: 8, marginRight: 8 }}
-                                                >
-                                                    <Edit2 size={16} color="#2563eb" />
-                                                    <Text className="text-blue-700 font-semibold text-xs ml-1">
-                                                        Edit
-                                                    </Text>
-                                                </TouchableOpacity>
-                                                <TouchableOpacity
-                                                    onPress={() => {
-                                                        setSelectedOtt(ott);
-                                                        setShowDeleteModal(true);
-                                                    }}
-                                                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fee2e2', borderRadius: 8 }}
-                                                >
-                                                    <Trash2 size={16} color="#dc2626" />
-                                                    <Text className="text-red-700 font-semibold text-xs ml-1">
-                                                        Delete
-                                                    </Text>
-                                                </TouchableOpacity>
+                                            {/* Content Info */}
+                                            <View style={{ flex: 1 }}>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+                                                    <View
+                                                        style={{
+                                                            paddingHorizontal: 12,
+                                                            paddingVertical: 4,
+                                                            borderRadius: 20,
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            marginRight: 8,
+                                                            borderWidth: 1,
+                                                            backgroundColor: ott.type === 'Movie' ? '#dbeafe' : '#f3e8ff',
+                                                            borderColor: ott.type === 'Movie' ? '#bfdbfe' : '#e9d5ff',
+                                                        }}
+                                                    >
+                                                        {ott.type === 'Movie' ? (
+                                                            <Film size={12} color="#2563eb" />
+                                                        ) : (
+                                                            <Tv size={12} color="#9333ea" />
+                                                        )}
+                                                        <Text
+                                                            style={{
+                                                                fontSize: 12,
+                                                                fontWeight: '600',
+                                                                marginLeft: 4,
+                                                                color: ott.type === 'Movie' ? '#2563eb' : '#9333ea',
+                                                            }}
+                                                        >
+                                                            {ott.type}
+                                                        </Text>
+                                                    </View>
+                                                    <View className="bg-gray-100 px-2 py-1 rounded">
+                                                        <Text className="text-xs font-medium text-gray-700">
+                                                            #{index + 1}
+                                                        </Text>
+                                                    </View>
+                                                </View>
+
+                                                <Text className="text-base font-bold text-gray-900 mb-1">
+                                                    {ott.title}
+                                                </Text>
+
+                                                <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', marginBottom: 8 }}>
+                                                    <View className="bg-gray-100 px-2 py-1 rounded mr-2 mb-2">
+                                                        <Text className="text-xs text-gray-700">
+                                                            {ott.genre?.name || 'N/A'}
+                                                        </Text>
+                                                    </View>
+                                                    {ott.type === 'Web Series' && ott.seasonsCount && (
+                                                        <View className="bg-purple-50 px-2 py-1 rounded mb-2">
+                                                            <Text className="text-xs text-purple-700 font-medium">
+                                                                {ott.seasonsCount} Season{ott.seasonsCount > 1 ? 's' : ''}
+                                                            </Text>
+                                                        </View>
+                                                    )}
+                                                </View>
+
+                                                {/* Action Buttons */}
+                                                <View style={{ flexDirection: 'row', marginTop: 8 }}>
+                                                    <TouchableOpacity
+                                                        onPress={() => handleOpenModal('edit', ott)}
+                                                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#dbeafe', borderRadius: 8, marginRight: 8 }}
+                                                    >
+                                                        <Edit2 size={16} color="#2563eb" />
+                                                        <Text className="text-blue-700 font-semibold text-xs ml-1">
+                                                            Edit
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                    <TouchableOpacity
+                                                        onPress={() => {
+                                                            setSelectedOtt(ott);
+                                                            setShowDeleteModal(true);
+                                                        }}
+                                                        style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fee2e2', borderRadius: 8 }}
+                                                    >
+                                                        <Trash2 size={16} color="#dc2626" />
+                                                        <Text className="text-red-700 font-semibold text-xs ml-1">
+                                                            Delete
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </View>
                                             </View>
                                         </View>
                                     </View>
-                                </View>
-                            ))}
-                        </View>
+                                ))}
+                            </View>
+                        ))
                     )}
                 </ScrollView>
             )}
