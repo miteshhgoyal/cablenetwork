@@ -46,11 +46,17 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
+            console.log('🔍 Checking authentication...');
+
             const token = await AsyncStorage.getItem('token');
             const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
             const savedPackages = await AsyncStorage.getItem('packagesList');
             const savedServerInfo = await AsyncStorage.getItem('serverInfo');
+
+            console.log('Token exists:', !!token);
+            console.log('Saved user exists:', !!savedUser);
+            console.log('Saved channels exists:', !!savedChannels);
 
             if (token && savedChannels && savedUser) {
                 const parsedChannels = JSON.parse(savedChannels);
@@ -64,12 +70,19 @@ export const AuthProvider = ({ children }) => {
                 setPackagesList(parsedPackages);
                 setServerInfo(parsedServerInfo);
 
-                // Start security monitoring (will use stored token)
-                const intervalId = startSecurityMonitoring();
-                setSecurityIntervalId(intervalId);
+                // Start security monitoring with error handling
+                try {
+                    const intervalId = startSecurityMonitoring();
+                    setSecurityIntervalId(intervalId);
+                    console.log('🔒 Security monitoring started');
+                } catch (securityError) {
+                    console.warn('⚠️ Security monitoring failed:', securityError);
+                    // Continue anyway - don't fail authentication
+                }
 
-                console.log('✅ User already authenticated');
+                console.log('✅ User authenticated from storage');
             } else {
+                console.log('❌ Authentication failed - missing data');
                 setIsAuthenticated(false);
                 setUser(null);
                 setChannels([]);
@@ -79,6 +92,10 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             console.error('❌ Auth check error:', error);
             setIsAuthenticated(false);
+            setUser(null);
+            setChannels([]);
+            setPackagesList([]);
+            setServerInfo(null);
         } finally {
             setLoading(false);
         }
@@ -89,7 +106,7 @@ export const AuthProvider = ({ children }) => {
             const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
             const deviceName = Device.deviceName || 'User Device';
 
-            console.log('📡 Attempting login...');
+            console.log('📡 Attempting login with partner code...');
             const response = await api.post(`/customer/login`, {
                 partnerCode: partnerCode.trim(),
                 macAddress,
@@ -105,51 +122,84 @@ export const AuthProvider = ({ children }) => {
                     serverInfo: fetchedServerInfo
                 } = response.data.data;
 
-                // Save to AsyncStorage
-                await AsyncStorage.setItem('token', token);
-                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
+                console.log('💾 Saving authentication data...');
 
-                if (fetchedServerInfo) {
-                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+                // Save to AsyncStorage FIRST (most critical)
+                try {
+                    await AsyncStorage.setItem('token', token);
+                    await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+                    await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                    await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
+
+                    if (fetchedServerInfo) {
+                        await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+                    }
+
+                    console.log('✅ Authentication data saved to AsyncStorage');
+                } catch (storageError) {
+                    console.error('❌ AsyncStorage save error:', storageError);
+                    throw new Error('Failed to save authentication data');
                 }
 
-                // Update state
+                // Update state AFTER successful storage
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
                 setIsAuthenticated(true);
 
-                console.log('✅ Login successful');
+                console.log('✅ Login successful - state updated');
 
-                // NOW check security AFTER login (with token available)
-                console.log('🔒 Checking device security...');
-                const securityCheck = await checkDeviceSecurity();
+                // ========================================
+                // SECURITY & LOCATION (NON-BLOCKING)
+                // ========================================
+                // These run in background and don't block login
 
-                if (securityCheck.isVPNActive) {
-                    Alert.alert(
-                        '⚠️ VPN Detected',
-                        'VPN is active. This may affect streaming quality.',
-                        [{ text: 'OK' }]
-                    );
+                // Security check (with error handling)
+                try {
+                    console.log('🔒 Checking device security...');
+                    const securityCheck = await checkDeviceSecurity();
+
+                    if (securityCheck.isVPNActive) {
+                        // Use setTimeout to avoid blocking
+                        setTimeout(() => {
+                            Alert.alert(
+                                '⚠️ VPN Detected',
+                                'VPN is active. This may affect streaming quality.',
+                                [{ text: 'OK' }]
+                            );
+                        }, 500);
+                    }
+                } catch (securityError) {
+                    console.warn('⚠️ Security check failed:', securityError);
+                    // Don't fail login if security check fails
                 }
 
-                // Request location permissions and start tracking
-                console.log('📍 Requesting location permissions...');
-                const locationPermission = await requestLocationPermissions();
-                if (locationPermission.success) {
-                    console.log('📍 Starting location tracking...');
-                    await startLocationTracking();
-                } else {
-                    console.warn('⚠️ Location permission denied');
+                // Location tracking (with error handling)
+                try {
+                    console.log('📍 Requesting location permissions...');
+                    const locationPermission = await requestLocationPermissions();
+
+                    if (locationPermission.success) {
+                        console.log('📍 Starting location tracking...');
+                        await startLocationTracking();
+                    } else {
+                        console.warn('⚠️ Location permission denied');
+                    }
+                } catch (locationError) {
+                    console.warn('⚠️ Location tracking failed:', locationError);
+                    // Don't fail login if location tracking fails
                 }
 
-                // Start security monitoring (will run every 10 mins)
-                console.log('🔒 Starting security monitoring...');
-                const intervalId = startSecurityMonitoring();
-                setSecurityIntervalId(intervalId);
+                // Start security monitoring (with error handling)
+                try {
+                    console.log('🔒 Starting security monitoring...');
+                    const intervalId = startSecurityMonitoring();
+                    setSecurityIntervalId(intervalId);
+                } catch (monitoringError) {
+                    console.warn('⚠️ Security monitoring failed:', monitoringError);
+                    // Don't fail login if monitoring fails
+                }
 
                 return { success: true };
             } else {
@@ -157,9 +207,11 @@ export const AuthProvider = ({ children }) => {
             }
         } catch (error) {
             console.error('❌ Login error:', error);
+            console.error('Error response:', error.response?.data);
+
             return {
                 success: false,
-                message: error.response?.data?.message || 'Invalid partner code'
+                message: error.response?.data?.message || error.message || 'Invalid partner code'
             };
         }
     };
@@ -171,9 +223,11 @@ export const AuthProvider = ({ children }) => {
             const token = await AsyncStorage.getItem('token');
 
             if (!token) {
+                console.warn('⚠️ No token found for refresh');
                 return { success: false, message: 'Not authenticated' };
             }
 
+            console.log('🔄 Refreshing channels...');
             const response = await api.get('/customer/refresh-channels', {
                 headers: {
                     Authorization: `Bearer ${token}`
@@ -188,6 +242,7 @@ export const AuthProvider = ({ children }) => {
                     serverInfo: fetchedServerInfo
                 } = response.data.data;
 
+                // Save to AsyncStorage
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
@@ -196,12 +251,13 @@ export const AuthProvider = ({ children }) => {
                     await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                 }
 
+                // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
 
-                console.log('✅ Channels refreshed');
+                console.log('✅ Channels refreshed successfully');
                 return { success: true };
             } else {
                 return { success: false, message: 'Refresh failed' };
@@ -210,6 +266,7 @@ export const AuthProvider = ({ children }) => {
             console.error('❌ Refresh error:', error);
 
             if (error.response?.status === 401) {
+                console.warn('⚠️ Session expired - logging out');
                 await logout();
                 return { success: false, message: 'Session expired' };
             }
@@ -227,21 +284,34 @@ export const AuthProvider = ({ children }) => {
         try {
             console.log('🚪 Logging out...');
 
-            // Stop location tracking
-            await stopLocationTracking();
+            // Stop location tracking (with error handling)
+            try {
+                await stopLocationTracking();
+                console.log('📍 Location tracking stopped');
+            } catch (locationError) {
+                console.warn('⚠️ Failed to stop location tracking:', locationError);
+            }
 
-            // Stop security monitoring
-            stopSecurityMonitoring(securityIntervalId);
-            setSecurityIntervalId(null);
+            // Stop security monitoring (with error handling)
+            try {
+                stopSecurityMonitoring(securityIntervalId);
+                setSecurityIntervalId(null);
+                console.log('🔒 Security monitoring stopped');
+            } catch (securityError) {
+                console.warn('⚠️ Failed to stop security monitoring:', securityError);
+            }
 
+            // Clear AsyncStorage
             await AsyncStorage.multiRemove(['token', 'channels', 'user', 'packagesList', 'serverInfo']);
 
+            // Reset state
             setIsAuthenticated(false);
             setChannels([]);
             setUser(null);
             setPackagesList([]);
             setServerInfo(null);
 
+            // Navigate to login
             const inAuthGroup = segments[0] === '(auth)';
             if (!inAuthGroup) {
                 router.replace('/(auth)/signin');
