@@ -46,7 +46,7 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
-            console.log('🔍 Checking authentication...');
+
 
             const token = await AsyncStorage.getItem('token');
             const savedChannels = await AsyncStorage.getItem('channels');
@@ -54,9 +54,9 @@ export const AuthProvider = ({ children }) => {
             const savedPackages = await AsyncStorage.getItem('packagesList');
             const savedServerInfo = await AsyncStorage.getItem('serverInfo');
 
-            console.log('Token exists:', !!token);
-            console.log('Saved user exists:', !!savedUser);
-            console.log('Saved channels exists:', !!savedChannels);
+
+
+
 
             if (token && savedChannels && savedUser) {
                 const parsedChannels = JSON.parse(savedChannels);
@@ -74,15 +74,15 @@ export const AuthProvider = ({ children }) => {
                 try {
                     const intervalId = startSecurityMonitoring();
                     setSecurityIntervalId(intervalId);
-                    console.log('🔒 Security monitoring started');
+
                 } catch (securityError) {
                     console.warn('⚠️ Security monitoring failed:', securityError);
                     // Continue anyway - don't fail authentication
                 }
 
-                console.log('✅ User authenticated from storage');
+
             } else {
-                console.log('❌ Authentication failed - missing data');
+
                 setIsAuthenticated(false);
                 setUser(null);
                 setChannels([]);
@@ -106,7 +106,7 @@ export const AuthProvider = ({ children }) => {
             const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
             const deviceName = Device.deviceName || 'User Device';
 
-            console.log('📡 Attempting login with partner code...');
+
             const response = await api.post(`/customer/login`, {
                 partnerCode: partnerCode.trim(),
                 macAddress,
@@ -122,7 +122,7 @@ export const AuthProvider = ({ children }) => {
                     serverInfo: fetchedServerInfo
                 } = response.data.data;
 
-                console.log('💾 Saving authentication data...');
+
 
                 // Save to AsyncStorage FIRST (most critical)
                 try {
@@ -135,7 +135,7 @@ export const AuthProvider = ({ children }) => {
                         await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                     }
 
-                    console.log('✅ Authentication data saved to AsyncStorage');
+
                 } catch (storageError) {
                     console.error('❌ AsyncStorage save error:', storageError);
                     throw new Error('Failed to save authentication data');
@@ -148,7 +148,7 @@ export const AuthProvider = ({ children }) => {
                 setServerInfo(fetchedServerInfo || null);
                 setIsAuthenticated(true);
 
-                console.log('✅ Login successful - state updated');
+
 
                 // ========================================
                 // SECURITY & LOCATION (NON-BLOCKING)
@@ -157,7 +157,7 @@ export const AuthProvider = ({ children }) => {
 
                 // Security check (with error handling)
                 try {
-                    console.log('🔒 Checking device security...');
+
                     const securityCheck = await checkDeviceSecurity();
 
                     if (securityCheck.isVPNActive) {
@@ -177,11 +177,11 @@ export const AuthProvider = ({ children }) => {
 
                 // Location tracking (with error handling)
                 try {
-                    console.log('📍 Requesting location permissions...');
+
                     const locationPermission = await requestLocationPermissions();
 
                     if (locationPermission.success) {
-                        console.log('📍 Starting location tracking...');
+
                         await startLocationTracking();
                     } else {
                         console.warn('⚠️ Location permission denied');
@@ -193,7 +193,7 @@ export const AuthProvider = ({ children }) => {
 
                 // Start security monitoring (with error handling)
                 try {
-                    console.log('🔒 Starting security monitoring...');
+
                     const intervalId = startSecurityMonitoring();
                     setSecurityIntervalId(intervalId);
                 } catch (monitoringError) {
@@ -227,7 +227,7 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, message: 'Not authenticated' };
             }
 
-            console.log('🔄 Refreshing channels...');
+
             const response = await api.get('/customer/refresh-channels', {
                 headers: {
                     Authorization: `Bearer ${token}`
@@ -257,7 +257,7 @@ export const AuthProvider = ({ children }) => {
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
 
-                console.log('✅ Channels refreshed successfully');
+
                 return { success: true };
             } else {
                 return { success: false, message: 'Refresh failed' };
@@ -282,12 +282,12 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            console.log('🚪 Logging out...');
+
 
             // Stop location tracking (with error handling)
             try {
                 await stopLocationTracking();
-                console.log('📍 Location tracking stopped');
+
             } catch (locationError) {
                 console.warn('⚠️ Failed to stop location tracking:', locationError);
             }
@@ -296,7 +296,7 @@ export const AuthProvider = ({ children }) => {
             try {
                 stopSecurityMonitoring(securityIntervalId);
                 setSecurityIntervalId(null);
-                console.log('🔒 Security monitoring stopped');
+
             } catch (securityError) {
                 console.warn('⚠️ Failed to stop security monitoring:', securityError);
             }
@@ -317,7 +317,7 @@ export const AuthProvider = ({ children }) => {
                 router.replace('/(auth)/signin');
             }
 
-            console.log('✅ Logout successful');
+
         } catch (error) {
             console.error('❌ Logout error:', error);
         }
