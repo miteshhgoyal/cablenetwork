@@ -157,7 +157,6 @@ const Channels = () => {
     }
   };
 
-  // Check if URL fields can be edited (for distributors, depends on urlsAccessible)
   const canEditUrlFields = () => {
     if (userRole === "admin") return true;
     if (userRole === "distributor" && selectedChannel) {
@@ -166,16 +165,37 @@ const Channels = () => {
     return false;
   };
 
-  // Check if URL fields should be visible (for distributors, always visible but may be disabled)
   const shouldShowUrlFields = () => {
     if (userRole === "admin") return true;
     if (userRole === "distributor") return true;
     return canAccessUrls;
   };
 
+  // Group channels by language
+  const groupChannelsByLanguage = (channelsList) => {
+    const grouped = channelsList.reduce((acc, channel) => {
+      const languageName = channel.language?.name || "Unknown Language";
+      if (!acc[languageName]) {
+        acc[languageName] = [];
+      }
+      acc[languageName].push(channel);
+      return acc;
+    }, {});
+
+    // Sort languages alphabetically
+    return Object.keys(grouped)
+      .sort()
+      .reduce((acc, key) => {
+        acc[key] = grouped[key];
+        return acc;
+      }, {});
+  };
+
   const filteredChannels = channels.filter((channel) =>
     channel.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const groupedChannels = groupChannelsByLanguage(filteredChannels);
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -237,130 +257,136 @@ const Channels = () => {
           </div>
         )}
 
-        {/* Table */}
+        {/* Grouped Channels by Language */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader className="w-8 h-8 text-blue-600 animate-spin" />
           </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      S.No
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Channel Name
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      LCN
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Language
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Genres
-                    </th>
-                    {userRole === "admin" && (
-                      <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                        URL Access
-                      </th>
-                    )}
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {filteredChannels.length === 0 ? (
-                    <tr>
-                      <td
-                        colSpan={userRole === "admin" ? "7" : "6"}
-                        className="px-6 py-12 text-center"
-                      >
-                        <p className="text-gray-500">No channels found</p>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredChannels.map((channel, index) => (
-                      <tr
-                        key={channel._id}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {channel.name}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {channel.lcn}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {channel.language?.name || "N/A"}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {channel.genre?.name || "N/A"}
-                        </td>
-                        {userRole === "admin" && (
-                          <td className="px-6 py-4 text-sm">
-                            <button
-                              onClick={() => handleToggleUrlAccess(channel)}
-                              disabled={urlAccessToggling === channel._id}
-                              className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
-                                channel.urlsAccessible
-                                  ? "bg-green-100 text-green-700 hover:bg-green-200"
-                                  : "bg-red-100 text-red-700 hover:bg-red-200"
-                              } disabled:opacity-50`}
-                            >
-                              {urlAccessToggling === channel._id ? (
-                                <Loader className="w-4 h-4 animate-spin" />
-                              ) : channel.urlsAccessible ? (
-                                <Unlock className="w-4 h-4" />
-                              ) : (
-                                <Lock className="w-4 h-4" />
-                              )}
-                              <span className="text-xs font-semibold">
-                                {channel.urlsAccessible
-                                  ? "Enabled"
-                                  : "Disabled"}
-                              </span>
-                            </button>
-                          </td>
-                        )}
-                        <td className="px-6 py-4 text-sm text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            {(userRole === "admin" ||
-                              userRole === "distributor") && (
-                              <button
-                                onClick={() => handleOpenModal("edit", channel)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all inline-flex items-center justify-center"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                            )}
-                            {userRole === "admin" && (
-                              <button
-                                onClick={() => {
-                                  setSelectedChannel(channel);
-                                  setShowDeleteModal(true);
-                                }}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all inline-flex items-center justify-center"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        ) : Object.keys(groupedChannels).length === 0 ? (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12">
+            <p className="text-center text-gray-500">No channels found</p>
           </div>
+        ) : (
+          Object.entries(groupedChannels).map(
+            ([language, languageChannels]) => (
+              <div key={language} className="mb-8">
+                {/* Language Heading */}
+                <h3 className="text-xl font-bold text-gray-900 mb-4 px-2 flex items-center">
+                  <span className="inline-block w-1 h-6 bg-blue-600 mr-3 rounded"></span>
+                  {language}
+                  <span className="ml-3 text-sm font-normal text-gray-500">
+                    ({languageChannels.length}{" "}
+                    {languageChannels.length === 1 ? "channel" : "channels"})
+                  </span>
+                </h3>
+
+                {/* Channels Table for this Language */}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-gray-50 border-b border-gray-200">
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            S.No
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Channel Name
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            LCN
+                          </th>
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Genre
+                          </th>
+                          {userRole === "admin" && (
+                            <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                              URL Access
+                            </th>
+                          )}
+                          <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Actions
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-200">
+                        {languageChannels.map((channel, index) => (
+                          <tr
+                            key={channel._id}
+                            className="hover:bg-gray-50 transition-colors"
+                          >
+                            <td className="px-6 py-4 text-sm text-gray-900">
+                              {index + 1}
+                            </td>
+                            <td className="px-6 py-4 text-sm font-medium text-gray-900">
+                              {channel.name}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-900">
+                              {channel.lcn}
+                            </td>
+                            <td className="px-6 py-4 text-sm text-gray-900">
+                              {channel.genre?.name || "N/A"}
+                            </td>
+                            {userRole === "admin" && (
+                              <td className="px-6 py-4 text-sm">
+                                <button
+                                  onClick={() => handleToggleUrlAccess(channel)}
+                                  disabled={urlAccessToggling === channel._id}
+                                  className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                                    channel.urlsAccessible
+                                      ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                      : "bg-red-100 text-red-700 hover:bg-red-200"
+                                  } disabled:opacity-50`}
+                                >
+                                  {urlAccessToggling === channel._id ? (
+                                    <Loader className="w-4 h-4 animate-spin" />
+                                  ) : channel.urlsAccessible ? (
+                                    <Unlock className="w-4 h-4" />
+                                  ) : (
+                                    <Lock className="w-4 h-4" />
+                                  )}
+                                  <span className="text-xs font-semibold">
+                                    {channel.urlsAccessible
+                                      ? "Enabled"
+                                      : "Disabled"}
+                                  </span>
+                                </button>
+                              </td>
+                            )}
+                            <td className="px-6 py-4 text-sm text-right">
+                              <div className="flex items-center justify-end space-x-2">
+                                {(userRole === "admin" ||
+                                  userRole === "distributor") && (
+                                  <button
+                                    onClick={() =>
+                                      handleOpenModal("edit", channel)
+                                    }
+                                    className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all inline-flex items-center justify-center"
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                                {userRole === "admin" && (
+                                  <button
+                                    onClick={() => {
+                                      setSelectedChannel(channel);
+                                      setShowDeleteModal(true);
+                                    }}
+                                    className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all inline-flex items-center justify-center"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )
+          )
         )}
       </div>
 
@@ -463,7 +489,6 @@ const Channels = () => {
                 </div>
 
                 {shouldShowUrlFields() &&
-                  // This condition determines if URL fields should be visible AND editable
                   (userRole === "admin" ||
                   (userRole === "distributor" &&
                     selectedChannel &&
@@ -530,7 +555,6 @@ const Channels = () => {
                   ) : userRole === "distributor" &&
                     selectedChannel &&
                     !selectedChannel.urlsAccessible ? (
-                    // Show restricted message for distributors without access
                     <div className="md:col-span-2 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3">
                       <Lock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
                       <div>
