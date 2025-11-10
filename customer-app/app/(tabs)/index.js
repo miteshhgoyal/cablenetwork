@@ -1,4 +1,4 @@
-// app/(tabs)/channels.js - COMPLETE FILE WITH PROXY TOGGLE + YOUTUBE WITH SOUND
+// app/(tabs)/channels.js - ENHANCED WITH USER INFO, PACKAGE DETAILS & LOGOUT
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
     View,
@@ -27,6 +27,7 @@ export default function ChannelsScreen() {
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
     const [selectedChannel, setSelectedChannel] = useState(null);
     const [showPlayer, setShowPlayer] = useState(false);
+    const [showUserInfo, setShowUserInfo] = useState(false);
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
@@ -57,6 +58,34 @@ export default function ChannelsScreen() {
             subscription.remove();
         };
     }, []);
+
+    // ==========================================
+    // USER PACKAGE INFO
+    // ==========================================
+
+    const getUserPackage = () => {
+        if (!user?.package || !packagesList) return null;
+        return packagesList.find(pkg => pkg._id === user.package);
+    };
+
+    const formatDate = (dateString) => {
+        if (!dateString) return 'N/A';
+        const date = new Date(dateString);
+        return date.toLocaleDateString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+        });
+    };
+
+    const getDaysRemaining = () => {
+        if (!user?.subscriptionEndDate) return null;
+        const endDate = new Date(user.subscriptionEndDate);
+        const today = new Date();
+        const diffTime = endDate - today;
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        return diffDays;
+    };
 
     // ==========================================
     // GROUP CHANNELS BY LANGUAGE
@@ -175,11 +204,9 @@ export default function ChannelsScreen() {
 
         // Use proxy only if toggle is ON
         if (useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
-            console.log('🔒 Using proxy URL');
             return selectedChannel.proxyUrl;
         }
 
-        console.log('🌐 Using direct URL');
         return selectedChannel.url;
     };
 
@@ -198,7 +225,6 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -236,7 +262,6 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube live player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -277,7 +302,6 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'ready', () => {
-            console.log('✅ YouTube playlist player ready');
             setVideoLoading(false);
             setYoutubeReady(true);
             setVideoError(false);
@@ -508,7 +532,6 @@ export default function ChannelsScreen() {
                     onLoad={() => {
                         setVideoLoading(false);
                         setVideoError(false);
-                        console.log('✅ Video loaded successfully');
                     }}
                     onError={(error) => {
                         console.error('❌ Video error:', error);
@@ -540,6 +563,27 @@ export default function ChannelsScreen() {
         setCurrentPlaylistIndex(0);
         setPlaylistVideoIds([]);
         setCurrentYoutubeVideoId(null);
+    };
+
+    // ==========================================
+    // LOGOUT HANDLER
+    // ==========================================
+
+    const handleLogout = () => {
+        Alert.alert(
+            'Logout',
+            'Are you sure you want to logout?',
+            [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                    text: 'Logout',
+                    style: 'destructive',
+                    onPress: () => {
+                        logout();
+                    }
+                }
+            ]
+        );
     };
 
     // ==========================================
@@ -630,6 +674,9 @@ export default function ChannelsScreen() {
         );
     }
 
+    const userPackage = getUserPackage();
+    const daysRemaining = getDaysRemaining();
+
     return (
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
@@ -637,14 +684,27 @@ export default function ChannelsScreen() {
             {/* Header */}
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between mb-3">
-                    <Text className="text-white text-2xl font-bold">📺 Live Channels</Text>
-                    <TouchableOpacity onPress={refreshChannels} disabled={refreshing}>
-                        <Ionicons
-                            name="refresh"
-                            size={24}
-                            color={refreshing ? '#9ca3af' : '#f97316'}
-                        />
-                    </TouchableOpacity>
+                    <View className="flex-row items-center">
+                        <Text className="text-white text-2xl font-bold">📺 Live Channels</Text>
+                        <View className="ml-3 bg-orange-500 px-2 py-1 rounded-full">
+                            <Text className="text-white text-xs font-bold">{channels?.length || 0}</Text>
+                        </View>
+                    </View>
+                    <View className="flex-row items-center">
+                        <TouchableOpacity
+                            onPress={() => setShowUserInfo(true)}
+                            className="mr-3"
+                        >
+                            <Ionicons name="person-circle" size={28} color="#f97316" />
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={refreshChannels} disabled={refreshing}>
+                            <Ionicons
+                                name="refresh"
+                                size={24}
+                                color={refreshing ? '#9ca3af' : '#f97316'}
+                            />
+                        </TouchableOpacity>
+                    </View>
                 </View>
 
                 {/* Search Bar */}
@@ -689,6 +749,121 @@ export default function ChannelsScreen() {
                 refreshing={refreshing}
                 onRefresh={refreshChannels}
             />
+
+            {/* User Info Modal */}
+            <Modal
+                visible={showUserInfo}
+                animationType="slide"
+                transparent
+                onRequestClose={() => setShowUserInfo(false)}
+            >
+                <View className="flex-1 bg-black/70 justify-end">
+                    <View className="bg-gray-900 rounded-t-3xl">
+                        {/* Modal Header */}
+                        <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
+                            <Text className="text-white text-xl font-bold">Account Info</Text>
+                            <TouchableOpacity onPress={() => setShowUserInfo(false)}>
+                                <Ionicons name="close" size={24} color="white" />
+                            </TouchableOpacity>
+                        </View>
+
+                        <ScrollView className="px-6 py-4" style={{ maxHeight: 500 }}>
+                            {/* User Details */}
+                            <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                                <View className="flex-row items-center mb-4">
+                                    <View className="w-16 h-16 bg-orange-500 rounded-full items-center justify-center mr-4">
+                                        <Ionicons name="person" size={32} color="white" />
+                                    </View>
+                                    <View className="flex-1">
+                                        <Text className="text-white text-lg font-bold">{user.fullName}</Text>
+                                        <Text className="text-gray-400 text-sm">{user.email}</Text>
+                                    </View>
+                                </View>
+
+                                <View className="border-t border-gray-700 pt-3 space-y-2">
+                                    <View className="flex-row justify-between py-2">
+                                        <Text className="text-gray-400">Phone</Text>
+                                        <Text className="text-white font-semibold">{user.phoneNumber || 'N/A'}</Text>
+                                    </View>
+                                    <View className="flex-row justify-between py-2">
+                                        <Text className="text-gray-400">Username</Text>
+                                        <Text className="text-white font-semibold">{user.username}</Text>
+                                    </View>
+                                    <View className="flex-row justify-between py-2">
+                                        <Text className="text-gray-400">Role</Text>
+                                        <View className="bg-blue-500 px-3 py-1 rounded-full">
+                                            <Text className="text-white text-xs font-bold uppercase">{user.role}</Text>
+                                        </View>
+                                    </View>
+                                </View>
+                            </View>
+
+                            {/* Package Details */}
+                            {userPackage && (
+                                <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                                    <Text className="text-white text-lg font-bold mb-3">📦 Package Details</Text>
+                                    <View className="space-y-2">
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Package Name</Text>
+                                            <Text className="text-white font-semibold">{userPackage.name}</Text>
+                                        </View>
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Total Channels</Text>
+                                            <Text className="text-orange-500 font-bold">{channels?.length || 0}</Text>
+                                        </View>
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Start Date</Text>
+                                            <Text className="text-white font-semibold">{formatDate(user.subscriptionStartDate)}</Text>
+                                        </View>
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">End Date</Text>
+                                            <Text className="text-white font-semibold">{formatDate(user.subscriptionEndDate)}</Text>
+                                        </View>
+                                        {daysRemaining !== null && (
+                                            <View className="flex-row justify-between py-2">
+                                                <Text className="text-gray-400">Days Remaining</Text>
+                                                <View className={`px-3 py-1 rounded-full ${daysRemaining > 7 ? 'bg-green-500' : daysRemaining > 3 ? 'bg-yellow-500' : 'bg-red-500'}`}>
+                                                    <Text className="text-white font-bold text-sm">{daysRemaining} days</Text>
+                                                </View>
+                                            </View>
+                                        )}
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Server Info */}
+                            {serverInfo && (
+                                <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                                    <Text className="text-white text-lg font-bold mb-3">🌐 Server Info</Text>
+                                    <View className="space-y-2">
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Server Name</Text>
+                                            <Text className="text-white font-semibold">{serverInfo.name || 'N/A'}</Text>
+                                        </View>
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Proxy Status</Text>
+                                            <View className={`px-3 py-1 rounded-full ${serverInfo.proxyEnabled ? 'bg-green-500' : 'bg-gray-600'}`}>
+                                                <Text className="text-white text-xs font-bold">
+                                                    {serverInfo.proxyEnabled ? 'Enabled' : 'Disabled'}
+                                                </Text>
+                                            </View>
+                                        </View>
+                                    </View>
+                                </View>
+                            )}
+
+                            {/* Logout Button */}
+                            <TouchableOpacity
+                                onPress={handleLogout}
+                                className="bg-red-600 py-4 rounded-xl flex-row items-center justify-center mb-6"
+                            >
+                                <Ionicons name="log-out-outline" size={24} color="white" />
+                                <Text className="text-white text-lg font-bold ml-2">Logout</Text>
+                            </TouchableOpacity>
+                        </ScrollView>
+                    </View>
+                </View>
+            </Modal>
 
             {/* Video Player Modal */}
             <Modal
