@@ -21,7 +21,7 @@ import {
     Edit2,
     Trash2,
     X,
-    Package as PackageIcon,
+    CheckCircle,
 } from 'lucide-react-native';
 import api from '../../services/api';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -39,6 +39,7 @@ const Subscribers = () => {
     const [showViewModal, setShowViewModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [showActivateModal, setShowActivateModal] = useState(false); // NEW
     const [selectedSubscriber, setSelectedSubscriber] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
     const [submitting, setSubmitting] = useState(false);
@@ -113,7 +114,7 @@ const Subscribers = () => {
             serialNumber: subscriber.serialNumber,
             status: subscriber.status,
             expiryDate: new Date(subscriber.expiryDate).toISOString().split('T')[0],
-            package: subscriber.package?._id || '',
+            package: subscriber.primaryPackageId?._id || '',
         });
         setShowEditModal(true);
     };
@@ -121,6 +122,31 @@ const Subscribers = () => {
     const handleDeleteClick = (subscriber) => {
         setSelectedSubscriber(subscriber);
         setShowDeleteModal(true);
+    };
+
+    // NEW: Activate handler
+    const handleActivateClick = (subscriber) => {
+        setSelectedSubscriber(subscriber);
+        setShowActivateModal(true);
+    };
+
+    // NEW: Activate subscriber API call
+    const handleActivate = async () => {
+        setSubmitting(true);
+        try {
+            await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
+                expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+            });
+            Alert.alert('Success', 'Subscriber activated successfully');
+            fetchSubscribers();
+            setShowActivateModal(false);
+            setSelectedSubscriber(null);
+        } catch (error) {
+            console.error('Activate error:', error);
+            Alert.alert('Error', error.response?.data?.message || 'Activation failed');
+        } finally {
+            setSubmitting(false);
+        }
     };
 
     const handleUpdate = async () => {
@@ -186,13 +212,13 @@ const Subscribers = () => {
     const getStatusColor = (status) => {
         switch (status) {
             case 'Active':
-                return 'bg-green-50 border-green-200 text-green-700';
+                return { bg: '#dcfce7', border: '#bbf7d0', text: '#166534' };
             case 'Inactive':
-                return 'bg-red-50 border-red-200 text-red-700';
+                return { bg: '#fee2e2', border: '#fecaca', text: '#991b1b' };
             case 'Fresh':
-                return 'bg-blue-50 border-blue-200 text-blue-700';
+                return { bg: '#dbeafe', border: '#bfdbfe', text: '#1e40af' };
             default:
-                return 'bg-gray-50 border-gray-200 text-gray-700';
+                return { bg: '#f3f4f6', border: '#e5e7eb', text: '#374151' };
         }
     };
 
@@ -311,23 +337,29 @@ const Subscribers = () => {
                 )}
 
                 {/* Stats Cards */}
-                <View style={{ flexDirection: 'row', marginBottom: 16 }}>
-                    <View className="flex-1 bg-white rounded-xl p-3 border border-gray-200 mr-3">
+                <View style={{ flexDirection: 'row', marginBottom: 16, flexWrap: 'wrap' }}>
+                    <View className="bg-white rounded-xl p-3 border border-gray-200" style={{ width: '23%', marginRight: '2%', marginBottom: 8 }}>
                         <Text className="text-xs text-gray-600 mb-1">Total</Text>
-                        <Text className="text-xl font-bold text-gray-900">
+                        <Text className="text-lg font-bold text-gray-900">
                             {filteredSubscribers.length}
                         </Text>
                     </View>
-                    <View className="flex-1 bg-white rounded-xl p-3 border border-gray-200 mr-3">
+                    <View className="bg-white rounded-xl p-3 border border-gray-200" style={{ width: '23%', marginRight: '2%', marginBottom: 8 }}>
                         <Text className="text-xs text-gray-600 mb-1">Active</Text>
-                        <Text className="text-xl font-bold text-green-600">
+                        <Text className="text-lg font-bold text-green-600">
                             {filteredSubscribers.filter((s) => s.status === 'Active').length}
                         </Text>
                     </View>
-                    <View className="flex-1 bg-white rounded-xl p-3 border border-gray-200">
+                    <View className="bg-white rounded-xl p-3 border border-gray-200" style={{ width: '23%', marginRight: '2%', marginBottom: 8 }}>
                         <Text className="text-xs text-gray-600 mb-1">Inactive</Text>
-                        <Text className="text-xl font-bold text-red-600">
+                        <Text className="text-lg font-bold text-red-600">
                             {filteredSubscribers.filter((s) => s.status === 'Inactive').length}
+                        </Text>
+                    </View>
+                    <View className="bg-white rounded-xl p-3 border border-gray-200" style={{ width: '23%', marginBottom: 8 }}>
+                        <Text className="text-xs text-gray-600 mb-1">Fresh</Text>
+                        <Text className="text-lg font-bold text-blue-600">
+                            {filteredSubscribers.filter((s) => s.status === 'Fresh').length}
                         </Text>
                     </View>
                 </View>
@@ -353,113 +385,128 @@ const Subscribers = () => {
                         </View>
                     ) : (
                         <View style={{ marginBottom: 16 }}>
-                            {filteredSubscribers.map((subscriber, index) => (
-                                <View
-                                    key={subscriber._id}
-                                    className="bg-white rounded-xl border border-gray-200 p-4"
-                                    style={{ marginBottom: 12 }}
-                                >
-                                    <View style={{ marginBottom: 12 }}>
-                                        <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
-                                            <Text className="text-base font-bold text-gray-900 flex-1">
-                                                {subscriber.subscriberName}
-                                            </Text>
-                                            <View
-                                                style={{
-                                                    paddingHorizontal: 12,
-                                                    paddingVertical: 4,
-                                                    borderRadius: 12,
-                                                    borderWidth: 1,
-                                                    backgroundColor: getStatusColor(subscriber.status) === 'bg-green-50 border-green-200 text-green-700' ? '#dcfce7' : getStatusColor(subscriber.status) === 'bg-red-50 border-red-200 text-red-700' ? '#fee2e2' : '#dbeafe',
-                                                    borderColor: getStatusColor(subscriber.status) === 'bg-green-50 border-green-200 text-green-700' ? '#bbf7d0' : getStatusColor(subscriber.status) === 'bg-red-50 border-red-200 text-red-700' ? '#fecaca' : '#bfdbfe',
-                                                }}
-                                            >
-                                                <Text style={{
-                                                    fontSize: 12,
-                                                    fontWeight: '600',
-                                                    color: getStatusColor(subscriber.status) === 'bg-green-50 border-green-200 text-green-700' ? '#166534' : getStatusColor(subscriber.status) === 'bg-red-50 border-red-200 text-red-700' ? '#991b1b' : '#1e40af',
-                                                }}>
-                                                    {subscriber.status}
+                            {filteredSubscribers.map((subscriber, index) => {
+                                const colors = getStatusColor(subscriber.status);
+                                return (
+                                    <View
+                                        key={subscriber._id}
+                                        className="bg-white rounded-xl border border-gray-200 p-4"
+                                        style={{ marginBottom: 12 }}
+                                    >
+                                        <View style={{ marginBottom: 12 }}>
+                                            <View style={{ flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 8 }}>
+                                                <Text className="text-base font-bold text-gray-900 flex-1">
+                                                    {subscriber.subscriberName}
                                                 </Text>
+                                                <View
+                                                    style={{
+                                                        paddingHorizontal: 12,
+                                                        paddingVertical: 4,
+                                                        borderRadius: 12,
+                                                        borderWidth: 1,
+                                                        backgroundColor: colors.bg,
+                                                        borderColor: colors.border,
+                                                    }}
+                                                >
+                                                    <Text style={{
+                                                        fontSize: 12,
+                                                        fontWeight: '600',
+                                                        color: colors.text,
+                                                    }}>
+                                                        {subscriber.status}
+                                                    </Text>
+                                                </View>
                                             </View>
-                                        </View>
 
-                                        <View style={{ marginBottom: 8 }}>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                                <Text className="text-xs text-gray-500 w-24">MAC:</Text>
-                                                <Text className="text-xs text-gray-900 font-mono">
-                                                    {subscriber.macAddress}
-                                                </Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                                <Text className="text-xs text-gray-500 w-24">Serial:</Text>
-                                                <Text className="text-xs text-gray-900 font-mono">
-                                                    {subscriber.serialNumber}
-                                                </Text>
-                                            </View>
-                                            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                                <Text className="text-xs text-gray-500 w-24">Expires:</Text>
-                                                <Text className="text-xs text-gray-900">
-                                                    {formatDate(subscriber.expiryDate)}
-                                                </Text>
-                                            </View>
-                                            {subscriber.package && (
+                                            <View style={{ marginBottom: 8 }}>
                                                 <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                                    <Text className="text-xs text-gray-500 w-24">Package:</Text>
-                                                    <Text className="text-xs text-blue-600 font-semibold">
-                                                        {subscriber.package.name}
+                                                    <Text className="text-xs text-gray-500 w-24">MAC:</Text>
+                                                    <Text className="text-xs text-gray-900 font-mono">
+                                                        {subscriber.macAddress}
                                                     </Text>
                                                 </View>
-                                            )}
-                                            {user.role !== 'reseller' && subscriber.resellerId && (
-                                                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                                                    <Text className="text-xs text-gray-500 w-24">Reseller:</Text>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                                    <Text className="text-xs text-gray-500 w-24">Serial:</Text>
+                                                    <Text className="text-xs text-gray-900 font-mono">
+                                                        {subscriber.serialNumber}
+                                                    </Text>
+                                                </View>
+                                                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                                    <Text className="text-xs text-gray-500 w-24">Expires:</Text>
                                                     <Text className="text-xs text-gray-900">
-                                                        {subscriber.resellerId.name}
+                                                        {formatDate(subscriber.expiryDate)}
                                                     </Text>
                                                 </View>
+                                                {subscriber.primaryPackageId && (
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                                                        <Text className="text-xs text-gray-500 w-24">Package:</Text>
+                                                        <Text className="text-xs text-blue-600 font-semibold">
+                                                            {subscriber.primaryPackageId.name}
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                                {user.role !== 'reseller' && subscriber.resellerId && (
+                                                    <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                                                        <Text className="text-xs text-gray-500 w-24">Reseller:</Text>
+                                                        <Text className="text-xs text-gray-900">
+                                                            {subscriber.resellerId.name}
+                                                        </Text>
+                                                    </View>
+                                                )}
+                                            </View>
+                                        </View>
+
+                                        {/* Action Buttons */}
+                                        <View style={{ flexDirection: 'row', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
+                                            {/* NEW: Show Activate button for Inactive/Fresh */}
+                                            {(subscriber.status === 'Inactive' || subscriber.status === 'Fresh') && (
+                                                <TouchableOpacity
+                                                    onPress={() => handleActivateClick(subscriber)}
+                                                    style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 8, backgroundColor: '#dcfce7', borderRadius: 8, marginRight: 6 }}
+                                                >
+                                                    <CheckCircle size={16} color="#16a34a" />
+                                                    <Text className="text-green-700 font-semibold text-xs ml-1">
+                                                        Activate
+                                                    </Text>
+                                                </TouchableOpacity>
                                             )}
+                                            <TouchableOpacity
+                                                onPress={() => handleViewDetails(subscriber)}
+                                                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 8, backgroundColor: '#dbeafe', borderRadius: 8, marginRight: 6 }}
+                                            >
+                                                <Eye size={16} color="#2563eb" />
+                                                <Text className="text-blue-700 font-semibold text-xs ml-1">
+                                                    View
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                onPress={() => handleEdit(subscriber)}
+                                                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 8, backgroundColor: '#fef3c7', borderRadius: 8, marginRight: 6 }}
+                                            >
+                                                <Edit2 size={16} color="#d97706" />
+                                                <Text className="text-amber-700 font-semibold text-xs ml-1">
+                                                    Edit
+                                                </Text>
+                                            </TouchableOpacity>
+                                            <TouchableOpacity
+                                                onPress={() => handleDeleteClick(subscriber)}
+                                                style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8, paddingVertical: 8, backgroundColor: '#fee2e2', borderRadius: 8 }}
+                                            >
+                                                <Trash2 size={16} color="#dc2626" />
+                                                <Text className="text-red-700 font-semibold text-xs ml-1">
+                                                    Delete
+                                                </Text>
+                                            </TouchableOpacity>
                                         </View>
                                     </View>
-
-                                    {/* Action Buttons */}
-                                    <View style={{ flexDirection: 'row', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
-                                        <TouchableOpacity
-                                            onPress={() => handleViewDetails(subscriber)}
-                                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#dbeafe', borderRadius: 8, marginRight: 8 }}
-                                        >
-                                            <Eye size={16} color="#2563eb" />
-                                            <Text className="text-blue-700 font-semibold text-xs ml-1">
-                                                View
-                                            </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => handleEdit(subscriber)}
-                                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#dcfce7', borderRadius: 8, marginRight: 8 }}
-                                        >
-                                            <Edit2 size={16} color="#16a34a" />
-                                            <Text className="text-green-700 font-semibold text-xs ml-1">
-                                                Edit
-                                            </Text>
-                                        </TouchableOpacity>
-                                        <TouchableOpacity
-                                            onPress={() => handleDeleteClick(subscriber)}
-                                            style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 12, paddingVertical: 8, backgroundColor: '#fee2e2', borderRadius: 8 }}
-                                        >
-                                            <Trash2 size={16} color="#dc2626" />
-                                            <Text className="text-red-700 font-semibold text-xs ml-1">
-                                                Delete
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </View>
-                                </View>
-                            ))}
+                                );
+                            })}
                         </View>
                     )}
                 </ScrollView>
             )}
 
-            {/* View Details Modal */}
+            {/* View Details Modal - SAME AS BEFORE */}
             <Modal
                 visible={showViewModal}
                 transparent
@@ -513,25 +560,27 @@ const Subscribers = () => {
                                     <Text className="text-sm font-semibold text-gray-600 mb-1">
                                         Status
                                     </Text>
-                                    <View
-                                        style={{
-                                            alignSelf: 'flex-start',
-                                            paddingHorizontal: 12,
-                                            paddingVertical: 4,
-                                            borderRadius: 12,
-                                            borderWidth: 1,
-                                            backgroundColor: getStatusColor(selectedSubscriber?.status) === 'bg-green-50 border-green-200 text-green-700' ? '#dcfce7' : getStatusColor(selectedSubscriber?.status) === 'bg-red-50 border-red-200 text-red-700' ? '#fee2e2' : '#dbeafe',
-                                            borderColor: getStatusColor(selectedSubscriber?.status) === 'bg-green-50 border-green-200 text-green-700' ? '#bbf7d0' : getStatusColor(selectedSubscriber?.status) === 'bg-red-50 border-red-200 text-red-700' ? '#fecaca' : '#bfdbfe',
-                                        }}
-                                    >
-                                        <Text style={{
-                                            fontSize: 14,
-                                            fontWeight: '600',
-                                            color: getStatusColor(selectedSubscriber?.status) === 'bg-green-50 border-green-200 text-green-700' ? '#166534' : getStatusColor(selectedSubscriber?.status) === 'bg-red-50 border-red-200 text-red-700' ? '#991b1b' : '#1e40af',
-                                        }}>
-                                            {selectedSubscriber?.status}
-                                        </Text>
-                                    </View>
+                                    {selectedSubscriber && (
+                                        <View
+                                            style={{
+                                                alignSelf: 'flex-start',
+                                                paddingHorizontal: 12,
+                                                paddingVertical: 4,
+                                                borderRadius: 12,
+                                                borderWidth: 1,
+                                                backgroundColor: getStatusColor(selectedSubscriber.status).bg,
+                                                borderColor: getStatusColor(selectedSubscriber.status).border,
+                                            }}
+                                        >
+                                            <Text style={{
+                                                fontSize: 14,
+                                                fontWeight: '600',
+                                                color: getStatusColor(selectedSubscriber.status).text,
+                                            }}>
+                                                {selectedSubscriber.status}
+                                            </Text>
+                                        </View>
+                                    )}
                                 </View>
 
                                 <View style={{ marginBottom: 12 }}>
@@ -543,14 +592,14 @@ const Subscribers = () => {
                                     </Text>
                                 </View>
 
-                                {selectedSubscriber?.package && (
+                                {selectedSubscriber?.primaryPackageId && (
                                     <View style={{ marginBottom: 12 }}>
                                         <Text className="text-sm font-semibold text-gray-600 mb-1">
                                             Package
                                         </Text>
                                         <Text className="text-base text-blue-600 font-semibold">
-                                            {selectedSubscriber.package.name} - ₹
-                                            {selectedSubscriber.package.cost}
+                                            {selectedSubscriber.primaryPackageId.name} - ₹
+                                            {selectedSubscriber.primaryPackageId.cost}
                                         </Text>
                                     </View>
                                 )}
@@ -577,6 +626,56 @@ const Subscribers = () => {
                                     Close
                                 </Text>
                             </TouchableOpacity>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* ACTIVATE MODAL */}
+            <Modal
+                visible={showActivateModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowActivateModal(false)}
+            >
+                <View className="flex-1 bg-black/50 justify-center items-center px-4">
+                    <View className="bg-white rounded-2xl w-full max-w-md">
+                        <View style={{ paddingHorizontal: 24, paddingVertical: 24 }}>
+                            <View style={{ width: 48, height: 48, backgroundColor: '#dcfce7', borderRadius: 24, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}>
+                                <CheckCircle size={24} color="#16a34a" />
+                            </View>
+                            <Text className="text-xl font-bold text-gray-900 text-center mb-2">
+                                Activate Subscriber
+                            </Text>
+                            <Text className="text-gray-600 text-center mb-6">
+                                Are you sure you want to activate "
+                                <Text className="font-semibold">
+                                    {selectedSubscriber?.subscriberName}
+                                </Text>
+                                "? This will set status to Active and extend expiry by 30 days.
+                            </Text>
+                            <View style={{ flexDirection: 'row' }}>
+                                <TouchableOpacity
+                                    onPress={handleActivate}
+                                    disabled={submitting}
+                                    style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#16a34a', borderRadius: 8, opacity: submitting ? 0.5 : 1 }}
+                                >
+                                    <Text className="text-white text-center font-semibold">
+                                        {submitting ? 'Activating...' : 'Activate'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setShowActivateModal(false);
+                                        setSelectedSubscriber(null);
+                                    }}
+                                    style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#f3f4f6', borderRadius: 8 }}
+                                >
+                                    <Text className="text-gray-700 text-center font-semibold">
+                                        Cancel
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
                         </View>
                     </View>
                 </View>
