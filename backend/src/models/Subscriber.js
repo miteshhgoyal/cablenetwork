@@ -18,6 +18,7 @@ const subscriberSchema = new mongoose.Schema({
     macAddress: {
         type: String,
         required: true,
+        trim: true
     },
     status: {
         type: String,
@@ -36,7 +37,6 @@ const subscriberSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Package',
     },
-    // NEW: Location tracking fields
     lastLocation: {
         type: {
             type: String,
@@ -44,7 +44,7 @@ const subscriberSchema = new mongoose.Schema({
             default: 'Point'
         },
         coordinates: {
-            type: [Number], // [longitude, latitude]
+            type: [Number],
             default: [0, 0]
         },
         timestamp: {
@@ -67,7 +67,6 @@ const subscriberSchema = new mongoose.Schema({
         },
         address: String
     }],
-    // NEW: Device security info
     deviceInfo: {
         isRooted: {
             type: Boolean,
@@ -86,7 +85,10 @@ const subscriberSchema = new mongoose.Schema({
     timestamps: true
 });
 
-// Create geospatial index for location queries
+// Create geospatial index
 subscriberSchema.index({ 'lastLocation.coordinates': '2dsphere' });
+
+// Create unique index for macAddress
+subscriberSchema.index({ macAddress: 1 }, { unique: true });
 
 export default mongoose.model('Subscriber', subscriberSchema);

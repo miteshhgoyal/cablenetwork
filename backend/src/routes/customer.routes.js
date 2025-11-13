@@ -7,7 +7,7 @@ import jwt from 'jsonwebtoken';
 const router = express.Router();
 
 // ==========================================
-// AUTHENTICATION MIDDLEWARE (INLINE)
+// AUTHENTICATION MIDDLEWARE
 // ==========================================
 const authenticateToken = async (req, res, next) => {
     try {
@@ -21,8 +21,6 @@ const authenticateToken = async (req, res, next) => {
         }
 
         const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-
-        // Find subscriber
         const subscriber = await Subscriber.findById(decoded.id);
 
         if (!subscriber) {
@@ -32,7 +30,6 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
-        // Check expiry
         if (new Date() > new Date(subscriber.expiryDate)) {
             return res.status(403).json({
                 success: false,
@@ -40,7 +37,6 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
-        // Attach user to request
         req.user = {
             id: subscriber._id,
             resellerId: subscriber.resellerId
@@ -68,20 +64,14 @@ const authenticateToken = async (req, res, next) => {
 // HELPER FUNCTIONS
 // ==========================================
 
-// Helper function to generate proxy URL
 const generateProxyUrl = (originalUrl) => {
     if (!originalUrl) return null;
-
     const API_URL = process.env.API_URL || 'http://localhost:8000';
-
-    // Check if it's an M3U8 stream
     const isM3U8 = originalUrl.includes('.m3u8') || originalUrl.includes('m3u');
     const proxyEndpoint = isM3U8 ? '/api/proxy/m3u8' : '/api/proxy/stream';
-
     return `${API_URL}${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
 };
 
-// Helper function to build channel response with proxy URLs
 const buildChannelResponse = (channelMap) => {
     return Array.from(channelMap.values()).map(channel => ({
         _id: channel._id,
@@ -89,7 +79,7 @@ const buildChannelResponse = (channelMap) => {
         lcn: channel.lcn,
         imageUrl: channel.imageUrl,
         url: channel.url,
-        proxyUrl: generateProxyUrl(channel.url), // Add proxy URL
+        proxyUrl: generateProxyUrl(channel.url),
         genre: channel.genre,
         language: channel.language,
         packageNames: channel.packageNames
@@ -97,10 +87,10 @@ const buildChannelResponse = (channelMap) => {
 };
 
 // ==========================================
-// PUBLIC ROUTES (NO AUTH REQUIRED)
+// PUBLIC ROUTES
 // ==========================================
 
-// Simple Login with Partner Code + MAC Address
+// LOGIN ROUTE WITH MAC VALIDATION
 router.post('/login', async (req, res) => {
     try {
         const { partnerCode, macAddress, deviceName } = req.body;
@@ -108,7 +98,7 @@ router.post('/login', async (req, res) => {
         if (!partnerCode || !macAddress) {
             return res.status(400).json({
                 success: false,
-                message: 'Partner code and device info required'
+                message: 'Partner code and MAC address required'
             });
         }
 
@@ -126,7 +116,6 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Check if reseller has packages
         if (!reseller.packages || reseller.packages.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -134,50 +123,54 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Find or create subscriber
-        let subscriber = await Subscriber.findOne({ macAddress: macAddress.trim() });
+        // ==========================================
+        // MAC ADDRESS VALIDATION LOGIC
+        // ==========================================
+        const mac = macAddress.trim().toLowerCase();
+        let subscriber = await Subscriber.findOne({ macAddress: mac });
 
+        // CASE 1: MAC not found - Create Fresh subscriber
         if (!subscriber) {
-            // Create new subscriber with ALL reseller packages
             subscriber = new Subscriber({
                 resellerId: reseller._id,
                 subscriberName: deviceName || 'User',
-                serialNumber: macAddress.trim(),
-                macAddress: macAddress.trim(),
+                serialNumber: mac,
+                macAddress: mac,
                 packages: reseller.packages.map(pkg => pkg._id),
                 primaryPackageId: reseller.packages[0]._id,
-                status: 'Active',
+                status: 'Inactive',  // Default to Fresh
                 expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
             });
-
             await subscriber.save();
-        } else {
-            // Update existing subscriber to include all reseller packages
-            const mergedPackages = [
-                ...new Map(
-                    [
-                        ...subscriber.packages,
-                        ...reseller.packages.map(pkg => pkg._id)
-                    ].map(id => [id.toString(), id])
-                ).values()
-            ];
 
-            subscriber.packages = mergedPackages;
-
-            if (!subscriber.primaryPackageId) {
-                subscriber.primaryPackageId = reseller.packages[0]._id;
-            }
-
-            await subscriber.save();
+            return res.status(201).json({
+                success: false,
+                code: 'MAC_INACTIVE',
+                message: 'Device registered successfully. Please contact admin/reseller to activate your account.',
+            });
         }
 
-        // Check expiry
+        // CASE 2: MAC found but NOT Active
+        if (subscriber.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                code: 'MAC_INACTIVE',
+                message: `Your device is ${subscriber.status}. Please contact admin/reseller to activate.`,
+            });
+        }
+
+        // CASE 3: MAC found and Active - Check expiry
         if (new Date() > new Date(subscriber.expiryDate)) {
             return res.status(403).json({
                 success: false,
-                message: 'Subscription expired. Contact your reseller.'
+                code: 'SUBSCRIPTION_EXPIRED',
+                message: 'Subscription expired. Please contact admin/reseller to renew.',
             });
         }
+
+        // ==========================================
+        // PROCEED WITH LOGIN (Active subscriber)
+        // ==========================================
 
         // Populate ALL packages and their channels
         await subscriber.populate({
@@ -197,7 +190,6 @@ router.post('/login', async (req, res) => {
         const packagesList = [];
 
         subscriber.packages.forEach(pkg => {
-            // Store package info
             packagesList.push({
                 _id: pkg._id,
                 name: pkg.name,
@@ -206,20 +198,17 @@ router.post('/login', async (req, res) => {
                 channelCount: pkg.channels?.length || 0
             });
 
-            // Process channels with package tracking
             if (pkg.channels && Array.isArray(pkg.channels)) {
                 pkg.channels.forEach(channel => {
                     if (channel._id) {
                         const channelId = channel._id.toString();
 
                         if (channelMap.has(channelId)) {
-                            // Channel already exists, add this package name
                             const existing = channelMap.get(channelId);
                             if (!existing.packageNames.includes(pkg.name)) {
                                 existing.packageNames.push(pkg.name);
                             }
                         } else {
-                            // New channel, create with package info
                             channelMap.set(channelId, {
                                 _id: channel._id,
                                 name: channel.name,
@@ -236,10 +225,8 @@ router.post('/login', async (req, res) => {
             }
         });
 
-        // Build channels with proxy URLs
         const channels = buildChannelResponse(channelMap);
 
-        // Get primary package info
         await subscriber.populate({
             path: 'primaryPackageId',
             select: 'name'
@@ -262,10 +249,9 @@ router.post('/login', async (req, res) => {
                     totalPackages: subscriber.packages.length,
                     totalChannels: channels.length
                 },
-                channels, // Now includes packageNames AND proxyUrl
+                channels,
                 packagesList,
                 token,
-                // Add server info for client reference
                 serverInfo: {
                     proxyEnabled: true,
                     apiUrl: process.env.API_URL || 'http://localhost:8000'
@@ -283,13 +269,12 @@ router.post('/login', async (req, res) => {
 });
 
 // ==========================================
-// PROTECTED ROUTES (AUTH REQUIRED)
+// PROTECTED ROUTES
 // ==========================================
 
 // Refresh channels route
 router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
-        // Find subscriber (already verified by middleware)
         const subscriber = await Subscriber.findById(req.user.id);
 
         if (!subscriber) {
@@ -299,7 +284,6 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             });
         }
 
-        // Find reseller to get latest packages
         const reseller = await User.findById(subscriber.resellerId).populate('packages');
 
         if (!reseller) {
@@ -309,7 +293,6 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             });
         }
 
-        // Update subscriber packages with latest from reseller
         const mergedPackages = [
             ...new Map(
                 [
@@ -322,7 +305,6 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
         subscriber.packages = mergedPackages;
         await subscriber.save();
 
-        // Populate ALL packages and their channels
         await subscriber.populate({
             path: 'packages',
             select: 'name cost duration channels',
@@ -335,7 +317,6 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             }
         });
 
-        // Build channels map with package tracking
         const channelMap = new Map();
         const packagesList = [];
 
@@ -375,10 +356,8 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             }
         });
 
-        // Build channels with proxy URLs
         const channels = buildChannelResponse(channelMap);
 
-        // Get primary package info
         await subscriber.populate({
             path: 'primaryPackageId',
             select: 'name'
@@ -394,7 +373,7 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
                     totalPackages: subscriber.packages.length,
                     totalChannels: channels.length
                 },
-                channels, // Now includes proxyUrl
+                channels,
                 packagesList,
                 serverInfo: {
                     proxyEnabled: true,
@@ -440,7 +419,7 @@ router.post('/update-location', authenticateToken, async (req, res) => {
                             timestamp: new Date(),
                             address: address || null
                         }],
-                        $slice: -100 // Keep only last 100 locations
+                        $slice: -100
                     }
                 }
             },
@@ -481,7 +460,6 @@ router.post('/update-security-info', authenticateToken, async (req, res) => {
             }
         });
 
-        // Log security warnings if device is compromised
         if (isRooted || isVPNActive) {
             console.warn(`⚠️ Security Alert: Subscriber ${req.user.id}`, {
                 isRooted,

@@ -13,7 +13,7 @@ import {
   X,
   MapPin,
   Shield,
-  Package as PackageIcon,
+  CheckCircle, // NEW: For activate button
 } from "lucide-react";
 
 const Subscribers = () => {
@@ -28,6 +28,7 @@ const Subscribers = () => {
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showActivateModal, setShowActivateModal] = useState(false); // NEW
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -103,6 +104,30 @@ const Subscribers = () => {
   const handleDeleteClick = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setShowDeleteModal(true);
+  };
+
+  // NEW: Activate handler
+  const handleActivateClick = (subscriber) => {
+    setSelectedSubscriber(subscriber);
+    setShowActivateModal(true);
+  };
+
+  // NEW: Activate subscriber API call
+  const handleActivate = async () => {
+    setSubmitting(true);
+    try {
+      await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
+        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+      });
+      fetchSubscribers();
+      setShowActivateModal(false);
+      setSelectedSubscriber(null);
+    } catch (error) {
+      console.error("Activate error:", error);
+      alert(error.response?.data?.message || "Activation failed");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const handleUpdate = async (e) => {
@@ -181,7 +206,7 @@ const Subscribers = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header - Same as before */}
+      {/* Header */}
       <div className="bg-white border-b border-gray-200">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -211,7 +236,7 @@ const Subscribers = () => {
 
       {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search and Filters - Same as before */}
+        {/* Search and Filters */}
         <div className="mb-6 space-y-4">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
@@ -281,8 +306,8 @@ const Subscribers = () => {
           )}
         </div>
 
-        {/* Stats Cards - Same as before */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
           <div className="bg-white rounded-xl p-4 border border-gray-200">
             <p className="text-sm text-gray-600 mb-1">Total Subscribers</p>
             <p className="text-2xl font-bold text-gray-900">
@@ -304,9 +329,15 @@ const Subscribers = () => {
               }
             </p>
           </div>
+          <div className="bg-white rounded-xl p-4 border border-gray-200">
+            <p className="text-sm text-gray-600 mb-1">Fresh</p>
+            <p className="text-2xl font-bold text-blue-600">
+              {filteredSubscribers.filter((s) => s.status === "Fresh").length}
+            </p>
+          </div>
         </div>
 
-        {/* UPDATED TABLE - With Location & Device Info */}
+        {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <Loader className="w-8 h-8 text-blue-600 animate-spin" />
@@ -445,6 +476,17 @@ const Subscribers = () => {
                         </td>
                         <td className="px-6 py-4 text-sm text-right">
                           <div className="flex items-center justify-end space-x-2">
+                            {/* NEW: Show Activate button for Inactive/Fresh */}
+                            {(subscriber.status === "Inactive" ||
+                              subscriber.status === "Fresh") && (
+                              <button
+                                onClick={() => handleActivateClick(subscriber)}
+                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                title="Activate Subscriber"
+                              >
+                                <CheckCircle className="w-4 h-4" />
+                              </button>
+                            )}
                             <button
                               onClick={() => handleViewDetails(subscriber)}
                               className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
@@ -453,7 +495,7 @@ const Subscribers = () => {
                             </button>
                             <button
                               onClick={() => handleEdit(subscriber)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                              className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -475,7 +517,7 @@ const Subscribers = () => {
         )}
       </div>
 
-      {/* VIEW MODAL */}
+      {/* VIEW MODAL - Same as before */}
       {showViewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -570,7 +612,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT MODAL - Same as before */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -671,26 +713,6 @@ const Subscribers = () => {
                     required
                   />
                 </div>
-
-                {/* <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Package
-                  </label>
-                  <select
-                    value={formData.package}
-                    onChange={(e) =>
-                      setFormData({ ...formData, package: e.target.value })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">Select Package</option>
-                    {packages.map((pkg) => (
-                      <option key={pkg._id} value={pkg._id}>
-                        {pkg.name} - ₹{pkg.cost}
-                      </option>
-                    ))}
-                  </select>
-                </div> */}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
@@ -714,7 +736,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* DELETE MODAL */}
+      {/* DELETE MODAL - Same as before */}
       {showDeleteModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -743,6 +765,48 @@ const Subscribers = () => {
                 <button
                   onClick={() => {
                     setShowDeleteModal(false);
+                    setSelectedSubscriber(null);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* NEW: ACTIVATE MODAL */}
+      {showActivateModal && selectedSubscriber && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-4">
+                <CheckCircle className="w-6 h-6 text-green-600" />
+              </div>
+              <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
+                Activate Subscriber
+              </h2>
+              <p className="text-gray-600 text-center mb-6">
+                Are you sure you want to activate "
+                <span className="font-semibold">
+                  {selectedSubscriber?.subscriberName}
+                </span>
+                "? This will set the status to Active and extend expiry by 30
+                days.
+              </p>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleActivate}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
+                >
+                  {submitting ? "Activating..." : "Activate"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowActivateModal(false);
                     setSelectedSubscriber(null);
                   }}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"

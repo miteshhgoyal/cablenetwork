@@ -189,6 +189,78 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// ==========================================
+// NEW: ACTIVATE SUBSCRIBER (Fresh/Inactive → Active)
+// ==========================================
+router.patch('/:id/activate', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+        const { expiryDate } = req.body;
+
+        const subscriber = await Subscriber.findById(req.params.id);
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check permissions
+        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized access'
+            });
+        }
+
+        if (user.role === 'distributor') {
+            const distributorResellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            });
+            const resellerIds = distributorResellers.map(r => r._id.toString());
+
+            if (!resellerIds.includes(subscriber.resellerId.toString())) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'Unauthorized access'
+                });
+            }
+        }
+
+        // Activate the subscriber
+        subscriber.status = 'Active';
+
+        // Set expiry date if provided, otherwise default to 30 days
+        if (expiryDate) {
+            subscriber.expiryDate = new Date(expiryDate);
+        } else {
+            subscriber.expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+        }
+
+        await subscriber.save();
+
+        await subscriber.populate('resellerId', 'name email');
+        await subscriber.populate('packages', 'name cost duration');
+        await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        res.json({
+            success: true,
+            message: 'Subscriber activated successfully',
+            data: { subscriber }
+        });
+
+    } catch (error) {
+        console.error('Activate subscriber error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to activate subscriber'
+        });
+    }
+});
+
 // UPDATE SUBSCRIBER
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
@@ -236,7 +308,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
 
         const existingSubscriber = await Subscriber.findOne({
-            macAddress: macAddress.trim(),
+            macAddress: macAddress.trim().toLowerCase(),
             _id: { $ne: req.params.id }
         });
 
@@ -248,7 +320,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
 
         subscriber.subscriberName = subscriberName.trim();
-        subscriber.macAddress = macAddress.trim();
+        subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
         subscriber.status = status || 'Active';
 
