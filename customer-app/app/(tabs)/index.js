@@ -1,20 +1,9 @@
+// app/(tabs)/index.js
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import {
-    View,
-    Text,
-    TouchableOpacity,
-    Modal,
-    ScrollView,
-    StatusBar,
-    Linking,
-    ActivityIndicator,
-    Alert,
-    AppState,
-    SectionList
-} from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '@/context/authContext';
-import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../context/authContext';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 
@@ -31,25 +20,24 @@ export default function ChannelsScreen() {
     const [useProxy, setUseProxy] = useState(false);
     const [proxyAttempted, setProxyAttempted] = useState(false);
 
+    // YouTube Playlist state (simplified without API)
+    const [playlistInfo, setPlaylistInfo] = useState(null);
+
     const videoRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
-        const subscription = AppState.addEventListener('change', nextAppState => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
             if (nextAppState === 'active') {
                 refreshChannels();
             }
         });
-
-        return () => {
-            subscription.remove();
-        };
+        return () => subscription.remove();
     }, []);
 
     // ==========================================
     // USER PACKAGE INFO
     // ==========================================
-
     const getUserPackage = () => {
         if (!user?.package || !packagesList) return null;
         return packagesList.find(pkg => pkg._id === user.package);
@@ -58,16 +46,12 @@ export default function ChannelsScreen() {
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';
         const date = new Date(dateString);
-        return date.toLocaleDateString('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric'
-        });
+        return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
     };
 
     const getDaysRemaining = () => {
-        if (!user?.subscriptionEndDate) return null;
-        const endDate = new Date(user.subscriptionEndDate);
+        if (!user?.expiryDate) return null;
+        const endDate = new Date(user.expiryDate);
         const today = new Date();
         const diffTime = endDate - today;
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -75,117 +59,119 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // GROUP CHANNELS BY LANGUAGE
+    // SORT CHANNELS BY LCN (REMOVED GROUPING)
     // ==========================================
-
-    const groupedChannels = useMemo(() => {
+    const sortedChannels = useMemo(() => {
         if (!channels || channels.length === 0) return [];
 
-        const languageMap = {};
-
-        channels.forEach((channel) => {
-            const languageName = channel.language?.name || 'Unknown';
-
-            if (!languageMap[languageName]) {
-                languageMap[languageName] = {
-                    title: languageName,
-                    data: []
-                };
-            }
-
-            languageMap[languageName].data.push(channel);
+        // Sort by LCN number in ascending order
+        return [...channels].sort((a, b) => {
+            const lcnA = a.lcn || 999999;
+            const lcnB = b.lcn || 999999;
+            return lcnA - lcnB;
         });
-
-        return Object.values(languageMap).sort((a, b) =>
-            a.title.localeCompare(b.title)
-        );
     }, [channels]);
 
     const getRecommendedChannels = () => {
         if (!selectedChannel) return [];
-
-        return channels.filter(ch =>
-            ch.language?.name === selectedChannel.language?.name &&
-            ch._id !== selectedChannel._id
-        ).slice(0, 15);
+        return channels
+            .filter(ch => ch.language?.name === selectedChannel.language?.name && ch._id !== selectedChannel._id)
+            .slice(0, 15);
     };
 
     // ==========================================
     // STREAM URL ANALYSIS
     // ==========================================
-
     const analyzeStreamUrl = (url) => {
         if (!url) return { type: 'unknown', isValid: false };
 
         const urlLower = url.toLowerCase();
 
+        // YouTube detection
         if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
-            if (urlLower.includes('/live/')) return { type: 'youtube-live', isValid: true };
+            if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
             if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
             if (urlLower.includes('playlist') || urlLower.includes('list=')) return { type: 'youtube-playlist', isValid: true };
             if (urlLower.includes('/c/') || urlLower.includes('/@')) return { type: 'youtube-channel', isValid: true };
             return { type: 'youtube-video', isValid: true };
         }
 
-        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) {
-            return { type: 'hls', isValid: true };
-        }
+        // HLS
+        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
 
-        if (urlLower.includes('chunklist')) {
-            return { type: 'hls', isValid: true };
-        }
+        // MP4
+        if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
 
-        if (urlLower.includes('.mp4')) {
-            return { type: 'mp4', isValid: true };
-        }
+        // IPTV patterns
+        if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
+        if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
 
-        if (url.match(/:\d{4}\//)) {
-            return { type: 'iptv', isValid: true };
-        }
+        // RTMP
+        if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
 
-        if (url.match(/\/\d+\/\d+\/\d+$/)) {
-            return { type: 'iptv', isValid: true };
-        }
-
-        if (urlLower.includes('rtmp')) {
-            return { type: 'rtmp', isValid: true };
-        }
-
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-            return { type: 'stream', isValid: true };
-        }
+        // Generic stream
+        if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
     };
 
     const extractVideoId = (url) => {
         if (!url) return null;
-        const shortRegex = /youtu\.be\/([^?&]+)/;
+
+        const shortRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
         const shortMatch = url.match(shortRegex);
         if (shortMatch) return shortMatch[1];
-        const watchRegex = /youtube\.com\/watch\?v=([^&]+)/;
+
+        const watchRegex = /youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/;
         const watchMatch = url.match(watchRegex);
         if (watchMatch) return watchMatch[1];
-        const liveRegex = /youtube\.com\/live\/([^?&]+)/;
+
+        const liveRegex = /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/;
         const liveMatch = url.match(liveRegex);
         if (liveMatch) return liveMatch[1];
-        const embedRegex = /youtube\.com\/embed\/([^?&]+)/;
+
+        const embedRegex = /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/;
         const embedMatch = url.match(embedRegex);
         if (embedMatch) return embedMatch[1];
+
         return null;
     };
 
     const extractPlaylistId = (url) => {
         if (!url) return null;
-        const playlistRegex = /[?&]list=([^&]+)/;
+        const playlistRegex = /[?&]list=([a-zA-Z0-9_-]+)/;
         const match = url.match(playlistRegex);
         return match ? match[1] : null;
     };
 
     // ==========================================
-    // GET CURRENT STREAM URL (WITH PROXY TOGGLE)
+    // FETCH BASIC VIDEO INFO USING OEMBED (NO API KEY NEEDED)
     // ==========================================
+    const fetchVideoInfoOEmbed = async (videoId) => {
+        try {
+            const response = await fetch(
+                `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+            );
+            const data = await response.json();
+            return {
+                title: data.title || 'YouTube Video',
+                author: data.author_name || 'Unknown Channel',
+                thumbnail: data.thumbnail_url || null
+            };
+        } catch (error) {
+            console.error('Error fetching video info:', error);
+            return {
+                title: 'YouTube Video',
+                author: 'Unknown Channel',
+                thumbnail: null
+            };
+        }
+    };
 
+    // ==========================================
+    // GET CURRENT STREAM URL WITH PROXY TOGGLE
+    // ==========================================
     const getCurrentStreamUrl = () => {
         if (!selectedChannel) return '';
 
@@ -198,42 +184,38 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // YOUTUBE PLAYER COMPONENTS (WITH SOUND, NO UNMUTE BUTTON)
+    // YOUTUBE PLAYER COMPONENTS WITH SOUND
     // ==========================================
-
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,  // ✅ Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
-            modestbranding: true,
+            modestbranding: true
         });
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-
             setVideoError(false);
+
+            // Fetch basic info using oEmbed
+            fetchVideoInfoOEmbed(videoId).then(info => {
+                setPlaylistInfo(info);
+            });
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('❌ YouTube error:', error);
+            console.error('YouTube error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Error: ${error.message}`);
         });
 
-        useYouTubeEvent(player, 'autoplayBlocked', () => {
-            console.warn('⚠️ Autoplay was blocked');
-        });
-
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <YoutubeView
-                    player={player}
-                    style={{ width: '100%', height: 260 }}
-                />
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
             </View>
         );
     };
@@ -241,21 +223,25 @@ export default function ChannelsScreen() {
     const YouTubeLivePlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,  // ✅ Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
-            modestbranding: true,
+            modestbranding: true
         });
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-
             setVideoError(false);
+
+            // Fetch basic info using oEmbed
+            fetchVideoInfoOEmbed(videoId).then(info => {
+                setPlaylistInfo(info);
+            });
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('❌ YouTube live error:', error);
+            console.error('YouTube live error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Live Error: ${error.message}`);
@@ -265,50 +251,88 @@ export default function ChannelsScreen() {
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
-                    <Text className="text-white text-xs font-bold">🔴 LIVE</Text>
+                    <Text className="text-white text-xs font-bold">● LIVE</Text>
                 </View>
-                <YoutubeView
-                    player={player}
-                    style={{ width: '100%', height: 260 }}
-                />
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
             </View>
         );
     };
 
-    const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
+    // ==========================================
+    // YOUTUBE PLAYLIST PLAYER (WITHOUT API - USES NATIVE IFRAME PLAYLIST)
+    // ==========================================
+    const YouTubePlaylistPlayer = ({ url, videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,  // ✅ Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
             modestbranding: true,
             loop: true,
             list: playlistId,
-            listType: 'playlist',
+            listType: 'playlist'
         });
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-
             setVideoError(false);
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('❌ YouTube playlist error:', error);
+            console.error('YouTube playlist error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Playlist Error: ${error.message}`);
         });
 
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <YoutubeView
-                    player={player}
-                    style={{ width: '100%', height: 260 }}
-                />
-                <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
-                    <Text className="text-white text-xs font-bold">📋 PLAYLIST</Text>
+            <View className="w-full bg-gray-900">
+                {/* Video Player with Native Playlist Controls */}
+                <View className="w-full bg-black relative" style={{ height: 260 }}>
+                    <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+
+                    {/* Playlist Badge */}
+                    <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg flex-row items-center">
+                        <Ionicons name="list" size={14} color="white" />
+                        <Text className="text-white text-xs font-bold ml-1.5">PLAYLIST</Text>
+                    </View>
+                </View>
+
+                {/* Playlist Info */}
+                <View className="bg-gray-800 p-4 border-t-2 border-purple-600">
+                    <View className="flex-row items-center mb-2">
+                        <Ionicons name="play-circle" size={20} color="#a855f7" />
+                        <Text className="text-purple-400 font-bold ml-2 text-sm">AUTO-PLAYING PLAYLIST</Text>
+                    </View>
+                    <Text className="text-white font-semibold text-base mb-1">
+                        YouTube Playlist Mode
+                    </Text>
+                    <Text className="text-gray-400 text-xs mb-3">
+                        Videos will play automatically. Use player controls to navigate between videos.
+                    </Text>
+
+                    {/* Open in YouTube Button */}
+                    <TouchableOpacity
+                        className="bg-red-600 py-3 rounded-lg flex-row items-center justify-center"
+                        onPress={() => Linking.openURL(url)}
+                    >
+                        <Ionicons name="logo-youtube" size={20} color="white" />
+                        <Text className="text-white font-semibold ml-2">View Full Playlist on YouTube</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {/* Tips Section */}
+                <View className="bg-gray-800 p-4 border-t border-gray-700">
+                    <Text className="text-gray-400 text-xs mb-2">
+                        💡 <Text className="font-semibold">Playlist Tips:</Text>
+                    </Text>
+                    <View className="space-y-1">
+                        <Text className="text-gray-500 text-xs">• Videos play automatically in sequence</Text>
+                        <Text className="text-gray-500 text-xs">• Use ⏭ button to skip to next video</Text>
+                        <Text className="text-gray-500 text-xs">• Tap "View Full Playlist" to see all videos</Text>
+                        <Text className="text-gray-500 text-xs">• Player remembers your position in playlist</Text>
+                    </View>
                 </View>
             </View>
         );
@@ -337,7 +361,6 @@ export default function ChannelsScreen() {
     // ==========================================
     // RENDER VIDEO PLAYER BASED ON TYPE
     // ==========================================
-
     const renderStreamTypeBadge = (type) => {
         const badges = {
             'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
@@ -370,9 +393,7 @@ export default function ChannelsScreen() {
             return (
                 <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        Invalid stream URL
-                    </Text>
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid stream URL</Text>
                     <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
                         {errorMessage || 'The provided URL format is not supported'}
                     </Text>
@@ -387,9 +408,7 @@ export default function ChannelsScreen() {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Invalid YouTube URL
-                        </Text>
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
                     </View>
                 );
             }
@@ -408,9 +427,7 @@ export default function ChannelsScreen() {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Invalid YouTube Live URL
-                        </Text>
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
                     </View>
                 );
             }
@@ -422,27 +439,20 @@ export default function ChannelsScreen() {
             );
         }
 
-        // YouTube Playlist
+        // YouTube Playlist - NO API KEY VERSION
         if (type === 'youtube-playlist') {
             const videoId = extractVideoId(currentUrl);
             const playlistId = extractPlaylistId(currentUrl);
 
-            if (!videoId || !playlistId) {
+            if (!playlistId) {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Invalid YouTube Playlist URL
-                        </Text>
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
                     </View>
                 );
             }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />
-                </>
-            );
+            return <YouTubePlaylistPlayer url={currentUrl} videoId={videoId} playlistId={playlistId} />;
         }
 
         // YouTube Channel
@@ -487,7 +497,7 @@ export default function ChannelsScreen() {
                                     setVideoLoading(true);
                                 }}
                             >
-                                <Text className="text-white font-semibold">🔒 Try Proxy Connection</Text>
+                                <Text className="text-white font-semibold">Try Proxy Connection</Text>
                             </TouchableOpacity>
                         )}
 
@@ -500,7 +510,7 @@ export default function ChannelsScreen() {
                                 setProxyAttempted(false);
                             }}
                         >
-                            <Text className="text-white font-semibold">🔄 Retry</Text>
+                            <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -521,7 +531,7 @@ export default function ChannelsScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
-                        console.error('❌ Video error:', error);
+                        console.error('Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                         setErrorMessage('Failed to load stream. Please check your connection.');
@@ -538,7 +548,6 @@ export default function ChannelsScreen() {
     // ==========================================
     // CHANNEL SELECTION
     // ==========================================
-
     const handleChannelPress = (channel) => {
         setSelectedChannel(channel);
         setShowPlayer(true);
@@ -546,25 +555,19 @@ export default function ChannelsScreen() {
         setVideoLoading(true);
         setUseProxy(false);
         setProxyAttempted(false);
+        setPlaylistInfo(null);
     };
 
     // ==========================================
     // LOGOUT HANDLER
     // ==========================================
-
     const handleLogout = () => {
         Alert.alert(
             'Logout',
             'Are you sure you want to logout?',
             [
                 { text: 'Cancel', style: 'cancel' },
-                {
-                    text: 'Logout',
-                    style: 'destructive',
-                    onPress: () => {
-                        logout();
-                    }
-                }
+                { text: 'Logout', style: 'destructive', onPress: logout }
             ]
         );
     };
@@ -572,58 +575,48 @@ export default function ChannelsScreen() {
     // ==========================================
     // SEARCH FILTERING
     // ==========================================
-
-    const filteredGroupedChannels = useMemo(() => {
-        if (!searchQuery.trim()) return groupedChannels;
+    const filteredChannels = useMemo(() => {
+        if (!searchQuery.trim()) return sortedChannels;
 
         const lowerQuery = searchQuery.toLowerCase();
-        return groupedChannels
-            .map(group => ({
-                ...group,
-                data: group.data.filter(channel =>
-                    channel.name.toLowerCase().includes(lowerQuery) ||
-                    channel.language?.name.toLowerCase().includes(lowerQuery)
-                )
-            }))
-            .filter(group => group.data.length > 0);
-    }, [groupedChannels, searchQuery]);
+        return sortedChannels.filter(channel =>
+            channel.name.toLowerCase().includes(lowerQuery) ||
+            channel.language?.name.toLowerCase().includes(lowerQuery) ||
+            channel.lcn?.toString().includes(lowerQuery)
+        );
+    }, [sortedChannels, searchQuery]);
 
     // ==========================================
     // RENDER FUNCTIONS
     // ==========================================
-
     const renderChannelItem = ({ item }) => (
         <TouchableOpacity
             className="flex-row items-center p-4 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
             onPress={() => handleChannelPress(item)}
         >
+            {/* LCN Number Badge */}
             <View className="w-12 h-12 bg-orange-500 rounded-lg items-center justify-center mr-3">
-                <Ionicons name="tv" size={24} color="white" />
+                <Text className="text-white font-bold text-base">{item.lcn || '?'}</Text>
             </View>
 
+            {/* Channel Info */}
             <View className="flex-1">
                 <Text className="text-white font-semibold text-base" numberOfLines={1}>
                     {item.name}
                 </Text>
                 <Text className="text-gray-400 text-sm mt-0.5">
-                    {item.language?.name || 'Unknown'}
+                    {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
                 </Text>
             </View>
 
+            {/* Arrow Icon */}
             <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
         </TouchableOpacity>
-    );
-
-    const renderSectionHeader = ({ section }) => (
-        <View className="bg-gray-900 px-4 py-3 border-b border-gray-700">
-            <Text className="text-orange-500 font-bold text-lg">{section.title}</Text>
-        </View>
     );
 
     // ==========================================
     // MAIN RENDER
     // ==========================================
-
     if (!user) {
         return (
             <SafeAreaView className="flex-1 bg-black items-center justify-center">
@@ -668,24 +661,18 @@ export default function ChannelsScreen() {
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between mb-3">
                     <View className="flex-row items-center">
-                        <Text className="text-white text-2xl font-bold">📺 Live Channels</Text>
+                        <Text className="text-white text-2xl font-bold">Live Channels</Text>
                         <View className="ml-3 bg-orange-500 px-2 py-1 rounded-full">
                             <Text className="text-white text-xs font-bold">{channels?.length || 0}</Text>
                         </View>
                     </View>
+
                     <View className="flex-row items-center">
-                        <TouchableOpacity
-                            onPress={() => setShowUserInfo(true)}
-                            className="mr-3"
-                        >
+                        <TouchableOpacity onPress={() => setShowUserInfo(true)} className="mr-3">
                             <Ionicons name="person-circle" size={28} color="#f97316" />
                         </TouchableOpacity>
                         <TouchableOpacity onPress={refreshChannels} disabled={refreshing}>
-                            <Ionicons
-                                name="refresh"
-                                size={24}
-                                color={refreshing ? '#9ca3af' : '#f97316'}
-                            />
+                            <Ionicons name="refresh" size={24} color={refreshing ? '#9ca3af' : '#f97316'} />
                         </TouchableOpacity>
                     </View>
                 </View>
@@ -698,10 +685,10 @@ export default function ChannelsScreen() {
                         onPress={() => {
                             Alert.prompt(
                                 'Search Channels',
-                                'Enter channel name or language',
+                                'Enter channel name, language, or LCN number',
                                 [
                                     { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Search', onPress: (text) => setSearchQuery(text || '') }
+                                    { text: 'Search', onPress: (text) => setSearchQuery(text) }
                                 ],
                                 'plain-text',
                                 searchQuery
@@ -720,26 +707,145 @@ export default function ChannelsScreen() {
                 </View>
             </View>
 
-            {/* Channels List */}
-            <SectionList
-                sections={filteredGroupedChannels}
+            {/* Channels List - FLAT LIST SORTED BY LCN */}
+            <FlatList
+                data={filteredChannels}
                 keyExtractor={(item) => item._id}
                 renderItem={renderChannelItem}
-                renderSectionHeader={renderSectionHeader}
                 contentContainerStyle={{ paddingHorizontal: 16, paddingVertical: 12 }}
                 showsVerticalScrollIndicator={false}
-                stickySectionHeadersEnabled={true}
                 refreshing={refreshing}
                 onRefresh={refreshChannels}
             />
 
-            {/* User Info Modal */}
+            {/* Video Player Modal */}
             <Modal
-                visible={showUserInfo}
+                visible={showPlayer}
                 animationType="slide"
-                transparent
-                onRequestClose={() => setShowUserInfo(false)}
+                onRequestClose={() => {
+                    setShowPlayer(false);
+                    setSelectedChannel(null);
+                    setPlaylistInfo(null);
+                }}
             >
+                <SafeAreaView className="flex-1 bg-black">
+                    <StatusBar barStyle="light-content" />
+
+                    {/* Player Header */}
+                    <View className="flex-row items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800">
+                        <TouchableOpacity
+                            onPress={() => {
+                                setShowPlayer(false);
+                                setSelectedChannel(null);
+                                setPlaylistInfo(null);
+                            }}
+                        >
+                            <Ionicons name="arrow-back" size={24} color="white" />
+                        </TouchableOpacity>
+
+                        <View className="flex-1 mx-4">
+                            <Text className="text-white font-bold text-lg" numberOfLines={1}>
+                                {selectedChannel?.name || 'Channel'}
+                            </Text>
+                            <Text className="text-gray-400 text-sm">
+                                LCN {selectedChannel?.lcn} • {selectedChannel?.language?.name}
+                            </Text>
+                        </View>
+
+                        <TouchableOpacity onPress={() => {/* Add to favorites */ }}>
+                            <Ionicons name="heart-outline" size={24} color="white" />
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Video Player */}
+                    <ScrollView className="flex-1">
+                        {renderVideoPlayer()}
+
+                        {/* Video Info from oEmbed (if available) */}
+                        {playlistInfo && (
+                            <View className="bg-gray-800 p-4 border-b border-gray-700">
+                                <Text className="text-white font-semibold text-base mb-1">
+                                    {playlistInfo.title}
+                                </Text>
+                                <Text className="text-gray-400 text-sm">{playlistInfo.author}</Text>
+                            </View>
+                        )}
+
+                        {/* Channel Details */}
+                        <View className="p-4 bg-gray-900">
+                            <View className="flex-row items-center mb-3">
+                                <View className="flex-1">
+                                    <Text className="text-white text-xl font-bold mb-1">
+                                        {selectedChannel?.name}
+                                    </Text>
+                                    <View className="flex-row items-center">
+                                        <View className="bg-orange-500/20 px-2 py-1 rounded mr-2">
+                                            <Text className="text-orange-500 text-xs font-semibold">
+                                                LCN {selectedChannel?.lcn}
+                                            </Text>
+                                        </View>
+                                        <Text className="text-gray-400 text-sm">
+                                            {selectedChannel?.language?.name}
+                                        </Text>
+                                        <Text className="text-gray-600 mx-2">•</Text>
+                                        <Text className="text-gray-400 text-sm">
+                                            {selectedChannel?.genre?.name}
+                                        </Text>
+                                    </View>
+                                </View>
+                            </View>
+
+                            {/* Package Info */}
+                            {selectedChannel?.packageNames && selectedChannel.packageNames.length > 0 && (
+                                <View className="mt-3">
+                                    <Text className="text-gray-400 text-sm mb-2">Available in:</Text>
+                                    <View className="flex-row flex-wrap">
+                                        {selectedChannel.packageNames.map((pkg, index) => (
+                                            <View key={index} className="bg-gray-800 px-3 py-1.5 rounded-full mr-2 mb-2">
+                                                <Text className="text-white text-xs">{pkg}</Text>
+                                            </View>
+                                        ))}
+                                    </View>
+                                </View>
+                            )}
+                        </View>
+
+                        {/* Recommended Channels */}
+                        {getRecommendedChannels().length > 0 && (
+                            <View className="p-4 bg-black">
+                                <Text className="text-white text-lg font-bold mb-3">
+                                    More {selectedChannel?.language?.name} Channels
+                                </Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    {getRecommendedChannels().map((channel) => (
+                                        <TouchableOpacity
+                                            key={channel._id}
+                                            className="bg-gray-800 rounded-lg p-3 mr-3 w-40"
+                                            onPress={() => {
+                                                setSelectedChannel(channel);
+                                                setVideoError(false);
+                                                setVideoLoading(true);
+                                                setPlaylistInfo(null);
+                                            }}
+                                        >
+                                            <View className="w-8 h-8 bg-orange-500 rounded items-center justify-center mb-2">
+                                                <Text className="text-white font-bold text-sm">{channel.lcn}</Text>
+                                            </View>
+                                            <Text className="text-white font-semibold" numberOfLines={2}>
+                                                {channel.name}
+                                            </Text>
+                                            <Text className="text-gray-400 text-xs mt-1">{channel.genre?.name}</Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </ScrollView>
+                            </View>
+                        )}
+                    </ScrollView>
+                </SafeAreaView>
+            </Modal>
+
+            {/* User Info Modal */}
+            <Modal visible={showUserInfo} animationType="slide" transparent onRequestClose={() => setShowUserInfo(false)}>
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
                         {/* Modal Header */}
@@ -758,186 +864,80 @@ export default function ChannelsScreen() {
                                         <Ionicons name="person" size={32} color="white" />
                                     </View>
                                     <View className="flex-1">
-                                        <Text className="text-white text-lg font-bold">{user.fullName}</Text>
-                                        <Text className="text-gray-400 text-sm">{user.email}</Text>
+                                        <Text className="text-white text-lg font-bold">{user.name}</Text>
+                                        <Text className="text-gray-400 text-sm">{user.macAddress}</Text>
                                     </View>
                                 </View>
 
                                 <View className="border-t border-gray-700 pt-3 space-y-2">
                                     <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Phone</Text>
-                                        <Text className="text-white font-semibold">{user.phoneNumber || 'N/A'}</Text>
+                                        <Text className="text-gray-400">Package</Text>
+                                        <Text className="text-white font-semibold">
+                                            {user.packageName || 'Multi-Package'}
+                                        </Text>
                                     </View>
+
                                     <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Username</Text>
-                                        <Text className="text-white font-semibold">{user.username}</Text>
+                                        <Text className="text-gray-400">Expiry Date</Text>
+                                        <Text className="text-white font-semibold">
+                                            {formatDate(user.expiryDate)}
+                                        </Text>
                                     </View>
-                                    <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Role</Text>
-                                        <View className="bg-blue-500 px-3 py-1 rounded-full">
-                                            <Text className="text-white text-xs font-bold uppercase">{user.role}</Text>
+
+                                    {daysRemaining !== null && (
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Days Remaining</Text>
+                                            <Text className={`font-bold ${daysRemaining < 7 ? 'text-red-500' : 'text-green-500'}`}>
+                                                {daysRemaining} days
+                                            </Text>
                                         </View>
+                                    )}
+
+                                    <View className="flex-row justify-between py-2">
+                                        <Text className="text-gray-400">Total Channels</Text>
+                                        <Text className="text-white font-semibold">{channels.length}</Text>
                                     </View>
+
+                                    {user.totalPackages && (
+                                        <View className="flex-row justify-between py-2">
+                                            <Text className="text-gray-400">Active Packages</Text>
+                                            <Text className="text-white font-semibold">{user.totalPackages}</Text>
+                                        </View>
+                                    )}
                                 </View>
                             </View>
 
-                            {/* Package Details */}
-                            {userPackage && (
-                                <View className="bg-gray-800 rounded-xl p-4 mb-4">
-                                    <Text className="text-white text-lg font-bold mb-3">📦 Package Details</Text>
-                                    <View className="space-y-2">
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Package Name</Text>
-                                            <Text className="text-white font-semibold">{userPackage.name}</Text>
-                                        </View>
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Total Channels</Text>
-                                            <Text className="text-orange-500 font-bold">{channels?.length || 0}</Text>
-                                        </View>
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Start Date</Text>
-                                            <Text className="text-white font-semibold">{formatDate(user.subscriptionStartDate)}</Text>
-                                        </View>
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">End Date</Text>
-                                            <Text className="text-white font-semibold">{formatDate(user.subscriptionEndDate)}</Text>
-                                        </View>
-                                        {daysRemaining !== null && (
-                                            <View className="flex-row justify-between py-2">
-                                                <Text className="text-gray-400">Days Remaining</Text>
-                                                <View className={`px-3 py-1 rounded-full ${daysRemaining > 7 ? 'bg-green-500' : daysRemaining > 3 ? 'bg-yellow-500' : 'bg-red-500'}`}>
-                                                    <Text className="text-white font-bold text-sm">{daysRemaining} days</Text>
-                                                </View>
-                                            </View>
-                                        )}
-                                    </View>
-                                </View>
-                            )}
-
-                            {/* Server Info */}
-                            {serverInfo && (
-                                <View className="bg-gray-800 rounded-xl p-4 mb-4">
-                                    <Text className="text-white text-lg font-bold mb-3">🌐 Server Info</Text>
-                                    <View className="space-y-2">
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Server Name</Text>
-                                            <Text className="text-white font-semibold">{serverInfo.name || 'N/A'}</Text>
-                                        </View>
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Proxy Status</Text>
-                                            <View className={`px-3 py-1 rounded-full ${serverInfo.proxyEnabled ? 'bg-green-500' : 'bg-gray-600'}`}>
-                                                <Text className="text-white text-xs font-bold">
-                                                    {serverInfo.proxyEnabled ? 'Enabled' : 'Disabled'}
+                            {/* Packages List */}
+                            {packagesList && packagesList.length > 0 && (
+                                <View className="mb-4">
+                                    <Text className="text-white text-lg font-bold mb-3">Your Packages</Text>
+                                    {packagesList.map((pkg, index) => (
+                                        <View key={index} className="bg-gray-800 rounded-xl p-4 mb-2">
+                                            <Text className="text-white font-semibold text-base">{pkg.name}</Text>
+                                            <View className="flex-row items-center mt-2">
+                                                <Ionicons name="tv" size={16} color="#9ca3af" />
+                                                <Text className="text-gray-400 text-sm ml-2">
+                                                    {pkg.channelCount || 0} channels
                                                 </Text>
                                             </View>
                                         </View>
-                                    </View>
+                                    ))}
                                 </View>
                             )}
 
                             {/* Logout Button */}
                             <TouchableOpacity
+                                className="bg-red-600 py-4 rounded-xl items-center mb-4"
                                 onPress={handleLogout}
-                                className="bg-red-600 py-4 rounded-xl flex-row items-center justify-center mb-6"
                             >
-                                <Ionicons name="log-out-outline" size={24} color="white" />
-                                <Text className="text-white text-lg font-bold ml-2">Logout</Text>
+                                <View className="flex-row items-center">
+                                    <Ionicons name="log-out" size={20} color="white" />
+                                    <Text className="text-white font-bold text-base ml-2">Logout</Text>
+                                </View>
                             </TouchableOpacity>
                         </ScrollView>
                     </View>
                 </View>
-            </Modal>
-
-            {/* Video Player Modal */}
-            <Modal
-                visible={showPlayer}
-                animationType="slide"
-                presentationStyle="fullScreen"
-                onRequestClose={() => setShowPlayer(false)}
-            >
-                <SafeAreaView className="flex-1 bg-black">
-                    <StatusBar barStyle="light-content" />
-
-                    {/* Player Header */}
-                    <View className="px-4 py-3 bg-gray-900 border-b border-gray-800 flex-row items-center justify-between">
-                        <TouchableOpacity
-                            onPress={() => {
-                                setShowPlayer(false);
-                                setSelectedChannel(null);
-                                videoRef.current?.pauseAsync();
-                            }}
-                            className="flex-row items-center"
-                        >
-                            <Ionicons name="arrow-back" size={24} color="white" />
-                            <Text className="text-white text-lg font-semibold ml-2">Back</Text>
-                        </TouchableOpacity>
-
-                        {/* Proxy Toggle */}
-                        {serverInfo?.proxyEnabled && (
-                            <View className="flex-row items-center">
-                                <Text className="text-gray-400 text-sm mr-2">Proxy</Text>
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setUseProxy(!useProxy);
-                                        setVideoError(false);
-                                        setVideoLoading(true);
-                                        setProxyAttempted(false);
-                                    }}
-                                    className={`w-12 h-6 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`}
-                                >
-                                    <View className={`w-5 h-5 rounded-full bg-white ${useProxy ? 'self-end mr-0.5' : 'self-start ml-0.5'}`} />
-                                </TouchableOpacity>
-                            </View>
-                        )}
-                    </View>
-
-                    {/* Channel Info */}
-                    {selectedChannel && (
-                        <View className="px-4 py-3 bg-gray-900">
-                            <Text className="text-white text-xl font-bold" numberOfLines={1}>
-                                {selectedChannel.name}
-                            </Text>
-                            <View className="flex-row items-center mt-2">
-                                <Ionicons name="language" size={14} color="#9ca3af" />
-                                <Text className="text-gray-400 text-sm ml-1.5">
-                                    {selectedChannel.language?.name || 'Unknown Language'}
-                                </Text>
-                            </View>
-                        </View>
-                    )}
-
-                    {/* Video Player */}
-                    <ScrollView className="flex-1">
-                        {renderVideoPlayer()}
-
-                        {/* Recommended Channels */}
-                        <View className="px-4 py-6">
-                            <Text className="text-white text-lg font-bold mb-3">
-                                📌 Recommended Channels
-                            </Text>
-                            {getRecommendedChannels().map((channel) => (
-                                <TouchableOpacity
-                                    key={channel._id}
-                                    className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
-                                    onPress={() => handleChannelPress(channel)}
-                                >
-                                    <View className="w-10 h-10 bg-orange-500 rounded-lg items-center justify-center mr-3">
-                                        <Ionicons name="tv" size={20} color="white" />
-                                    </View>
-                                    <View className="flex-1">
-                                        <Text className="text-white font-semibold" numberOfLines={1}>
-                                            {channel.name}
-                                        </Text>
-                                        <Text className="text-gray-400 text-xs mt-0.5">
-                                            {channel.language?.name}
-                                        </Text>
-                                    </View>
-                                    <Ionicons name="play-circle" size={24} color="#f97316" />
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </ScrollView>
-                </SafeAreaView>
             </Modal>
         </SafeAreaView>
     );

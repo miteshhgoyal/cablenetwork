@@ -12,13 +12,15 @@ import {
     RefreshControl,
     FlatList,
     StatusBar,
-    Alert
+    Alert,
+    Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
+import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 
 const { width } = Dimensions.get('window');
 
@@ -39,6 +41,9 @@ export default function MoviesScreen() {
     const [isPlaying, setIsPlaying] = useState(true);
     const videoRef = useRef(null);
 
+    // YouTube Playlist state
+    const [playlistInfo, setPlaylistInfo] = useState(null);
+
     useEffect(() => {
         if (isAuthenticated) {
             fetchMovies();
@@ -53,7 +58,6 @@ export default function MoviesScreen() {
             if (response.data.success) {
                 setMovies(response.data.data.movies);
 
-                // Convert grouped object to array format for horizontal scrolling
                 const sections = Object.entries(response.data.data.groupedByGenre).map(
                     ([genre, movies]) => ({
                         title: genre,
@@ -87,7 +91,7 @@ export default function MoviesScreen() {
     }, [groupedMovies, selectedGenre]);
 
     // ==========================================
-    // STREAM URL ANALYSIS
+    // STREAM URL ANALYSIS (WITH YOUTUBE SUPPORT)
     // ==========================================
 
     const analyzeStreamUrl = (url) => {
@@ -95,34 +99,99 @@ export default function MoviesScreen() {
 
         const urlLower = url.toLowerCase();
 
-        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) {
-            return { type: 'hls', isValid: true };
+        // YouTube detection
+        if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+            if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
+            if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
+            if (urlLower.includes('playlist') || urlLower.includes('list=')) return { type: 'youtube-playlist', isValid: true };
+            if (urlLower.includes('/c/') || urlLower.includes('/@')) return { type: 'youtube-channel', isValid: true };
+            return { type: 'youtube-video', isValid: true };
         }
 
-        if (urlLower.includes('chunklist')) {
-            return { type: 'hls', isValid: true };
-        }
+        // HLS
+        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
 
-        if (urlLower.includes('.mp4')) {
-            return { type: 'mp4', isValid: true };
-        }
+        // MP4
+        if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
 
-        if (urlLower.includes('.mkv')) {
-            return { type: 'mkv', isValid: true };
-        }
+        // MKV
+        if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
 
-        if (url.startsWith('http://') || url.startsWith('https://')) {
-            return { type: 'stream', isValid: true };
-        }
+        // IPTV patterns
+        if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
+        if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
+
+        // RTMP
+        if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
+
+        // Generic stream
+        if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
     };
 
+    const extractVideoId = (url) => {
+        if (!url) return null;
+
+        const shortRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
+        const shortMatch = url.match(shortRegex);
+        if (shortMatch) return shortMatch[1];
+
+        const watchRegex = /youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/;
+        const watchMatch = url.match(watchRegex);
+        if (watchMatch) return watchMatch[1];
+
+        const liveRegex = /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/;
+        const liveMatch = url.match(liveRegex);
+        if (liveMatch) return liveMatch[1];
+
+        const embedRegex = /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/;
+        const embedMatch = url.match(embedRegex);
+        if (embedMatch) return embedMatch[1];
+
+        return null;
+    };
+
+    const extractPlaylistId = (url) => {
+        if (!url) return null;
+        const playlistRegex = /[?&]list=([a-zA-Z0-9_-]+)/;
+        const match = url.match(playlistRegex);
+        return match ? match[1] : null;
+    };
+
+    // Fetch basic video info using oEmbed (NO API KEY NEEDED)
+    const fetchVideoInfoOEmbed = async (videoId) => {
+        try {
+            const response = await fetch(
+                `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
+            );
+            const data = await response.json();
+            return {
+                title: data.title || 'YouTube Video',
+                author: data.author_name || 'Unknown Channel',
+                thumbnail: data.thumbnail_url || null
+            };
+        } catch (error) {
+            console.error('Error fetching video info:', error);
+            return {
+                title: 'YouTube Video',
+                author: 'Unknown Channel',
+                thumbnail: null
+            };
+        }
+    };
+
     const renderStreamTypeBadge = (type) => {
         const badges = {
+            'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
+            'youtube-live': { icon: 'radio', color: 'bg-red-600', text: 'YouTube Live' },
+            'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
             'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS' },
             'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
             'mkv': { icon: 'film', color: 'bg-purple-600', text: 'MKV' },
+            'iptv': { icon: 'tv', color: 'bg-indigo-600', text: 'IPTV' },
+            'rtmp': { icon: 'cloud-upload', color: 'bg-pink-600', text: 'RTMP' },
             'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' }
         };
 
@@ -137,7 +206,174 @@ export default function MoviesScreen() {
     };
 
     // ==========================================
-    // VIDEO PLAYER
+    // YOUTUBE PLAYER COMPONENTS
+    // ==========================================
+
+    const YouTubeVideoPlayer = ({ videoId }) => {
+        const player = useYouTubePlayer(videoId, {
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true
+        });
+
+        useYouTubeEvent(player, 'ready', () => {
+            setVideoLoading(false);
+            setVideoError(false);
+
+            // Fetch basic info using oEmbed
+            fetchVideoInfoOEmbed(videoId).then(info => {
+                setPlaylistInfo(info);
+            });
+        });
+
+        useYouTubeEvent(player, 'error', (error) => {
+            console.error('YouTube error:', error);
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage(`YouTube Error: ${error.message}`);
+        });
+
+        return (
+            <View className="w-full bg-black relative" style={{ height: 260 }}>
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+            </View>
+        );
+    };
+
+    const YouTubeLivePlayer = ({ videoId }) => {
+        const player = useYouTubePlayer(videoId, {
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true
+        });
+
+        useYouTubeEvent(player, 'ready', () => {
+            setVideoLoading(false);
+            setVideoError(false);
+
+            fetchVideoInfoOEmbed(videoId).then(info => {
+                setPlaylistInfo(info);
+            });
+        });
+
+        useYouTubeEvent(player, 'error', (error) => {
+            console.error('YouTube live error:', error);
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage(`YouTube Live Error: ${error.message}`);
+        });
+
+        return (
+            <View className="w-full bg-black relative" style={{ height: 260 }}>
+                <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
+                    <View className="w-2 h-2 bg-white rounded-full mr-2" />
+                    <Text className="text-white text-xs font-bold">● LIVE</Text>
+                </View>
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+            </View>
+        );
+    };
+
+    const YouTubePlaylistPlayer = ({ url, videoId, playlistId }) => {
+        const player = useYouTubePlayer(videoId, {
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true,
+            loop: true,
+            list: playlistId,
+            listType: 'playlist'
+        });
+
+        useYouTubeEvent(player, 'ready', () => {
+            setVideoLoading(false);
+            setVideoError(false);
+        });
+
+        useYouTubeEvent(player, 'error', (error) => {
+            console.error('YouTube playlist error:', error);
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage(`YouTube Playlist Error: ${error.message}`);
+        });
+
+        return (
+            <View className="w-full bg-gray-900">
+                <View className="w-full bg-black relative" style={{ height: 260 }}>
+                    <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+
+                    <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg flex-row items-center">
+                        <Ionicons name="list" size={14} color="white" />
+                        <Text className="text-white text-xs font-bold ml-1.5">PLAYLIST</Text>
+                    </View>
+                </View>
+
+                <View className="bg-gray-800 p-4 border-t-2 border-purple-600">
+                    <View className="flex-row items-center mb-2">
+                        <Ionicons name="play-circle" size={20} color="#a855f7" />
+                        <Text className="text-purple-400 font-bold ml-2 text-sm">AUTO-PLAYING PLAYLIST</Text>
+                    </View>
+                    <Text className="text-white font-semibold text-base mb-1">
+                        YouTube Playlist Mode
+                    </Text>
+                    <Text className="text-gray-400 text-xs mb-3">
+                        Videos will play automatically. Use player controls to navigate between videos.
+                    </Text>
+
+                    <TouchableOpacity
+                        className="bg-red-600 py-3 rounded-lg flex-row items-center justify-center"
+                        onPress={() => Linking.openURL(url)}
+                    >
+                        <Ionicons name="logo-youtube" size={20} color="white" />
+                        <Text className="text-white font-semibold ml-2">View Full Playlist on YouTube</Text>
+                    </TouchableOpacity>
+                </View>
+
+                <View className="bg-gray-800 p-4 border-t border-gray-700">
+                    <Text className="text-gray-400 text-xs mb-2">
+                        💡 <Text className="font-semibold">Playlist Tips:</Text>
+                    </Text>
+                    <View className="space-y-1">
+                        <Text className="text-gray-500 text-xs">• Videos play automatically in sequence</Text>
+                        <Text className="text-gray-500 text-xs">• Use ⏭ button to skip to next video</Text>
+                        <Text className="text-gray-500 text-xs">• Tap "View Full Playlist" to see all videos</Text>
+                        <Text className="text-gray-500 text-xs">• Player remembers your position in playlist</Text>
+                    </View>
+                </View>
+            </View>
+        );
+    };
+
+    const YouTubeChannelPlayer = ({ url }) => {
+        return (
+            <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                <Ionicons name="logo-youtube" size={80} color="#ff0000" />
+                <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
+                    YouTube Channel Detected
+                </Text>
+                <Text className="text-gray-400 text-sm mt-2 text-center px-6">
+                    Please use a specific video or playlist URL
+                </Text>
+                <TouchableOpacity
+                    className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
+                    onPress={() => Linking.openURL(url)}
+                >
+                    <Text className="text-white font-semibold">Open in YouTube</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    };
+
+    // ==========================================
+    // VIDEO PLAYER (ALL TYPES)
     // ==========================================
 
     const renderVideoPlayer = () => {
@@ -159,6 +395,71 @@ export default function MoviesScreen() {
             );
         }
 
+        // YouTube Video
+        if (type === 'youtube-video') {
+            const videoId = extractVideoId(selectedMovie.mediaUrl);
+            if (!videoId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
+                    </View>
+                );
+            }
+            return (
+                <>
+                    {renderStreamTypeBadge(type)}
+                    <YouTubeVideoPlayer videoId={videoId} />
+                </>
+            );
+        }
+
+        // YouTube Live
+        if (type === 'youtube-live') {
+            const videoId = extractVideoId(selectedMovie.mediaUrl);
+            if (!videoId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
+                    </View>
+                );
+            }
+            return (
+                <>
+                    {renderStreamTypeBadge(type)}
+                    <YouTubeLivePlayer videoId={videoId} />
+                </>
+            );
+        }
+
+        // YouTube Playlist
+        if (type === 'youtube-playlist') {
+            const videoId = extractVideoId(selectedMovie.mediaUrl);
+            const playlistId = extractPlaylistId(selectedMovie.mediaUrl);
+
+            if (!playlistId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
+                    </View>
+                );
+            }
+            return <YouTubePlaylistPlayer url={selectedMovie.mediaUrl} videoId={videoId} playlistId={playlistId} />;
+        }
+
+        // YouTube Channel
+        if (type === 'youtube-channel') {
+            return (
+                <>
+                    {renderStreamTypeBadge(type)}
+                    <YouTubeChannelPlayer url={selectedMovie.mediaUrl} />
+                </>
+            );
+        }
+
+        // Regular video streams (HLS, MP4, MKV, IPTV, RTMP, etc.)
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 {renderStreamTypeBadge(type)}
@@ -228,7 +529,7 @@ export default function MoviesScreen() {
     };
 
     // ==========================================
-    // RENDER MOVIE CARD (Vertical)
+    // RENDER MOVIE CARD (IMPROVED UI)
     // ==========================================
 
     const renderMovieCard = ({ item }) => (
@@ -240,14 +541,30 @@ export default function MoviesScreen() {
                 setShowPlayer(true);
                 setVideoError(false);
                 setVideoLoading(true);
+                setPlaylistInfo(null);
             }}
         >
-            <Image
-                source={{ uri: item.verticalUrl }}
-                className="w-full h-52 rounded-xl bg-gray-800"
-                resizeMode="cover"
-            />
-            <Text className="text-white font-semibold mt-2" numberOfLines={2}>
+            <View className="relative">
+                <Image
+                    source={{ uri: item.verticalUrl }}
+                    className="w-full h-52 rounded-xl bg-gray-800"
+                    resizeMode="cover"
+                />
+                {/* Play Overlay */}
+                <View className="absolute inset-0 items-center justify-center">
+                    <View className="bg-black/50 rounded-full p-3">
+                        <Ionicons name="play" size={32} color="white" />
+                    </View>
+                </View>
+                {/* Rating or Badge */}
+                <View className="absolute bottom-2 left-2 bg-orange-500/90 px-2 py-1 rounded-lg">
+                    <View className="flex-row items-center">
+                        <Ionicons name="star" size={12} color="white" />
+                        <Text className="text-white text-xs font-bold ml-1">HD</Text>
+                    </View>
+                </View>
+            </View>
+            <Text className="text-white font-semibold mt-2 text-sm" numberOfLines={2}>
                 {item.title}
             </Text>
             <View className="flex-row items-center mt-1">
@@ -260,7 +577,7 @@ export default function MoviesScreen() {
     );
 
     // ==========================================
-    // RENDER GENRE SECTION (Horizontal Scroll)
+    // RENDER GENRE SECTION (IMPROVED UI)
     // ==========================================
 
     const renderGenreSection = ({ item: section }) => (
@@ -270,7 +587,9 @@ export default function MoviesScreen() {
                     <Text className="text-white text-xl font-bold">{section.title}</Text>
                     <View className="h-1 w-12 bg-orange-500 mt-1 rounded-full" />
                 </View>
-                <Text className="text-gray-400 text-sm">{section.data.length} movies</Text>
+                <View className="bg-gray-800 px-3 py-1.5 rounded-full">
+                    <Text className="text-gray-300 text-xs font-semibold">{section.data.length} movies</Text>
+                </View>
             </View>
 
             <FlatList
@@ -322,7 +641,7 @@ export default function MoviesScreen() {
                         <Text className="text-white text-2xl font-bold">Movies</Text>
                     </View>
                     <View className="flex-row items-center">
-                        <View className="bg-orange-500 px-3 py-1 rounded-full mr-3">
+                        <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-3">
                             <Text className="text-white text-sm font-bold">{movies.length}</Text>
                         </View>
                         <TouchableOpacity onPress={onRefresh} disabled={refreshing}>
@@ -360,7 +679,7 @@ export default function MoviesScreen() {
                 ))}
             </ScrollView>
 
-            {/* Movies List - Horizontal Scrolling Genres */}
+            {/* Movies List */}
             <FlatList
                 data={filteredSections}
                 renderItem={renderGenreSection}
@@ -391,6 +710,7 @@ export default function MoviesScreen() {
                 onRequestClose={() => {
                     setShowPlayer(false);
                     setSelectedMovie(null);
+                    setPlaylistInfo(null);
                     videoRef.current?.pauseAsync();
                 }}
             >
@@ -403,6 +723,7 @@ export default function MoviesScreen() {
                             onPress={() => {
                                 setShowPlayer(false);
                                 setSelectedMovie(null);
+                                setPlaylistInfo(null);
                                 videoRef.current?.pauseAsync();
                             }}
                             className="flex-row items-center"
@@ -433,22 +754,38 @@ export default function MoviesScreen() {
                             {/* Video Player */}
                             {renderVideoPlayer()}
 
+                            {/* Video Info from oEmbed (if YouTube) */}
+                            {playlistInfo && (
+                                <View className="bg-gray-800 p-4 border-b border-gray-700">
+                                    <Text className="text-white font-semibold text-base mb-1">
+                                        {playlistInfo.title}
+                                    </Text>
+                                    <Text className="text-gray-400 text-sm">{playlistInfo.author}</Text>
+                                </View>
+                            )}
+
                             {/* Movie Details */}
-                            <View className="p-4">
+                            <View className="p-4 bg-gray-900">
                                 <Text className="text-white text-2xl font-bold mb-3">
                                     {selectedMovie.title}
                                 </Text>
 
                                 <View className="flex-row items-center flex-wrap mb-4">
-                                    <View className="bg-orange-500 px-3 py-1 rounded-full mr-2 mb-2">
+                                    <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-2 mb-2">
                                         <Text className="text-white font-semibold text-sm">
                                             {selectedMovie.genre?.name || 'Movie'}
                                         </Text>
                                     </View>
-                                    <View className="bg-gray-800 px-3 py-1 rounded-full mr-2 mb-2">
+                                    <View className="bg-gray-800 px-3 py-1.5 rounded-full mr-2 mb-2">
                                         <Text className="text-gray-300 font-medium text-sm">
                                             {selectedMovie.language?.name || 'Unknown'}
                                         </Text>
+                                    </View>
+                                    <View className="bg-gray-800 px-3 py-1.5 rounded-full mb-2">
+                                        <View className="flex-row items-center">
+                                            <Ionicons name="star" size={14} color="#f59e0b" />
+                                            <Text className="text-gray-300 font-medium text-sm ml-1">HD</Text>
+                                        </View>
                                     </View>
                                 </View>
 
@@ -460,44 +797,50 @@ export default function MoviesScreen() {
                                 />
 
                                 {/* Recommended Movies */}
-                                <View>
-                                    <Text className="text-white text-lg font-bold mb-3">
-                                        📌 More Like This
-                                    </Text>
-                                    {getRecommendedMovies().map((movie) => (
-                                        <TouchableOpacity
-                                            key={movie._id}
-                                            className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
-                                            onPress={() => {
-                                                setSelectedMovie(movie);
-                                                setVideoError(false);
-                                                setVideoLoading(true);
-                                            }}
-                                        >
-                                            <Image
-                                                source={{ uri: movie.verticalUrl }}
-                                                className="w-16 h-24 rounded-lg bg-gray-700 mr-3"
-                                                resizeMode="cover"
-                                            />
-                                            <View className="flex-1">
-                                                <Text className="text-white font-semibold text-base" numberOfLines={2}>
-                                                    {movie.title}
-                                                </Text>
-                                                <View className="flex-row items-center mt-1">
-                                                    <View className="bg-orange-500 px-2 py-0.5 rounded mr-2">
-                                                        <Text className="text-white text-xs font-semibold">
-                                                            {movie.genre?.name}
+                                {getRecommendedMovies().length > 0 && (
+                                    <View>
+                                        <View className="flex-row items-center mb-3">
+                                            <Text className="text-white text-lg font-bold">More Like This</Text>
+                                            <View className="ml-2 bg-orange-500 w-1.5 h-1.5 rounded-full" />
+                                        </View>
+                                        {getRecommendedMovies().map((movie) => (
+                                            <TouchableOpacity
+                                                key={movie._id}
+                                                className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-xl active:bg-gray-700"
+                                                onPress={() => {
+                                                    setSelectedMovie(movie);
+                                                    setVideoError(false);
+                                                    setVideoLoading(true);
+                                                    setPlaylistInfo(null);
+                                                }}
+                                            >
+                                                <Image
+                                                    source={{ uri: movie.verticalUrl }}
+                                                    className="w-16 h-24 rounded-lg bg-gray-700 mr-3"
+                                                    resizeMode="cover"
+                                                />
+                                                <View className="flex-1">
+                                                    <Text className="text-white font-semibold text-base" numberOfLines={2}>
+                                                        {movie.title}
+                                                    </Text>
+                                                    <View className="flex-row items-center mt-1">
+                                                        <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-2">
+                                                            <Text className="text-orange-500 text-xs font-semibold">
+                                                                {movie.genre?.name}
+                                                            </Text>
+                                                        </View>
+                                                        <Text className="text-gray-400 text-xs">
+                                                            {movie.language?.name}
                                                         </Text>
                                                     </View>
-                                                    <Text className="text-gray-400 text-xs">
-                                                        {movie.language?.name}
-                                                    </Text>
                                                 </View>
-                                            </View>
-                                            <Ionicons name="play-circle" size={32} color="#f97316" />
-                                        </TouchableOpacity>
-                                    ))}
-                                </View>
+                                                <View className="bg-orange-500/20 rounded-full p-2">
+                                                    <Ionicons name="play" size={24} color="#f97316" />
+                                                </View>
+                                            </TouchableOpacity>
+                                        ))}
+                                    </View>
+                                )}
                             </View>
                         </ScrollView>
                     )}
