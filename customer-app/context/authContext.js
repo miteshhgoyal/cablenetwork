@@ -1,23 +1,10 @@
 // context/authContext.js
 import { createContext, useContext, useEffect, useState } from "react";
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRouter, useSegments } from 'expo-router';
+import { useRouter } from 'expo-router';
 import api from "../services/api";
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
-import Constants from 'expo-constants';
-
-// Import location and security services
-import {
-    startLocationTracking,
-    stopLocationTracking,
-    requestLocationPermissions
-} from '../services/locationService';
-import {
-    checkDeviceSecurity,
-    startSecurityMonitoring,
-    stopSecurityMonitoring
-} from '../services/securityService';
 
 export const AuthContext = createContext();
 
@@ -30,26 +17,23 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-    // User & Channels State
+    // States
     const [user, setUser] = useState(null);
     const [channels, setChannels] = useState([]);
     const [packagesList, setPackagesList] = useState([]);
-
-    // OTT Content State (Movies & Series)
     const [movies, setMovies] = useState([]);
     const [series, setSeries] = useState([]);
     const [groupedMovies, setGroupedMovies] = useState([]);
     const [groupedSeries, setGroupedSeries] = useState([]);
-
-    // App State
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [serverInfo, setServerInfo] = useState(null);
-    const [securityIntervalId, setSecurityIntervalId] = useState(null);
+
+    // ✅ NEW: Subscription status
+    const [subscriptionStatus, setSubscriptionStatus] = useState(null); // 'ACTIVE', 'EXPIRED', 'INACTIVE'
 
     const router = useRouter();
-    const segments = useSegments();
 
     useEffect(() => {
         checkAuth();
@@ -58,185 +42,47 @@ export const AuthProvider = ({ children }) => {
     const checkAuth = async () => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
-            const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
-            const savedPackages = await AsyncStorage.getItem('packagesList');
-            const savedServerInfo = await AsyncStorage.getItem('serverInfo');
+            const savedChannels = await AsyncStorage.getItem('channels');
 
-            // Load cached OTT content
-            const savedMovies = await AsyncStorage.getItem('movies');
-            const savedSeries = await AsyncStorage.getItem('series');
-            const savedGroupedMovies = await AsyncStorage.getItem('groupedMovies');
-            const savedGroupedSeries = await AsyncStorage.getItem('groupedSeries');
-
-            if (token && savedChannels && savedUser) {
-                const parsedChannels = JSON.parse(savedChannels);
+            if (token && savedUser) {
                 const parsedUser = JSON.parse(savedUser);
-                const parsedPackages = savedPackages ? JSON.parse(savedPackages) : [];
-                const parsedServerInfo = savedServerInfo ? JSON.parse(savedServerInfo) : null;
-
-                setIsAuthenticated(true);
-                setChannels(parsedChannels);
                 setUser(parsedUser);
-                setPackagesList(parsedPackages);
-                setServerInfo(parsedServerInfo);
+                setIsAuthenticated(true);
 
-                // Load OTT content if available
-                if (savedMovies) setMovies(JSON.parse(savedMovies));
-                if (savedSeries) setSeries(JSON.parse(savedSeries));
-                if (savedGroupedMovies) setGroupedMovies(JSON.parse(savedGroupedMovies));
-                if (savedGroupedSeries) setGroupedSeries(JSON.parse(savedGroupedSeries));
+                if (savedChannels) {
+                    setChannels(JSON.parse(savedChannels));
+                }
 
-                // Fetch fresh OTT content in background
-                fetchOttContent();
+                // ✅ CHECK SUBSCRIPTION STATUS FROM DB
+                await checkSubscriptionStatus();
             } else {
                 setIsAuthenticated(false);
-                setUser(null);
-                setChannels([]);
-                setPackagesList([]);
-                setServerInfo(null);
             }
         } catch (error) {
             console.error('Auth check error:', error);
             setIsAuthenticated(false);
-            setUser(null);
         } finally {
             setLoading(false);
         }
-    }
-
-    // Collect comprehensive device info
-    const collectDeviceInfo = async (customInfo = {}) => {
-        try {
-            const deviceData = {
-                // Device Identification
-                macAddress: customInfo.macAddress || Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE",
-                deviceName: customInfo.deviceName || Device.deviceName || "Unknown Device",
-                modelName: customInfo.modelName || Device.modelName || "Unknown Model",
-                modelId: Device.modelId || "Unknown",
-                brand: customInfo.brand || Device.brand || "Unknown",
-                manufacturer: customInfo.manufacturer || Device.manufacturer || "Unknown",
-
-                // Operating System
-                osName: customInfo.osName || Device.osName || "Unknown OS",
-                osVersion: customInfo.osVersion || Device.osVersion || "Unknown",
-                osBuildId: Device.osBuildId || "Unknown",
-                osInternalBuildId: Device.osInternalBuildId || "Unknown",
-                platformApiLevel: customInfo.platformApiLevel || Device.platformApiLevel || null,
-
-                // Device Type & Status
-                deviceType: customInfo.deviceType || getDeviceTypeName(Device.deviceType),
-                isDevice: customInfo.isDevice !== undefined ? customInfo.isDevice : Device.isDevice,
-
-                // Hardware Info
-                totalMemory: customInfo.totalMemory || Device.totalMemory || null,
-                supportedCpuArchitectures: customInfo.supportedCpuArchitectures || Device.supportedCpuArchitectures?.join(', ') || "Unknown",
-
-                // App Information
-                appVersion: customInfo.appVersion || Application.nativeApplicationVersion || "1.0.0",
-                buildVersion: customInfo.buildVersion || Application.nativeBuildVersion || "1",
-                bundleId: customInfo.bundleId || Application.applicationId || "unknown",
-                appName: Application.applicationName || "Digital Cable Network",
-
-                // System Information
-                expoVersion: customInfo.expoVersion || Constants.expoVersion || "Unknown",
-                installationId: customInfo.installationId || Constants.installationId || "Unknown",
-                sessionId: Constants.sessionId || "Unknown",
-
-                // Additional metadata
-                loginTimestamp: new Date().toISOString(),
-                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown",
-            };
-
-            return deviceData;
-        } catch (error) {
-            console.error('Error collecting device info:', error);
-            return {
-                macAddress: "UNKNOWN_DEVICE",
-                deviceName: "Unknown Device",
-                error: error.message
-            };
-        }
     };
 
-    const getDeviceTypeName = (type) => {
-        const types = {
-            [Device.DeviceType.PHONE]: 'Phone',
-            [Device.DeviceType.TABLET]: 'Tablet',
-            [Device.DeviceType.DESKTOP]: 'Desktop',
-            [Device.DeviceType.TV]: 'TV',
-            [Device.DeviceType.UNKNOWN]: 'Unknown'
-        };
-        return types[type] || 'Unknown';
-    };
-
-    const login = async (partnerCode, customDeviceInfo = {}) => {
-        try {
-            // Collect comprehensive device information
-            const deviceInfo = await collectDeviceInfo(customDeviceInfo);
-
-            const response = await api.post('/customer/login', {
-                partnerCode: partnerCode.trim(),
-                ...deviceInfo
-            });
-
-            if (response.data.success) {
-                const {
-                    token,
-                    subscriber,
-                    channels: fetchedChannels,
-                    packagesList: fetchedPackages,
-                    serverInfo: fetchedServerInfo
-                } = response.data.data;
-
-                // Save authentication data
-                await AsyncStorage.setItem('accessToken', token);
-                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
-
-                if (fetchedServerInfo) {
-                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
-                }
-
-                // Update state
-                setUser(subscriber);
-                setChannels(fetchedChannels);
-                setPackagesList(fetchedPackages);
-                setServerInfo(fetchedServerInfo || null);
-                setIsAuthenticated(true);
-
-                // Fetch OTT content
-                await fetchOttContent();
-
-                return { success: true };
-            } else {
-                return {
-                    success: false,
-                    code: response.data.code || null,
-                    message: response.data.message || 'Login failed'
-                };
-            }
-        } catch (error) {
-            console.error('Login error:', error);
-            return {
-                success: false,
-                code: error.response?.data?.code || null,
-                message: error.response?.data?.message || error.message || 'Invalid partner code'
-            };
-        }
-    };
-
+    // ✅ CHECK SUBSCRIPTION STATUS FROM BACKEND
     const checkSubscriptionStatus = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
+            const token = await AsyncStorage.getItem('accessToken');
             if (!token) {
+                setSubscriptionStatus(null);
                 return { valid: false, needsLogin: true };
             }
 
-            const response = await api.get('/customer/check-status');
+            const response = await api.get('/customer/check-status', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
 
             if (response.data.success && response.data.code === 'ACTIVE') {
+                setSubscriptionStatus('ACTIVE');
+
                 // Update user data
                 const updatedUser = { ...user, ...response.data.data };
                 setUser(updatedUser);
@@ -247,6 +93,8 @@ export const AuthProvider = ({ children }) => {
                     data: response.data.data
                 };
             } else {
+                // EXPIRED or INACTIVE
+                setSubscriptionStatus(response.data.code); // 'EXPIRED' or 'INACTIVE'
                 return {
                     valid: false,
                     code: response.data.code,
@@ -266,109 +114,139 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // Fetch OTT Content (Movies & Series)
+    // Device info collection
+    const collectDeviceInfo = async (customInfo = {}) => {
+        return {
+            macAddress: customInfo.macAddress || Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE",
+            deviceName: customInfo.deviceName || Device.deviceName || "Unknown Device",
+            modelName: customInfo.modelName || Device.modelName || "Unknown Model",
+            brand: customInfo.brand || Device.brand || "Unknown",
+            manufacturer: customInfo.manufacturer || Device.manufacturer || "Unknown",
+            osName: customInfo.osName || Device.osName || "Unknown OS",
+            osVersion: customInfo.osVersion || Device.osVersion || "Unknown",
+            platformApiLevel: customInfo.platformApiLevel || Device.platformApiLevel || null,
+            deviceType: customInfo.deviceType || (Device.deviceType === 1 ? 'Phone' : 'Tablet'),
+            isDevice: Device.isDevice,
+            appVersion: customInfo.appVersion || Application.nativeApplicationVersion || "1.0.0",
+            buildVersion: customInfo.buildVersion || Application.nativeBuildVersion || "1",
+        };
+    };
+
+    const login = async (partnerCode, customDeviceInfo = {}) => {
+        try {
+            const deviceInfo = await collectDeviceInfo(customDeviceInfo);
+
+            const response = await api.post('/customer/login', {
+                partnerCode: partnerCode.trim(),
+                ...deviceInfo
+            });
+
+            if (response.data.success) {
+                const {
+                    token,
+                    data: {
+                        subscriber,
+                        channels: fetchedChannels,
+                        packagesList: fetchedPackages,
+                        serverInfo: fetchedServerInfo
+                    }
+                } = response.data;
+
+                // Save data
+                await AsyncStorage.setItem('accessToken', token);
+                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
+                await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo || {}));
+
+                // Update state
+                setUser(subscriber);
+                setChannels(fetchedChannels);
+                setPackagesList(fetchedPackages);
+                setServerInfo(fetchedServerInfo);
+                setIsAuthenticated(true);
+                setSubscriptionStatus('ACTIVE'); // Successful login means active
+
+                // Fetch OTT content
+                await fetchOttContent();
+
+                return { success: true };
+            } else {
+                return {
+                    success: false,
+                    code: response.data.code,
+                    message: response.data.message
+                };
+            }
+        } catch (error) {
+            console.error('Login error:', error);
+            return {
+                success: false,
+                code: error.response?.data?.code,
+                message: error.response?.data?.message || 'Login failed'
+            };
+        }
+    };
+
     const fetchOttContent = async () => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
             if (!token) return;
 
-            // Fetch Movies
+            // Fetch movies
             const moviesResponse = await api.get('/customer/movies', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-
             if (moviesResponse.data.success) {
-                const { movies: fetchedMovies, groupedByGenre: groupedMoviesByGenre } = moviesResponse.data.data;
-
-                const moviesSections = Object.entries(groupedMoviesByGenre).map(
+                setMovies(moviesResponse.data.data.movies);
+                setGroupedMovies(Object.entries(moviesResponse.data.data.groupedByGenre).map(
                     ([genre, movies]) => ({ title: genre, data: movies })
-                );
-
-                setMovies(fetchedMovies);
-                setGroupedMovies(moviesSections);
-
-                await AsyncStorage.setItem('movies', JSON.stringify(fetchedMovies));
-                await AsyncStorage.setItem('groupedMovies', JSON.stringify(moviesSections));
+                ));
             }
 
-            // Fetch Series
+            // Fetch series
             const seriesResponse = await api.get('/customer/series', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-
             if (seriesResponse.data.success) {
-                const { series: fetchedSeries, groupedByGenre: groupedSeriesByGenre } = seriesResponse.data.data;
-
-                const seriesSections = Object.entries(groupedSeriesByGenre).map(
+                setSeries(seriesResponse.data.data.series);
+                setGroupedSeries(Object.entries(seriesResponse.data.data.groupedByGenre).map(
                     ([genre, series]) => ({ title: genre, data: series })
-                );
-
-                setSeries(fetchedSeries);
-                setGroupedSeries(seriesSections);
-
-                await AsyncStorage.setItem('series', JSON.stringify(fetchedSeries));
-                await AsyncStorage.setItem('groupedSeries', JSON.stringify(seriesSections));
+                ));
             }
         } catch (error) {
-            console.error('❌ Fetch OTT content error:', error);
+            console.error('Fetch OTT error:', error);
         }
     };
 
     const refreshChannels = async () => {
         try {
             setRefreshing(true);
-
             const token = await AsyncStorage.getItem('accessToken');
-
-            if (!token) {
-                console.warn('⚠️ No token found for refresh');
-                return { success: false, message: 'Not authenticated' };
-            }
+            if (!token) return { success: false };
 
             const response = await api.get('/customer/refresh-channels', {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
             if (response.data.success) {
-                const {
-                    subscriber,
-                    channels: fetchedChannels,
-                    packagesList: fetchedPackages,
-                    serverInfo: fetchedServerInfo
-                } = response.data.data;
-
-                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
-
-                if (fetchedServerInfo) {
-                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
-                }
+                const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
 
                 setUser(subscriber);
                 setChannels(fetchedChannels);
-                setPackagesList(fetchedPackages || []);
-                setServerInfo(fetchedServerInfo || null);
+                setPackagesList(fetchedPackages);
 
-                await fetchOttContent();
+                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
 
                 return { success: true };
-            } else {
-                return { success: false, message: 'Refresh failed' };
             }
         } catch (error) {
-            console.error('❌ Refresh error:', error);
-
+            console.error('Refresh error:', error);
             if (error.response?.status === 401) {
-                console.warn('⚠️ Session expired - logging out');
                 await logout();
-                return { success: false, message: 'Session expired' };
             }
-
-            return {
-                success: false,
-                message: error.response?.data?.message || 'Failed to refresh'
-            };
         } finally {
             setRefreshing(false);
         }
@@ -376,79 +254,53 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-            // Stop services
-            try {
-                await stopLocationTracking();
-            } catch (locationError) {
-                console.warn('Failed to stop location tracking:', locationError);
-            }
-
-            try {
-                stopSecurityMonitoring(securityIntervalId);
-                setSecurityIntervalId(null);
-            } catch (securityError) {
-                console.warn('Failed to stop security monitoring:', securityError);
-            }
-
             await AsyncStorage.multiRemove([
                 'accessToken',
-                'channels',
                 'user',
+                'channels',
                 'packagesList',
                 'serverInfo',
                 'movies',
-                'series',
-                'groupedMovies',
-                'groupedSeries'
+                'series'
             ]);
 
-            // Reset state
             setIsAuthenticated(false);
-            setChannels([]);
             setUser(null);
+            setChannels([]);
             setPackagesList([]);
-            setServerInfo(null);
+            setSubscriptionStatus(null);
             setMovies([]);
             setSeries([]);
-            setGroupedMovies([]);
-            setGroupedSeries([]);
 
-            router.replace('/auth/signin');
+            router.replace('/(auth)/signin');
         } catch (error) {
             console.error('Logout error:', error);
         }
-    }
-
-    const value = {
-        // User & Auth
-        user,
-        isAuthenticated,
-        loading,
-        refreshing,
-
-        // Channels
-        channels,
-        packagesList,
-        serverInfo,
-
-        // OTT Content (Movies & Series)
-        movies,
-        series,
-        groupedMovies,
-        groupedSeries,
-
-        // Functions
-        login,
-        logout,
-        checkAuth,
-        refreshChannels,
-        fetchOttContent,
-
-        checkSubscriptionStatus
     };
 
     return (
-        <AuthContext.Provider value={value}>
+        <AuthContext.Provider
+            value={{
+                user,
+                isAuthenticated,
+                loading,
+                refreshing,
+                channels,
+                packagesList,
+                serverInfo,
+                movies,
+                series,
+                groupedMovies,
+                groupedSeries,
+                subscriptionStatus, // ✅ NEW
+                login,
+                logout,
+                checkAuth,
+                refreshChannels,
+                fetchOttContent,
+                checkSubscriptionStatus // ✅ NEW
+            }}
+        >
             {children}
         </AuthContext.Provider>
     );
