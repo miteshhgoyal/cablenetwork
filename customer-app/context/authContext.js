@@ -227,6 +227,29 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
+    const checkSubscriptionStatus = async () => {
+        try {
+            const token = await AsyncStorage.getItem('token');
+            if (!token) return { valid: false };
+
+            const response = await api.get('/customer/check-status');
+
+            if (response.data.success && response.data.code === 'ACTIVE') {
+                return { valid: true, data: response.data.data };
+            } else {
+                // Subscription invalid
+                return {
+                    valid: false,
+                    code: response.data.code,
+                    data: response.data.data
+                };
+            }
+        } catch (error) {
+            console.error('Status check failed:', error);
+            return { valid: false };
+        }
+    };
+
     // Fetch OTT Content (Movies & Series)
     const fetchOttContent = async () => {
         try {
@@ -404,6 +427,8 @@ export const AuthProvider = ({ children }) => {
         checkAuth,
         refreshChannels,
         fetchOttContent,
+
+        checkSubscriptionStatus
     };
 
     return (

@@ -655,4 +655,77 @@ router.get('/ott/:id', authenticateToken, async (req, res) => {
     }
 });
 
+// Check subscription status (called on app launch)
+router.get('/check-status', authenticateToken, async (req, res) => {
+    try {
+        const subscriber = await Subscriber.findById(req.user.id)
+            .select('subscriberName status expiryDate macAddress deviceInfo')
+            .lean();
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                code: 'NOT_FOUND',
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Check if expired
+        const now = new Date();
+        const expiryDate = new Date(subscriber.expiryDate);
+        const isExpired = now > expiryDate;
+
+        // Check if inactive
+        if (subscriber.status !== 'Active') {
+            return res.json({
+                success: false,
+                code: 'INACTIVE',
+                message: 'Your subscription is inactive',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo
+                }
+            });
+        }
+
+        // Check if expired
+        if (isExpired) {
+            return res.json({
+                success: false,
+                code: 'EXPIRED',
+                message: 'Your subscription has expired',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo
+                }
+            });
+        }
+
+        // All good
+        res.json({
+            success: true,
+            code: 'ACTIVE',
+            data: {
+                status: subscriber.status,
+                expiryDate: subscriber.expiryDate,
+                subscriberName: subscriber.subscriberName,
+                daysRemaining: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
+            }
+        });
+
+    } catch (error) {
+        console.error('Check status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check status'
+        });
+    }
+});
+
 export default router;
