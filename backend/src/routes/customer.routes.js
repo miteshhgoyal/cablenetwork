@@ -21,7 +21,9 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
+        // ✅ FIX: Remove fallback - use only env variable
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
         const subscriber = await Subscriber.findById(decoded.id);
 
         if (!subscriber) {
@@ -51,6 +53,13 @@ const authenticateToken = async (req, res, next) => {
             return res.status(401).json({
                 success: false,
                 message: 'Invalid token'
+            });
+        }
+
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                success: false,
+                message: 'Token expired'
             });
         }
 
@@ -236,7 +245,7 @@ router.post('/login', async (req, res) => {
         // Generate token
         const token = jwt.sign(
             { id: subscriber._id, resellerId: reseller._id },
-            process.env.JWT_SECRET || 'your-secret-key',
+            process.env.JWT_SECRET,
             { expiresIn: '30d' }
         );
 
