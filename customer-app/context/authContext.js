@@ -6,7 +6,6 @@ import api from "../services/api";
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import Constants from 'expo-constants';
-import { Alert } from 'react-native';
 
 // Import location and security services
 import {
