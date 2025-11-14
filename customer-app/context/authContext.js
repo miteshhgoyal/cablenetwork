@@ -29,14 +29,24 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
+    // User & Channels State
     const [user, setUser] = useState(null);
     const [channels, setChannels] = useState([]);
     const [packagesList, setPackagesList] = useState([]);
+
+    // OTT Content State (Movies & Series)
+    const [movies, setMovies] = useState([]);
+    const [series, setSeries] = useState([]);
+    const [groupedMovies, setGroupedMovies] = useState([]);
+    const [groupedSeries, setGroupedSeries] = useState([]);
+
+    // App State
     const [loading, setLoading] = useState(true);
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [serverInfo, setServerInfo] = useState(null);
     const [securityIntervalId, setSecurityIntervalId] = useState(null);
+
     const router = useRouter();
     const segments = useSegments();
 
@@ -46,17 +56,18 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
-
-
-            const token = await AsyncStorage.getItem('token');
+            // ✅ FIX: Check for 'accessToken' (consistent key)
+            const token = await AsyncStorage.getItem('accessToken');
             const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
             const savedPackages = await AsyncStorage.getItem('packagesList');
             const savedServerInfo = await AsyncStorage.getItem('serverInfo');
 
-
-
-
+            // Load cached OTT content
+            const savedMovies = await AsyncStorage.getItem('movies');
+            const savedSeries = await AsyncStorage.getItem('series');
+            const savedGroupedMovies = await AsyncStorage.getItem('groupedMovies');
+            const savedGroupedSeries = await AsyncStorage.getItem('groupedSeries');
 
             if (token && savedChannels && savedUser) {
                 const parsedChannels = JSON.parse(savedChannels);
@@ -70,19 +81,15 @@ export const AuthProvider = ({ children }) => {
                 setPackagesList(parsedPackages);
                 setServerInfo(parsedServerInfo);
 
-                // Start security monitoring with error handling
-                try {
-                    const intervalId = startSecurityMonitoring();
-                    setSecurityIntervalId(intervalId);
+                // Load OTT content if available
+                if (savedMovies) setMovies(JSON.parse(savedMovies));
+                if (savedSeries) setSeries(JSON.parse(savedSeries));
+                if (savedGroupedMovies) setGroupedMovies(JSON.parse(savedGroupedMovies));
+                if (savedGroupedSeries) setGroupedSeries(JSON.parse(savedGroupedSeries));
 
-                } catch (securityError) {
-                    console.warn('⚠️ Security monitoring failed:', securityError);
-                    // Continue anyway - don't fail authentication
-                }
-
-
+                // Fetch fresh OTT content in background
+                fetchOttContent();
             } else {
-
                 setIsAuthenticated(false);
                 setUser(null);
                 setChannels([]);
@@ -90,129 +97,114 @@ export const AuthProvider = ({ children }) => {
                 setServerInfo(null);
             }
         } catch (error) {
-            console.error('❌ Auth check error:', error);
+            console.error('Auth check error:', error);
             setIsAuthenticated(false);
             setUser(null);
-            setChannels([]);
-            setPackagesList([]);
-            setServerInfo(null);
         } finally {
             setLoading(false);
         }
-    };
+    }
 
     const login = async (partnerCode) => {
         try {
-            const macAddress = Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE';
-            const deviceName = Device.deviceName || 'User Device';
+            const macAddress = Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE";
+            const deviceName = Device.deviceName || "User Device";
 
-
-            const response = await api.post(`/customer/login`, {
+            const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
                 macAddress,
                 deviceName
             });
 
             if (response.data.success) {
-                const {
-                    token,
-                    subscriber,
-                    channels: fetchedChannels,
-                    packagesList: fetchedPackages,
-                    serverInfo: fetchedServerInfo
-                } = response.data.data;
+                const { token, subscriber, channels: fetchedChannels, packagesList: fetchedPackages, serverInfo: fetchedServerInfo } = response.data.data;
 
+                // ✅ FIX: Save with 'accessToken' key to match api.js and tokenService
+                await AsyncStorage.setItem('accessToken', token);  // Changed from 'token'
+                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
 
-
-                // Save to AsyncStorage FIRST (most critical)
-                try {
-                    await AsyncStorage.setItem('token', token);
-                    await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                    await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                    await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
-
-                    if (fetchedServerInfo) {
-                        await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
-                    }
-
-
-                } catch (storageError) {
-                    console.error('❌ AsyncStorage save error:', storageError);
-                    throw new Error('Failed to save authentication data');
+                if (fetchedServerInfo) {
+                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                 }
 
-                // Update state AFTER successful storage
+                // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
-                setPackagesList(fetchedPackages || []);
+                setPackagesList(fetchedPackages);
                 setServerInfo(fetchedServerInfo || null);
                 setIsAuthenticated(true);
 
-
-
-                // ========================================
-                // SECURITY & LOCATION (NON-BLOCKING)
-                // ========================================
-                // These run in background and don't block login
-
-                // Security check (with error handling)
-                try {
-
-                    const securityCheck = await checkDeviceSecurity();
-
-                    if (securityCheck.isVPNActive) {
-                        // Use setTimeout to avoid blocking
-                        setTimeout(() => {
-                            Alert.alert(
-                                '⚠️ VPN Detected',
-                                'VPN is active. This may affect streaming quality.',
-                                [{ text: 'OK' }]
-                            );
-                        }, 500);
-                    }
-                } catch (securityError) {
-                    console.warn('⚠️ Security check failed:', securityError);
-                    // Don't fail login if security check fails
-                }
-
-                // Location tracking (with error handling)
-                try {
-
-                    const locationPermission = await requestLocationPermissions();
-
-                    if (locationPermission.success) {
-
-                        await startLocationTracking();
-                    } else {
-                        console.warn('⚠️ Location permission denied');
-                    }
-                } catch (locationError) {
-                    console.warn('⚠️ Location tracking failed:', locationError);
-                    // Don't fail login if location tracking fails
-                }
-
-                // Start security monitoring (with error handling)
-                try {
-
-                    const intervalId = startSecurityMonitoring();
-                    setSecurityIntervalId(intervalId);
-                } catch (monitoringError) {
-                    console.warn('⚠️ Security monitoring failed:', monitoringError);
-                    // Don't fail login if monitoring fails
-                }
+                // Fetch OTT content
+                await fetchOttContent();
 
                 return { success: true };
             } else {
-                return { success: false, message: 'Login failed' };
+                return {
+                    success: false,
+                    code: response.data.code || null,
+                    message: response.data.message || 'Login failed'
+                };
             }
         } catch (error) {
-            console.error('❌ Login error:', error);
-            console.error('Error response:', error.response?.data);
-
+            console.error('Login error:', error);
             return {
                 success: false,
+                code: error.response?.data?.code || null,
                 message: error.response?.data?.message || error.message || 'Invalid partner code'
             };
+        }
+    };
+
+    // Fetch OTT Content (Movies & Series)
+    const fetchOttContent = async () => {
+        try {
+            const token = await AsyncStorage.getItem('token');
+            if (!token) return;
+
+            // Fetch Movies
+            const moviesResponse = await api.get('/customer/movies', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (moviesResponse.data.success) {
+                const { movies: fetchedMovies, groupedByGenre: groupedMoviesByGenre } = moviesResponse.data.data;
+
+                // Convert grouped object to array for SectionList
+                const moviesSections = Object.entries(groupedMoviesByGenre).map(
+                    ([genre, movies]) => ({ title: genre, data: movies })
+                );
+
+                setMovies(fetchedMovies);
+                setGroupedMovies(moviesSections);
+
+                // Cache to AsyncStorage
+                await AsyncStorage.setItem('movies', JSON.stringify(fetchedMovies));
+                await AsyncStorage.setItem('groupedMovies', JSON.stringify(moviesSections));
+            }
+
+            // Fetch Series
+            const seriesResponse = await api.get('/customer/series', {
+                headers: { Authorization: `Bearer ${token}` }
+            });
+
+            if (seriesResponse.data.success) {
+                const { series: fetchedSeries, groupedByGenre: groupedSeriesByGenre } = seriesResponse.data.data;
+
+                const seriesSections = Object.entries(groupedSeriesByGenre).map(
+                    ([genre, series]) => ({ title: genre, data: series })
+                );
+
+                setSeries(fetchedSeries);
+                setGroupedSeries(seriesSections);
+
+                // Cache to AsyncStorage
+                await AsyncStorage.setItem('series', JSON.stringify(fetchedSeries));
+                await AsyncStorage.setItem('groupedSeries', JSON.stringify(seriesSections));
+            }
+        } catch (error) {
+            console.error('❌ Fetch OTT content error:', error);
         }
     };
 
@@ -227,11 +219,8 @@ export const AuthProvider = ({ children }) => {
                 return { success: false, message: 'Not authenticated' };
             }
 
-
             const response = await api.get('/customer/refresh-channels', {
-                headers: {
-                    Authorization: `Bearer ${token}`
-                }
+                headers: { Authorization: `Bearer ${token}` }
             });
 
             if (response.data.success) {
@@ -257,6 +246,8 @@ export const AuthProvider = ({ children }) => {
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
 
+                // Also refresh OTT content
+                await fetchOttContent();
 
                 return { success: true };
             } else {
@@ -282,27 +273,32 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-
-
-            // Stop location tracking (with error handling)
+            // Stop services
             try {
                 await stopLocationTracking();
-
             } catch (locationError) {
-                console.warn('⚠️ Failed to stop location tracking:', locationError);
+                console.warn('Failed to stop location tracking:', locationError);
             }
 
-            // Stop security monitoring (with error handling)
             try {
                 stopSecurityMonitoring(securityIntervalId);
                 setSecurityIntervalId(null);
-
             } catch (securityError) {
-                console.warn('⚠️ Failed to stop security monitoring:', securityError);
+                console.warn('Failed to stop security monitoring:', securityError);
             }
 
-            // Clear AsyncStorage
-            await AsyncStorage.multiRemove(['token', 'channels', 'user', 'packagesList', 'serverInfo']);
+            // ✅ FIX: Clear 'accessToken' instead of 'token'
+            await AsyncStorage.multiRemove([
+                'accessToken',  // Changed from 'token'
+                'channels',
+                'user',
+                'packagesList',
+                'serverInfo',
+                'movies',
+                'series',
+                'groupedMovies',
+                'groupedSeries'
+            ]);
 
             // Reset state
             setIsAuthenticated(false);
@@ -310,31 +306,42 @@ export const AuthProvider = ({ children }) => {
             setUser(null);
             setPackagesList([]);
             setServerInfo(null);
+            setMovies([]);
+            setSeries([]);
+            setGroupedMovies([]);
+            setGroupedSeries([]);
 
             // Navigate to login
-            const inAuthGroup = segments[0] === '(auth)';
-            if (!inAuthGroup) {
-                router.replace('/(auth)/signin');
-            }
-
-
+            router.replace('/auth/signin');
         } catch (error) {
-            console.error('❌ Logout error:', error);
+            console.error('Logout error:', error);
         }
-    };
+    }
 
     const value = {
+        // User & Auth
         user,
-        channels,
-        packagesList,
-        serverInfo,
         isAuthenticated,
         loading,
         refreshing,
+
+        // Channels
+        channels,
+        packagesList,
+        serverInfo,
+
+        // OTT Content (Movies & Series)
+        movies,
+        series,
+        groupedMovies,
+        groupedSeries,
+
+        // Functions
         login,
         logout,
         checkAuth,
         refreshChannels,
+        fetchOttContent,
     };
 
     return (
