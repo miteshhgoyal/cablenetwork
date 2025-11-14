@@ -79,8 +79,14 @@ const signin = () => {
         try {
             const result = await login(partnerCode.trim(), deviceInfo);
 
-            if (!result.success) {
-                // Show device info in error
+            
+
+            if (result.success) {
+                // ✅ SUCCESS - authContext will navigate automatically
+                
+                // Don't navigate here - let _layout.js handle it
+            } else {
+                // ✅ Handle error codes
                 if (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED') {
                     setError(`${result.message}\n\n🔹 Device MAC: ${deviceInfo.macAddress}\n🔹 Device: ${deviceInfo.deviceName}`);
                 } else {
@@ -88,6 +94,7 @@ const signin = () => {
                 }
             }
         } catch (error) {
+            console.error('Login catch error:', error);
             setError('Login failed. Please try again.');
         } finally {
             setIsLoading(false);

@@ -17,7 +17,6 @@ export const useAuth = () => {
 };
 
 export const AuthProvider = ({ children }) => {
-    // States
     const [user, setUser] = useState(null);
     const [channels, setChannels] = useState([]);
     const [packagesList, setPackagesList] = useState([]);
@@ -29,9 +28,7 @@ export const AuthProvider = ({ children }) => {
     const [isAuthenticated, setIsAuthenticated] = useState(false);
     const [refreshing, setRefreshing] = useState(false);
     const [serverInfo, setServerInfo] = useState(null);
-
-    // ✅ NEW: Subscription status
-    const [subscriptionStatus, setSubscriptionStatus] = useState(null); // 'ACTIVE', 'EXPIRED', 'INACTIVE'
+    const [subscriptionStatus, setSubscriptionStatus] = useState(null);
 
     const router = useRouter();
 
@@ -43,21 +40,26 @@ export const AuthProvider = ({ children }) => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
             const savedUser = await AsyncStorage.getItem('user');
-            const savedChannels = await AsyncStorage.getItem('channels');
 
             if (token && savedUser) {
                 const parsedUser = JSON.parse(savedUser);
                 setUser(parsedUser);
                 setIsAuthenticated(true);
 
+                // Set API token
+                api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+                // Load cached channels
+                const savedChannels = await AsyncStorage.getItem('channels');
                 if (savedChannels) {
                     setChannels(JSON.parse(savedChannels));
                 }
 
-                // ✅ CHECK SUBSCRIPTION STATUS FROM DB
+                // ✅ CHECK STATUS FROM DB
                 await checkSubscriptionStatus();
             } else {
                 setIsAuthenticated(false);
+                setSubscriptionStatus(null);
             }
         } catch (error) {
             console.error('Auth check error:', error);
@@ -67,7 +69,6 @@ export const AuthProvider = ({ children }) => {
         }
     };
 
-    // ✅ CHECK SUBSCRIPTION STATUS FROM BACKEND
     const checkSubscriptionStatus = async () => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
@@ -80,26 +81,58 @@ export const AuthProvider = ({ children }) => {
                 headers: { Authorization: `Bearer ${token}` }
             });
 
+
+
             if (response.data.success && response.data.code === 'ACTIVE') {
                 setSubscriptionStatus('ACTIVE');
 
-                // Update user data
-                const updatedUser = { ...user, ...response.data.data };
-                setUser(updatedUser);
-                await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+                // ✅ UPDATE USER DATA WITH LATEST FROM DB
+                const updatedUserData = response.data.data;
+                const currentUser = await AsyncStorage.getItem('user');
+                const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
-                return {
-                    valid: true,
-                    data: response.data.data
+                // Merge with existing user data
+                const mergedUser = {
+                    ...parsedUser,
+                    expiryDate: updatedUserData.expiryDate,
+                    subscriberName: updatedUserData.subscriberName,
+                    status: updatedUserData.status,
+                    daysRemaining: updatedUserData.daysRemaining
                 };
+
+                // Update state and storage
+                setUser(mergedUser);
+                await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
+
+
+
+                return { valid: true, data: updatedUserData };
             } else {
                 // EXPIRED or INACTIVE
-                setSubscriptionStatus(response.data.code); // 'EXPIRED' or 'INACTIVE'
+                setSubscriptionStatus(response.data.code);
+
+                // ✅ UPDATE USER DATA EVEN IF EXPIRED (to show expiry date)
+                const expiredUserData = response.data.data;
+                const currentUser = await AsyncStorage.getItem('user');
+                const parsedUser = currentUser ? JSON.parse(currentUser) : {};
+
+                const mergedUser = {
+                    ...parsedUser,
+                    expiryDate: expiredUserData.expiryDate,
+                    subscriberName: expiredUserData.subscriberName,
+                    status: expiredUserData.status,
+                    macAddress: expiredUserData.macAddress
+                };
+
+                setUser(mergedUser);
+                await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
+
+
+
                 return {
                     valid: false,
                     code: response.data.code,
-                    data: response.data.data,
-                    needsLogin: false
+                    data: expiredUserData
                 };
             }
         } catch (error) {
@@ -110,25 +143,25 @@ export const AuthProvider = ({ children }) => {
                 return { valid: false, needsLogin: true };
             }
 
-            return { valid: false, needsLogin: false };
+            // ✅ Don't log out on network errors - use cached data
+            return { valid: false };
         }
     };
 
-    // Device info collection
     const collectDeviceInfo = async (customInfo = {}) => {
         return {
             macAddress: customInfo.macAddress || Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE",
             deviceName: customInfo.deviceName || Device.deviceName || "Unknown Device",
-            modelName: customInfo.modelName || Device.modelName || "Unknown Model",
-            brand: customInfo.brand || Device.brand || "Unknown",
-            manufacturer: customInfo.manufacturer || Device.manufacturer || "Unknown",
-            osName: customInfo.osName || Device.osName || "Unknown OS",
-            osVersion: customInfo.osVersion || Device.osVersion || "Unknown",
-            platformApiLevel: customInfo.platformApiLevel || Device.platformApiLevel || null,
-            deviceType: customInfo.deviceType || (Device.deviceType === 1 ? 'Phone' : 'Tablet'),
+            modelName: Device.modelName || "Unknown Model",
+            brand: Device.brand || "Unknown",
+            manufacturer: Device.manufacturer || "Unknown",
+            osName: Device.osName || "Unknown OS",
+            osVersion: Device.osVersion || "Unknown",
+            platformApiLevel: Device.platformApiLevel || null,
+            deviceType: Device.deviceType === 1 ? 'Phone' : 'Tablet',
             isDevice: Device.isDevice,
-            appVersion: customInfo.appVersion || Application.nativeApplicationVersion || "1.0.0",
-            buildVersion: customInfo.buildVersion || Application.nativeBuildVersion || "1",
+            appVersion: Application.nativeApplicationVersion || "1.0.0",
+            buildVersion: Application.nativeBuildVersion || "1",
         };
     };
 
@@ -138,52 +171,94 @@ export const AuthProvider = ({ children }) => {
 
             const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
-                ...deviceInfo
+                macAddress: deviceInfo.macAddress,
+                deviceName: deviceInfo.deviceName
             });
 
-            if (response.data.success) {
-                const {
-                    token,
-                    data: {
-                        subscriber,
-                        channels: fetchedChannels,
-                        packagesList: fetchedPackages,
-                        serverInfo: fetchedServerInfo
-                    }
-                } = response.data;
 
-                // Save data
-                await AsyncStorage.setItem('accessToken', token);
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
-                await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-                await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
-                await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo || {}));
 
-                // Update state
-                setUser(subscriber);
-                setChannels(fetchedChannels);
-                setPackagesList(fetchedPackages);
-                setServerInfo(fetchedServerInfo);
-                setIsAuthenticated(true);
-                setSubscriptionStatus('ACTIVE'); // Successful login means active
-
-                // Fetch OTT content
-                await fetchOttContent();
-
-                return { success: true };
-            } else {
+            // ✅ Check if login was successful
+            if (!response.data.success) {
                 return {
                     success: false,
                     code: response.data.code,
                     message: response.data.message
                 };
             }
+
+            // ✅ Extract data
+            const token = response.data.data?.token;
+            const subscriber = response.data.data?.subscriber;
+            const fetchedChannels = response.data.data?.channels || [];
+            const fetchedPackages = response.data.data?.packagesList || [];
+            const fetchedServerInfo = response.data.data?.serverInfo || {};
+
+
+
+
+            // ✅ Validate
+            if (!token) {
+                console.error('❌ No token in response!');
+                return {
+                    success: false,
+                    message: 'Authentication failed - no token received'
+                };
+            }
+
+            if (!subscriber) {
+                console.error('❌ No subscriber data in response!');
+                return {
+                    success: false,
+                    message: 'Authentication failed - no subscriber data'
+                };
+            }
+
+            // ✅ Save to AsyncStorage
+            await AsyncStorage.setItem('accessToken', token);
+            await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+            await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
+            await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
+            await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+
+
+
+            // Set API header
+            api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+
+            // ✅ Update state BEFORE navigation
+            setUser(subscriber);
+            setChannels(fetchedChannels);
+            setPackagesList(fetchedPackages);
+            setServerInfo(fetchedServerInfo);
+            setIsAuthenticated(true);
+            setSubscriptionStatus('ACTIVE'); // ✅ Set immediately
+
+            // Fetch OTT content in background
+            fetchOttContent();
+
+            // ✅ NAVIGATE IMMEDIATELY
+
+            setTimeout(() => {
+                router.replace('/(tabs)');
+            }, 300);
+
+            return { success: true };
+
         } catch (error) {
-            console.error('Login error:', error);
+            console.error('❌ Login error:', error);
+            console.error('❌ Error response:', error.response?.data);
+
+            if (error.response?.data) {
+                return {
+                    success: false,
+                    code: error.response.data.code,
+                    message: error.response.data.message
+                };
+            }
+
             return {
                 success: false,
-                code: error.response?.data?.code,
-                message: error.response?.data?.message || 'Login failed'
+                message: error.message || 'Login failed - network error'
             };
         }
     };
@@ -198,10 +273,11 @@ export const AuthProvider = ({ children }) => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (moviesResponse.data.success) {
-                setMovies(moviesResponse.data.data.movies);
-                setGroupedMovies(Object.entries(moviesResponse.data.data.groupedByGenre).map(
+                setMovies(moviesResponse.data.data.movies || []);
+                const grouped = Object.entries(moviesResponse.data.data.groupedByGenre || {}).map(
                     ([genre, movies]) => ({ title: genre, data: movies })
-                ));
+                );
+                setGroupedMovies(grouped);
             }
 
             // Fetch series
@@ -209,10 +285,11 @@ export const AuthProvider = ({ children }) => {
                 headers: { Authorization: `Bearer ${token}` }
             });
             if (seriesResponse.data.success) {
-                setSeries(seriesResponse.data.data.series);
-                setGroupedSeries(Object.entries(seriesResponse.data.data.groupedByGenre).map(
+                setSeries(seriesResponse.data.data.series || []);
+                const grouped = Object.entries(seriesResponse.data.data.groupedByGenre || {}).map(
                     ([genre, series]) => ({ title: genre, data: series })
-                ));
+                );
+                setGroupedSeries(grouped);
             }
         } catch (error) {
             console.error('Fetch OTT error:', error);
@@ -259,10 +336,10 @@ export const AuthProvider = ({ children }) => {
                 'user',
                 'channels',
                 'packagesList',
-                'serverInfo',
-                'movies',
-                'series'
+                'serverInfo'
             ]);
+
+            delete api.defaults.headers.common['Authorization'];
 
             setIsAuthenticated(false);
             setUser(null);
@@ -292,13 +369,13 @@ export const AuthProvider = ({ children }) => {
                 series,
                 groupedMovies,
                 groupedSeries,
-                subscriptionStatus, // ✅ NEW
+                subscriptionStatus,
                 login,
                 logout,
                 checkAuth,
                 refreshChannels,
                 fetchOttContent,
-                checkSubscriptionStatus // ✅ NEW
+                checkSubscriptionStatus
             }}
         >
             {children}

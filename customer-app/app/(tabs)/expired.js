@@ -1,14 +1,26 @@
 // app/(tabs)/expired.js
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { AlertCircle, Calendar, HardDrive, User, LogOut } from 'lucide-react-native';
+import { AlertCircle, Calendar, HardDrive, User, LogOut, RefreshCw } from 'lucide-react-native';
 import { useAuth } from '../../context/authContext';
 
 export default function ExpiredScreen() {
     const router = useRouter();
-    const { user, logout } = useAuth();
+    const { user, logout, checkSubscriptionStatus } = useAuth();
+    const [checking, setChecking] = React.useState(false);
+
+    // ✅ Refresh data on mount
+    useEffect(() => {
+        refreshData();
+    }, []);
+
+    const refreshData = async () => {
+        setChecking(true);
+        await checkSubscriptionStatus();
+        setChecking(false);
+    };
 
     const handleLogout = async () => {
         await logout();
@@ -23,6 +35,8 @@ export default function ExpiredScreen() {
         });
     };
 
+    
+
     return (
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -36,11 +50,11 @@ export default function ExpiredScreen() {
 
                 {/* Title */}
                 <Text className="text-3xl font-bold text-white text-center mb-4">
-                    Subscription Expired
+                    Subscription {user?.status === 'Inactive' ? 'Inactive' : 'Expired'}
                 </Text>
 
                 <Text className="text-gray-400 text-center text-base mb-10 px-4 leading-6">
-                    Your subscription has expired or is inactive. Please contact your admin or reseller to renew.
+                    Your subscription has {user?.status === 'Inactive' ? 'not been activated' : 'expired'}. Please contact your admin or reseller to {user?.status === 'Inactive' ? 'activate' : 'renew'}.
                 </Text>
 
                 {/* Info Card */}
@@ -52,7 +66,9 @@ export default function ExpiredScreen() {
                         </View>
                         <View className="flex-1">
                             <Text className="text-gray-400 text-xs mb-1">Subscriber</Text>
-                            <Text className="text-white text-lg font-semibold">{user?.name || 'N/A'}</Text>
+                            <Text className="text-white text-lg font-semibold">
+                                {user?.name || user?.subscriberName || 'N/A'}
+                            </Text>
                         </View>
                     </View>
 
@@ -62,8 +78,12 @@ export default function ExpiredScreen() {
                             <Calendar size={24} color="#ef4444" />
                         </View>
                         <View className="flex-1">
-                            <Text className="text-gray-400 text-xs mb-1">Expired On</Text>
-                            <Text className="text-white text-lg font-semibold">{formatDate(user?.expiryDate)}</Text>
+                            <Text className="text-gray-400 text-xs mb-1">
+                                {user?.status === 'Inactive' ? 'Created On' : 'Expired On'}
+                            </Text>
+                            <Text className="text-white text-lg font-semibold">
+                                {formatDate(user?.expiryDate)}
+                            </Text>
                         </View>
                     </View>
 
@@ -80,12 +100,25 @@ export default function ExpiredScreen() {
                 </View>
 
                 {/* Contact */}
-                <View className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-8">
+                <View className="bg-yellow-500/10 border border-yellow-500/30 rounded-xl p-4 mb-4">
                     <Text className="text-yellow-400 font-semibold text-center mb-2">⚠️ Need Help?</Text>
                     <Text className="text-yellow-200/80 text-sm text-center">
-                        Contact your reseller to renew your subscription and regain access.
+                        Contact your reseller to {user?.status === 'Inactive' ? 'activate' : 'renew'} your subscription and regain access.
                     </Text>
                 </View>
+
+                {/* Refresh Button */}
+                <TouchableOpacity
+                    onPress={refreshData}
+                    disabled={checking}
+                    className="bg-blue-600 py-4 rounded-xl flex-row items-center justify-center mb-3"
+                    activeOpacity={0.8}
+                >
+                    <RefreshCw size={20} color="#fff" style={{ marginRight: 8 }} />
+                    <Text className="text-white font-bold text-base">
+                        {checking ? 'Checking...' : 'Check Status Again'}
+                    </Text>
+                </TouchableOpacity>
 
                 {/* Logout */}
                 <TouchableOpacity
