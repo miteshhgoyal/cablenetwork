@@ -2,6 +2,7 @@
 import express from 'express';
 import User from '../models/User.js';
 import Subscriber from '../models/Subscriber.js';
+import Ott from '../models/Ott.js';
 import jwt from 'jsonwebtoken';
 
 const router = express.Router();
@@ -511,6 +512,136 @@ router.get('/profile', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to get profile'
+        });
+    }
+});
+
+// ==========================================
+// OTT CONTENT ROUTES (Movies & Web Series)
+// ==========================================
+
+// Get all movies with genre grouping
+router.get('/movies', authenticateToken, async (req, res) => {
+    try {
+        const { genre, language } = req.query;
+
+        const filter = { type: 'Movie' };
+        if (genre) filter.genre = genre;
+        if (language) filter.language = language;
+
+        const movies = await Ott.find(filter)
+            .populate('genre', 'name')
+            .populate('language', 'name')
+            .sort({ createdAt: -1 });
+
+        // Group by genre for category-wise display
+        const groupedByGenre = movies.reduce((acc, movie) => {
+            const genreName = movie.genre?.name || 'Uncategorized';
+            if (!acc[genreName]) {
+                acc[genreName] = [];
+            }
+            acc[genreName].push({
+                _id: movie._id,
+                title: movie.title,
+                genre: movie.genre,
+                language: movie.language,
+                mediaUrl: movie.mediaUrl,
+                horizontalUrl: movie.horizontalUrl,
+                verticalUrl: movie.verticalUrl
+            });
+            return acc;
+        }, {});
+
+        res.json({
+            success: true,
+            data: {
+                movies,
+                groupedByGenre,
+                totalCount: movies.length
+            }
+        });
+    } catch (error) {
+        console.error('Get movies error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch movies'
+        });
+    }
+});
+
+// Get all web series with genre grouping
+router.get('/series', authenticateToken, async (req, res) => {
+    try {
+        const { genre, language } = req.query;
+
+        const filter = { type: 'Web Series' };
+        if (genre) filter.genre = genre;
+        if (language) filter.language = language;
+
+        const series = await Ott.find(filter)
+            .populate('genre', 'name')
+            .populate('language', 'name')
+            .sort({ createdAt: -1 });
+
+        // Group by genre for category-wise display
+        const groupedByGenre = series.reduce((acc, show) => {
+            const genreName = show.genre?.name || 'Uncategorized';
+            if (!acc[genreName]) {
+                acc[genreName] = [];
+            }
+            acc[genreName].push({
+                _id: show._id,
+                title: show.title,
+                genre: show.genre,
+                language: show.language,
+                mediaUrl: show.mediaUrl,
+                horizontalUrl: show.horizontalUrl,
+                verticalUrl: show.verticalUrl,
+                seasonsCount: show.seasonsCount
+            });
+            return acc;
+        }, {});
+
+        res.json({
+            success: true,
+            data: {
+                series,
+                groupedByGenre,
+                totalCount: series.length
+            }
+        });
+    } catch (error) {
+        console.error('Get series error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch series'
+        });
+    }
+});
+
+// Get single OTT content by ID
+router.get('/ott/:id', authenticateToken, async (req, res) => {
+    try {
+        const content = await Ott.findById(req.params.id)
+            .populate('genre', 'name')
+            .populate('language', 'name');
+
+        if (!content) {
+            return res.status(404).json({
+                success: false,
+                message: 'Content not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: content
+        });
+    } catch (error) {
+        console.error('Get OTT content error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch content'
         });
     }
 });
