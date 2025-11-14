@@ -230,23 +230,39 @@ export const AuthProvider = ({ children }) => {
     const checkSubscriptionStatus = async () => {
         try {
             const token = await AsyncStorage.getItem('token');
-            if (!token) return { valid: false };
+            if (!token) {
+                return { valid: false, needsLogin: true };
+            }
 
             const response = await api.get('/customer/check-status');
 
             if (response.data.success && response.data.code === 'ACTIVE') {
-                return { valid: true, data: response.data.data };
+                // Update user data
+                const updatedUser = { ...user, ...response.data.data };
+                setUser(updatedUser);
+                await AsyncStorage.setItem('user', JSON.stringify(updatedUser));
+
+                return {
+                    valid: true,
+                    data: response.data.data
+                };
             } else {
-                // Subscription invalid
                 return {
                     valid: false,
                     code: response.data.code,
-                    data: response.data.data
+                    data: response.data.data,
+                    needsLogin: false
                 };
             }
         } catch (error) {
             console.error('Status check failed:', error);
-            return { valid: false };
+
+            if (error.response?.status === 401 || error.response?.status === 403) {
+                await logout();
+                return { valid: false, needsLogin: true };
+            }
+
+            return { valid: false, needsLogin: false };
         }
     };
 

@@ -41,6 +41,13 @@ export default function TabsLayout() {
                     ),
                 }}
             />
+
+            <Tabs.Screen
+                name="expired"
+                options={{
+                    href: null,
+                }}
+            />
         </Tabs>
     );
 }

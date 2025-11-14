@@ -55,6 +55,8 @@ if __name__ == "__main__":
   'api.js',
   'tokenService.js',
   'signin.js',
+  'expired.js',
+  'customer.routes.js',
     ]
     
     # Start the search from current directory
