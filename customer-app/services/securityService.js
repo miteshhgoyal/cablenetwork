@@ -18,8 +18,6 @@ export const checkDeviceSecurity = async () => {
         const osVersion = Device.osVersion || 'Unknown';
         const appVersion = Constants.expoConfig?.version || '1.0.0';
 
-        console.log('📱 Device Info:', { deviceModel, osVersion, appVersion, isEmulator, isVPNActive });
-
         // Send to server
         try {
             await api.post('/customer/update-security-info', {
@@ -29,7 +27,6 @@ export const checkDeviceSecurity = async () => {
                 osVersion,
                 appVersion
             });
-            console.log('✅ Security info sent to server');
         } catch (error) {
             console.error('❌ Failed to send security info:', error.message);
         }
@@ -49,14 +46,12 @@ export const checkDeviceSecurity = async () => {
 
 // Check security periodically
 export const startSecurityMonitoring = () => {
-    console.log('🔒 Starting security monitoring...');
 
     // Check immediately
     checkDeviceSecurity();
 
     // Then check every 10 minutes
     const intervalId = setInterval(() => {
-        console.log('🔄 Performing periodic security check...');
         checkDeviceSecurity();
     }, 10 * 60 * 1000); // 10 minutes
 
@@ -66,6 +61,5 @@ export const startSecurityMonitoring = () => {
 export const stopSecurityMonitoring = (intervalId) => {
     if (intervalId) {
         clearInterval(intervalId);
-        console.log('✅ Security monitoring stopped');
     }
 };

@@ -4,6 +4,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter, useSegments } from 'expo-router';
 import api from "../services/api";
 import * as Device from 'expo-device';
+import * as Application from 'expo-application';
+import Constants from 'expo-constants';
 import { Alert } from 'react-native';
 
 // Import location and security services
@@ -56,7 +58,6 @@ export const AuthProvider = ({ children }) => {
 
     const checkAuth = async () => {
         try {
-            // ✅ FIX: Check for 'accessToken' (consistent key)
             const token = await AsyncStorage.getItem('accessToken');
             const savedChannels = await AsyncStorage.getItem('channels');
             const savedUser = await AsyncStorage.getItem('user');
@@ -105,22 +106,92 @@ export const AuthProvider = ({ children }) => {
         }
     }
 
-    const login = async (partnerCode) => {
+    // Collect comprehensive device info
+    const collectDeviceInfo = async (customInfo = {}) => {
         try {
-            const macAddress = Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE";
-            const deviceName = Device.deviceName || "User Device";
+            const deviceData = {
+                // Device Identification
+                macAddress: customInfo.macAddress || Device.modelId || Device.osBuildId || "UNKNOWN_DEVICE",
+                deviceName: customInfo.deviceName || Device.deviceName || "Unknown Device",
+                modelName: customInfo.modelName || Device.modelName || "Unknown Model",
+                modelId: Device.modelId || "Unknown",
+                brand: customInfo.brand || Device.brand || "Unknown",
+                manufacturer: customInfo.manufacturer || Device.manufacturer || "Unknown",
+
+                // Operating System
+                osName: customInfo.osName || Device.osName || "Unknown OS",
+                osVersion: customInfo.osVersion || Device.osVersion || "Unknown",
+                osBuildId: Device.osBuildId || "Unknown",
+                osInternalBuildId: Device.osInternalBuildId || "Unknown",
+                platformApiLevel: customInfo.platformApiLevel || Device.platformApiLevel || null,
+
+                // Device Type & Status
+                deviceType: customInfo.deviceType || getDeviceTypeName(Device.deviceType),
+                isDevice: customInfo.isDevice !== undefined ? customInfo.isDevice : Device.isDevice,
+
+                // Hardware Info
+                totalMemory: customInfo.totalMemory || Device.totalMemory || null,
+                supportedCpuArchitectures: customInfo.supportedCpuArchitectures || Device.supportedCpuArchitectures?.join(', ') || "Unknown",
+
+                // App Information
+                appVersion: customInfo.appVersion || Application.nativeApplicationVersion || "1.0.0",
+                buildVersion: customInfo.buildVersion || Application.nativeBuildVersion || "1",
+                bundleId: customInfo.bundleId || Application.applicationId || "unknown",
+                appName: Application.applicationName || "Digital Cable Network",
+
+                // System Information
+                expoVersion: customInfo.expoVersion || Constants.expoVersion || "Unknown",
+                installationId: customInfo.installationId || Constants.installationId || "Unknown",
+                sessionId: Constants.sessionId || "Unknown",
+
+                // Additional metadata
+                loginTimestamp: new Date().toISOString(),
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "Unknown",
+            };
+
+            return deviceData;
+        } catch (error) {
+            console.error('Error collecting device info:', error);
+            return {
+                macAddress: "UNKNOWN_DEVICE",
+                deviceName: "Unknown Device",
+                error: error.message
+            };
+        }
+    };
+
+    const getDeviceTypeName = (type) => {
+        const types = {
+            [Device.DeviceType.PHONE]: 'Phone',
+            [Device.DeviceType.TABLET]: 'Tablet',
+            [Device.DeviceType.DESKTOP]: 'Desktop',
+            [Device.DeviceType.TV]: 'TV',
+            [Device.DeviceType.UNKNOWN]: 'Unknown'
+        };
+        return types[type] || 'Unknown';
+    };
+
+    const login = async (partnerCode, customDeviceInfo = {}) => {
+        try {
+            // Collect comprehensive device information
+            const deviceInfo = await collectDeviceInfo(customDeviceInfo);
 
             const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
-                macAddress,
-                deviceName
+                ...deviceInfo
             });
 
             if (response.data.success) {
-                const { token, subscriber, channels: fetchedChannels, packagesList: fetchedPackages, serverInfo: fetchedServerInfo } = response.data.data;
+                const {
+                    token,
+                    subscriber,
+                    channels: fetchedChannels,
+                    packagesList: fetchedPackages,
+                    serverInfo: fetchedServerInfo
+                } = response.data.data;
 
-                // ✅ FIX: Save with 'accessToken' key to match api.js and tokenService
-                await AsyncStorage.setItem('accessToken', token);  // Changed from 'token'
+                // Save authentication data
+                await AsyncStorage.setItem('accessToken', token);
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
@@ -160,7 +231,7 @@ export const AuthProvider = ({ children }) => {
     // Fetch OTT Content (Movies & Series)
     const fetchOttContent = async () => {
         try {
-            const token = await AsyncStorage.getItem('token');
+            const token = await AsyncStorage.getItem('accessToken');
             if (!token) return;
 
             // Fetch Movies
@@ -171,7 +242,6 @@ export const AuthProvider = ({ children }) => {
             if (moviesResponse.data.success) {
                 const { movies: fetchedMovies, groupedByGenre: groupedMoviesByGenre } = moviesResponse.data.data;
 
-                // Convert grouped object to array for SectionList
                 const moviesSections = Object.entries(groupedMoviesByGenre).map(
                     ([genre, movies]) => ({ title: genre, data: movies })
                 );
@@ -179,7 +249,6 @@ export const AuthProvider = ({ children }) => {
                 setMovies(fetchedMovies);
                 setGroupedMovies(moviesSections);
 
-                // Cache to AsyncStorage
                 await AsyncStorage.setItem('movies', JSON.stringify(fetchedMovies));
                 await AsyncStorage.setItem('groupedMovies', JSON.stringify(moviesSections));
             }
@@ -199,7 +268,6 @@ export const AuthProvider = ({ children }) => {
                 setSeries(fetchedSeries);
                 setGroupedSeries(seriesSections);
 
-                // Cache to AsyncStorage
                 await AsyncStorage.setItem('series', JSON.stringify(fetchedSeries));
                 await AsyncStorage.setItem('groupedSeries', JSON.stringify(seriesSections));
             }
@@ -212,7 +280,7 @@ export const AuthProvider = ({ children }) => {
         try {
             setRefreshing(true);
 
-            const token = await AsyncStorage.getItem('token');
+            const token = await AsyncStorage.getItem('accessToken');
 
             if (!token) {
                 console.warn('⚠️ No token found for refresh');
@@ -231,7 +299,6 @@ export const AuthProvider = ({ children }) => {
                     serverInfo: fetchedServerInfo
                 } = response.data.data;
 
-                // Save to AsyncStorage
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('user', JSON.stringify(subscriber));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages || []));
@@ -240,13 +307,11 @@ export const AuthProvider = ({ children }) => {
                     await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
                 }
 
-                // Update state
                 setUser(subscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages || []);
                 setServerInfo(fetchedServerInfo || null);
 
-                // Also refresh OTT content
                 await fetchOttContent();
 
                 return { success: true };
@@ -287,9 +352,8 @@ export const AuthProvider = ({ children }) => {
                 console.warn('Failed to stop security monitoring:', securityError);
             }
 
-            // ✅ FIX: Clear 'accessToken' instead of 'token'
             await AsyncStorage.multiRemove([
-                'accessToken',  // Changed from 'token'
+                'accessToken',
                 'channels',
                 'user',
                 'packagesList',
@@ -311,7 +375,6 @@ export const AuthProvider = ({ children }) => {
             setGroupedMovies([]);
             setGroupedSeries([]);
 
-            // Navigate to login
             router.replace('/auth/signin');
         } catch (error) {
             console.error('Logout error:', error);

@@ -1,4 +1,3 @@
-// app/(tabs)/channels.js - ENHANCED WITH USER INFO, PACKAGE DETAILS & LOGOUT
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import {
     View,
@@ -6,12 +5,9 @@ import {
     TouchableOpacity,
     Modal,
     ScrollView,
-    Dimensions,
     StatusBar,
     Linking,
     ActivityIndicator,
-    Platform,
-    FlatList,
     Alert,
     AppState,
     SectionList
@@ -21,7 +17,6 @@ import { useAuth } from '@/context/authContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
-import { WebView } from 'react-native-webview';
 
 export default function ChannelsScreen() {
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
@@ -37,15 +32,7 @@ export default function ChannelsScreen() {
     const [proxyAttempted, setProxyAttempted] = useState(false);
 
     const videoRef = useRef(null);
-    const webViewRef = useRef(null);
-    const [isPlaying, setIsPlaying] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
-    const [currentPlaylistIndex, setCurrentPlaylistIndex] = useState(0);
-    const [playlistVideoIds, setPlaylistVideoIds] = useState([]);
-    const [useWebViewPlayer, setUseWebViewPlayer] = useState(false);
-    const [playerMode, setPlayerMode] = useState('auto');
-    const [youtubeReady, setYoutubeReady] = useState(false);
-    const [currentYoutubeVideoId, setCurrentYoutubeVideoId] = useState(null);
 
     useEffect(() => {
         const subscription = AppState.addEventListener('change', nextAppState => {
@@ -226,7 +213,7 @@ export default function ChannelsScreen() {
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-            setYoutubeReady(true);
+
             setVideoError(false);
         });
 
@@ -263,7 +250,7 @@ export default function ChannelsScreen() {
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-            setYoutubeReady(true);
+
             setVideoError(false);
         });
 
@@ -303,7 +290,7 @@ export default function ChannelsScreen() {
 
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
-            setYoutubeReady(true);
+
             setVideoError(false);
         });
 
@@ -525,7 +512,7 @@ export default function ChannelsScreen() {
                     volume={1.0}
                     isMuted={false}
                     resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={isPlaying}
+                    shouldPlay={true}
                     isLooping={false}
                     useNativeControls
                     style={{ width: '100%', height: 260 }}
@@ -559,10 +546,6 @@ export default function ChannelsScreen() {
         setVideoLoading(true);
         setUseProxy(false);
         setProxyAttempted(false);
-        setYoutubeReady(false);
-        setCurrentPlaylistIndex(0);
-        setPlaylistVideoIds([]);
-        setCurrentYoutubeVideoId(null);
     };
 
     // ==========================================
