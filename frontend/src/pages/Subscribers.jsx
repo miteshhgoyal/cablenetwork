@@ -13,7 +13,7 @@ import {
   X,
   MapPin,
   Shield,
-  CheckCircle, // NEW: For activate button
+  CheckCircle,
 } from "lucide-react";
 
 const Subscribers = () => {
@@ -28,17 +28,19 @@ const Subscribers = () => {
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showActivateModal, setShowActivateModal] = useState(false); // NEW
+  const [showActivateModal, setShowActivateModal] = useState(false);
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // ✅ UPDATED: packages array instead of single package
   const [formData, setFormData] = useState({
     subscriberName: "",
     macAddress: "",
     serialNumber: "",
     status: "Active",
     expiryDate: "",
-    package: "",
+    packages: [], // ✅ Changed from 'package' to 'packages'
   });
 
   useEffect(() => {
@@ -88,6 +90,7 @@ const Subscribers = () => {
     setShowViewModal(true);
   };
 
+  // ✅ UPDATED: Handle multiple packages
   const handleEdit = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setFormData({
@@ -96,7 +99,7 @@ const Subscribers = () => {
       serialNumber: subscriber.serialNumber,
       status: subscriber.status,
       expiryDate: new Date(subscriber.expiryDate).toISOString().split("T")[0],
-      package: subscriber.primaryPackageId?._id || "",
+      packages: subscriber.packages?.map((pkg) => pkg._id) || [], // ✅ Array of package IDs
     });
     setShowEditModal(true);
   };
@@ -106,18 +109,16 @@ const Subscribers = () => {
     setShowDeleteModal(true);
   };
 
-  // NEW: Activate handler
   const handleActivateClick = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setShowActivateModal(true);
   };
 
-  // NEW: Activate subscriber API call
   const handleActivate = async () => {
     setSubmitting(true);
     try {
       await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
-        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days from now
+        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
       fetchSubscribers();
       setShowActivateModal(false);
@@ -476,7 +477,6 @@ const Subscribers = () => {
                         </td>
                         <td className="px-6 py-4 text-sm text-right">
                           <div className="flex items-center justify-end space-x-2">
-                            {/* NEW: Show Activate button for Inactive/Fresh */}
                             {(subscriber.status === "Inactive" ||
                               subscriber.status === "Fresh") && (
                               <button
@@ -517,7 +517,7 @@ const Subscribers = () => {
         )}
       </div>
 
-      {/* VIEW MODAL - Same as before */}
+      {/* VIEW MODAL - Unchanged, shows packages array */}
       {showViewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -612,7 +612,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* EDIT MODAL - Same as before */}
+      {/* ✅ EDIT MODAL - WITH PACKAGE CHECKBOXES */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -715,11 +715,76 @@ const Subscribers = () => {
                 </div>
               </div>
 
+              {/* ✅ PACKAGE CHECKBOXES */}
+              <div className="col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Packages (Select Multiple) *
+                </label>
+                <div className="space-y-2 max-h-60 overflow-y-auto border-2 border-gray-200 rounded-xl p-4 bg-gray-50">
+                  {packages.length === 0 ? (
+                    <p className="text-sm text-gray-500 text-center py-4">
+                      No packages available
+                    </p>
+                  ) : (
+                    packages.map((pkg) => (
+                      <label
+                        key={pkg._id}
+                        className="flex items-center space-x-3 p-3 hover:bg-white rounded-lg cursor-pointer transition-all border border-transparent hover:border-blue-200"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={formData.packages.includes(pkg._id)}
+                          onChange={(e) => {
+                            if (e.target.checked) {
+                              setFormData({
+                                ...formData,
+                                packages: [...formData.packages, pkg._id],
+                              });
+                            } else {
+                              setFormData({
+                                ...formData,
+                                packages: formData.packages.filter(
+                                  (id) => id !== pkg._id
+                                ),
+                              });
+                            }
+                          }}
+                          className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                        />
+                        <div className="flex-1">
+                          <span className="text-sm font-semibold text-gray-900">
+                            {pkg.name}
+                          </span>
+                          <span className="text-xs text-gray-500 ml-2">
+                            (₹{pkg.cost} • {pkg.duration} days)
+                          </span>
+                        </div>
+                        {formData.packages.includes(pkg._id) && (
+                          <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
+                            ✓ Selected
+                          </div>
+                        )}
+                      </label>
+                    ))
+                  )}
+                </div>
+                {formData.packages.length > 0 && (
+                  <p className="text-xs text-gray-600 mt-2">
+                    {formData.packages.length} package(s) selected
+                  </p>
+                )}
+                {formData.packages.length === 0 && (
+                  <p className="text-xs text-red-600 mt-2">
+                    Please select at least one package
+                  </p>
+                )}
+              </div>
+
               <div className="flex items-center space-x-3 pt-4">
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
+                  disabled={submitting || formData.packages.length === 0}
+                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
                 >
                   {submitting ? "Updating..." : "Update Subscriber"}
                 </button>
@@ -736,7 +801,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* DELETE MODAL - Same as before */}
+      {/* DELETE MODAL - Unchanged */}
       {showDeleteModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -777,7 +842,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* NEW: ACTIVATE MODAL */}
+      {/* ACTIVATE MODAL - Unchanged */}
       {showActivateModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">

@@ -261,12 +261,11 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
     }
 });
 
-// UPDATE SUBSCRIBER
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const user = await User.findById(userId);
-        const { subscriberName, macAddress, serialNumber, status, expiryDate, package: packageId } = req.body;
+        const { subscriberName, macAddress, serialNumber, status, expiryDate, packages } = req.body; // ✅ Changed from 'package' to 'packages'
 
         const subscriber = await Subscriber.findById(req.params.id);
 
@@ -300,6 +299,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
+        // Validation
         if (!subscriberName || !macAddress || !serialNumber) {
             return res.status(400).json({
                 success: false,
@@ -307,6 +307,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // ✅ Validate packages array
+        if (!packages || !Array.isArray(packages) || packages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'At least one package must be selected'
+            });
+        }
+
+        // Check if MAC address already exists
         const existingSubscriber = await Subscriber.findOne({
             macAddress: macAddress.trim().toLowerCase(),
             _id: { $ne: req.params.id }
@@ -319,6 +328,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // Update basic fields
         subscriber.subscriberName = subscriberName.trim();
         subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
@@ -328,15 +338,17 @@ router.put('/:id', authenticateToken, async (req, res) => {
             subscriber.expiryDate = new Date(expiryDate);
         }
 
-        if (packageId) {
-            subscriber.primaryPackageId = packageId;
-            if (!subscriber.packages.includes(packageId)) {
-                subscriber.packages.push(packageId);
-            }
+        // ✅ Update packages array
+        subscriber.packages = packages;
+
+        // ✅ Update primary package if needed
+        if (!subscriber.primaryPackageId || !packages.includes(subscriber.primaryPackageId.toString())) {
+            subscriber.primaryPackageId = packages[0]; // Set first package as primary
         }
 
         await subscriber.save();
 
+        // Populate and return
         await subscriber.populate('resellerId', 'name email');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
