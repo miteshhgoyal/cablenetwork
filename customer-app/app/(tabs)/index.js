@@ -1,6 +1,6 @@
-// app/(tabs)/index.js - FIXED VERSION (BASED ON OLD VERSION YOUTUBE SETUP)
+// app/(tabs)/index.js - COMPLETE WITH PROXY ON BY DEFAULT
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -16,8 +16,8 @@ export default function ChannelsScreen() {
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
 
-    // Proxy management (DEFAULT OFF)
-    const [useProxy, setUseProxy] = useState(false);
+    // ✅ PROXY DEFAULT ON (for non-YouTube streams)
+    const [useProxy, setUseProxy] = useState(true); // Changed from false to true
     const [proxyAttempted, setProxyAttempted] = useState(false);
 
     const videoRef = useRef(null);
@@ -98,6 +98,9 @@ export default function ChannelsScreen() {
         // MP4
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
 
+        // MKV
+        if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
+
         // IPTV patterns
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
         if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
@@ -141,12 +144,19 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // GET CURRENT STREAM URL WITH PROXY TOGGLE
+    // GET CURRENT STREAM URL WITH SMART PROXY
     // ==========================================
     const getCurrentStreamUrl = () => {
         if (!selectedChannel) return '';
 
-        // Use proxy only if toggle is ON
+        const { type } = analyzeStreamUrl(selectedChannel.url);
+
+        // ✅ NEVER use proxy for YouTube
+        if (type.startsWith('youtube')) {
+            return selectedChannel.url;
+        }
+
+        // ✅ Use proxy based on toggle (default ON for non-YouTube)
         if (useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
             return selectedChannel.proxyUrl;
         }
@@ -155,12 +165,12 @@ export default function ChannelsScreen() {
     };
 
     // ==========================================
-    // YOUTUBE PLAYER COMPONENTS (EXACT OLD VERSION STYLE)
+    // YOUTUBE PLAYER COMPONENTS
     // ==========================================
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false, // Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
@@ -193,7 +203,7 @@ export default function ChannelsScreen() {
     const YouTubeLivePlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false, // Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
@@ -226,7 +236,7 @@ export default function ChannelsScreen() {
     const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false, // Start with sound
+            muted: false,
             controls: true,
             playsinline: true,
             rel: false,
@@ -307,7 +317,7 @@ export default function ChannelsScreen() {
         if (!selectedChannel) return null;
 
         const currentUrl = getCurrentStreamUrl();
-        const { type, isValid } = analyzeStreamUrl(currentUrl);
+        const { type, isValid } = analyzeStreamUrl(selectedChannel.url); // Check original URL for type
 
         if (!isValid) {
             return (
@@ -323,7 +333,7 @@ export default function ChannelsScreen() {
 
         // YouTube Video
         if (type === 'youtube-video') {
-            const videoId = extractVideoId(currentUrl);
+            const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
@@ -342,7 +352,7 @@ export default function ChannelsScreen() {
 
         // YouTube Live
         if (type === 'youtube-live') {
-            const videoId = extractVideoId(currentUrl);
+            const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
@@ -361,8 +371,8 @@ export default function ChannelsScreen() {
 
         // YouTube Playlist
         if (type === 'youtube-playlist') {
-            const videoId = extractVideoId(currentUrl);
-            const playlistId = extractPlaylistId(currentUrl);
+            const videoId = extractVideoId(selectedChannel.url);
+            const playlistId = extractPlaylistId(selectedChannel.url);
 
             if (!videoId || !playlistId) {
                 return (
@@ -385,12 +395,12 @@ export default function ChannelsScreen() {
             return (
                 <>
                     {renderStreamTypeBadge(type)}
-                    <YouTubeChannelPlayer url={currentUrl} />
+                    <YouTubeChannelPlayer url={selectedChannel.url} />
                 </>
             );
         }
 
-        // Regular video streams (HLS, MP4, IPTV, RTMP, etc.)
+        // Regular video streams (HLS, MP4, IPTV, RTMP, etc.) WITH PROXY SUPPORT
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 {renderStreamTypeBadge(type)}
@@ -412,31 +422,32 @@ export default function ChannelsScreen() {
                             {errorMessage || 'Unable to load the stream'}
                         </Text>
 
-                        {serverInfo?.proxyEnabled && !useProxy && !proxyAttempted && (
-                            <TouchableOpacity
-                                className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setUseProxy(true);
-                                    setProxyAttempted(true);
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">Try Proxy Connection</Text>
-                            </TouchableOpacity>
-                        )}
-
                         <TouchableOpacity
-                            className="mt-3 bg-gray-700 px-6 py-3 rounded-lg"
+                            className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
                             onPress={() => {
                                 setVideoError(false);
                                 setVideoLoading(true);
-                                setUseProxy(false);
-                                setProxyAttempted(false);
                             }}
                         >
-                            <Text className="text-white font-semibold">Retry</Text>
+                            <Text className="text-white font-semibold">🔄 Retry</Text>
                         </TouchableOpacity>
+
+                        {/* Toggle proxy on error */}
+                        {serverInfo?.proxyEnabled && (
+                            <TouchableOpacity
+                                className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
+                                onPress={() => {
+                                    setUseProxy(!useProxy);
+                                    setVideoError(false);
+                                    setVideoLoading(true);
+                                    setProxyAttempted(true);
+                                }}
+                            >
+                                <Text className="text-white font-semibold">
+                                    {useProxy ? '🌐 Try Direct Connection' : '🔒 Try Proxy Connection'}
+                                </Text>
+                            </TouchableOpacity>
+                        )}
                     </View>
                 )}
 
@@ -456,7 +467,7 @@ export default function ChannelsScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
-                        console.error('Video error:', error);
+                        console.error('❌ Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                         setErrorMessage('Failed to load stream. Please check your connection.');
@@ -478,7 +489,10 @@ export default function ChannelsScreen() {
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
-        setUseProxy(false);
+
+        // ✅ Smart proxy default: OFF for YouTube, ON for others
+        const { type } = analyzeStreamUrl(channel.url);
+        setUseProxy(!type.startsWith('youtube')); // ON for non-YouTube
         setProxyAttempted(false);
     };
 
@@ -513,30 +527,49 @@ export default function ChannelsScreen() {
     // ==========================================
     // RENDER FUNCTIONS
     // ==========================================
-    const renderChannelItem = ({ item }) => (
-        <TouchableOpacity
-            className="flex-row items-center p-4 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
-            onPress={() => handleChannelPress(item)}
-        >
-            {/* LCN Number Badge */}
-            <View className="w-12 h-12 bg-orange-500 rounded-lg items-center justify-center mr-3">
-                <Text className="text-white font-bold text-base">{item.lcn || '?'}</Text>
-            </View>
+    const renderChannelItem = ({ item }) => {
+        const { type } = analyzeStreamUrl(item.url);
+        const isYouTube = type.startsWith('youtube');
 
-            {/* Channel Info */}
-            <View className="flex-1">
-                <Text className="text-white font-semibold text-base" numberOfLines={1}>
-                    {item.name}
-                </Text>
-                <Text className="text-gray-400 text-sm mt-0.5">
-                    {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
-                </Text>
-            </View>
+        return (
+            <TouchableOpacity
+                className="flex-row items-center p-4 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
+                onPress={() => handleChannelPress(item)}
+            >
+                {/* LCN Number Badge */}
+                <View className="w-12 h-12 bg-orange-500 rounded-lg items-center justify-center mr-3">
+                    <Text className="text-white font-bold text-base">{item.lcn || '?'}</Text>
+                </View>
 
-            {/* Arrow Icon */}
-            <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
-        </TouchableOpacity>
-    );
+                {/* Channel Info */}
+                <View className="flex-1">
+                    <Text className="text-white font-semibold text-base" numberOfLines={1}>
+                        {item.name}
+                    </Text>
+                    <View className="flex-row items-center">
+                        <Text className="text-gray-400 text-sm mt-0.5">
+                            {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
+                        </Text>
+
+                        {/* Stream Type Badge */}
+                        {isYouTube && (
+                            <View className="ml-2 bg-red-500/20 px-2 py-0.5 rounded">
+                                <Text className="text-red-500 text-xs font-bold">YT</Text>
+                            </View>
+                        )}
+                        {!isYouTube && item.proxyUrl && serverInfo?.proxyEnabled && (
+                            <View className="ml-2 bg-orange-500/20 px-2 py-0.5 rounded">
+                                <Text className="text-orange-500 text-xs font-bold">PROXY</Text>
+                            </View>
+                        )}
+                    </View>
+                </View>
+
+                {/* Arrow Icon */}
+                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+            </TouchableOpacity>
+        );
+    };
 
     // ==========================================
     // MAIN RENDER
@@ -603,25 +636,13 @@ export default function ChannelsScreen() {
                 {/* Search Bar */}
                 <View className="bg-gray-800 rounded-lg px-4 py-3 flex-row items-center">
                     <Ionicons name="search" size={20} color="#9ca3af" />
-                    <TouchableOpacity
-                        className="flex-1 ml-2"
-                        onPress={() => {
-                            Alert.prompt(
-                                'Search Channels',
-                                'Enter channel name, language, or LCN number',
-                                [
-                                    { text: 'Cancel', style: 'cancel' },
-                                    { text: 'Search', onPress: (text) => setSearchQuery(text || '') }
-                                ],
-                                'plain-text',
-                                searchQuery
-                            );
-                        }}
-                    >
-                        <Text className="text-white text-base">
-                            {searchQuery || 'Search channels...'}
-                        </Text>
-                    </TouchableOpacity>
+                    <TextInput
+                        placeholder="Search channels..."
+                        placeholderTextColor="#9ca3af"
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        className="flex-1 ml-2 text-white"
+                    />
                     {searchQuery !== '' && (
                         <TouchableOpacity onPress={() => setSearchQuery('')}>
                             <Ionicons name="close-circle" size={20} color="#9ca3af" />
@@ -653,7 +674,7 @@ export default function ChannelsScreen() {
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" />
 
-                    {/* Player Header - NO HEART, WITH PROXY */}
+                    {/* Player Header WITH VISIBLE PROXY TOGGLE */}
                     <View className="flex-row items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800">
                         <TouchableOpacity
                             onPress={() => {
@@ -673,10 +694,17 @@ export default function ChannelsScreen() {
                             </Text>
                         </View>
 
-                        {/* Proxy Toggle */}
-                        {serverInfo?.proxyEnabled && (
-                            <View className="flex-row items-center">
-                                <Text className="text-gray-400 text-sm mr-2">Proxy</Text>
+                        {/* ✅ VISIBLE PROXY TOGGLE (for non-YouTube) */}
+                        {selectedChannel && !analyzeStreamUrl(selectedChannel.url).type.startsWith('youtube') && serverInfo?.proxyEnabled && (
+                            <View className="flex-row items-center bg-gray-800 px-3 py-2 rounded-lg">
+                                <Ionicons
+                                    name={useProxy ? "shield-checkmark" : "shield-outline"}
+                                    size={16}
+                                    color={useProxy ? "#f97316" : "#9ca3af"}
+                                />
+                                <Text className={`text-xs ml-1.5 mr-2 font-semibold ${useProxy ? 'text-orange-500' : 'text-gray-400'}`}>
+                                    Proxy
+                                </Text>
                                 <TouchableOpacity
                                     onPress={() => {
                                         setUseProxy(!useProxy);
@@ -684,9 +712,10 @@ export default function ChannelsScreen() {
                                         setVideoLoading(true);
                                         setProxyAttempted(false);
                                     }}
-                                    className={`w-12 h-6 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`}
+                                    className={`w-10 h-5 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`}
+                                    style={{ padding: 2 }}
                                 >
-                                    <View className={`w-5 h-5 rounded-full bg-white ${useProxy ? 'self-end mr-0.5' : 'self-start ml-0.5'}`} />
+                                    <View className={`w-4 h-4 rounded-full bg-white ${useProxy ? 'self-end' : 'self-start'}`} />
                                 </TouchableOpacity>
                             </View>
                         )}
@@ -695,6 +724,25 @@ export default function ChannelsScreen() {
                     {/* Video Player */}
                     <ScrollView className="flex-1">
                         {renderVideoPlayer()}
+
+
+                        {/* {selectedChannel && !analyzeStreamUrl(selectedChannel.url).type.startsWith('youtube') && (
+                            <View className="bg-gray-800 p-3 mx-4 mt-2 rounded-lg">
+                                <View className="flex-row items-center justify-between mb-2">
+                                    <Text className="text-gray-400 text-xs font-semibold">
+                                        {useProxy ? '🔒 PROXY MODE' : '🌐 DIRECT MODE'}
+                                    </Text>
+                                    <View className={`px-2 py-0.5 rounded ${useProxy ? 'bg-orange-500/20' : 'bg-blue-500/20'}`}>
+                                        <Text className={`text-xs font-bold ${useProxy ? 'text-orange-500' : 'text-blue-500'}`}>
+                                            {analyzeStreamUrl(selectedChannel.url).type.toUpperCase()}
+                                        </Text>
+                                    </View>
+                                </View>
+                                <Text className="text-white text-xs font-mono" numberOfLines={2}>
+                                    {getCurrentStreamUrl()}
+                                </Text>
+                            </View>
+                        )} */}
 
                         {/* Channel Details */}
                         <View className="p-4 bg-gray-900">
@@ -750,6 +798,8 @@ export default function ChannelsScreen() {
                                                 setSelectedChannel(channel);
                                                 setVideoError(false);
                                                 setVideoLoading(true);
+                                                const { type } = analyzeStreamUrl(channel.url);
+                                                setUseProxy(!type.startsWith('youtube'));
                                             }}
                                         >
                                             <View className="w-8 h-8 bg-orange-500 rounded items-center justify-center mb-2">
