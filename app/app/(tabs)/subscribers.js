@@ -1,4 +1,4 @@
-// app/(tabs)/subscribers.js
+// app/(tabs)/subscribers.js - COMPLETE WITH PACKAGE CHECKBOXES
 import React, { useState, useEffect } from 'react';
 import {
     View,
@@ -39,17 +39,19 @@ const Subscribers = () => {
     const [showViewModal, setShowViewModal] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [showDeleteModal, setShowDeleteModal] = useState(false);
-    const [showActivateModal, setShowActivateModal] = useState(false); // NEW
+    const [showActivateModal, setShowActivateModal] = useState(false);
     const [selectedSubscriber, setSelectedSubscriber] = useState(null);
     const [showFilters, setShowFilters] = useState(false);
     const [submitting, setSubmitting] = useState(false);
+
+    // ✅ UPDATED: packages array instead of single package
     const [formData, setFormData] = useState({
         subscriberName: '',
         macAddress: '',
         serialNumber: '',
         status: 'Active',
         expiryDate: '',
-        package: '',
+        packages: [], // ✅ Changed from 'package' to 'packages' array
     });
 
     useEffect(() => {
@@ -106,6 +108,7 @@ const Subscribers = () => {
         setShowViewModal(true);
     };
 
+    // ✅ UPDATED: Handle multiple packages
     const handleEdit = (subscriber) => {
         setSelectedSubscriber(subscriber);
         setFormData({
@@ -114,7 +117,7 @@ const Subscribers = () => {
             serialNumber: subscriber.serialNumber,
             status: subscriber.status,
             expiryDate: new Date(subscriber.expiryDate).toISOString().split('T')[0],
-            package: subscriber.primaryPackageId?._id || '',
+            packages: subscriber.packages?.map(pkg => pkg._id) || [], // ✅ Array of package IDs
         });
         setShowEditModal(true);
     };
@@ -124,18 +127,16 @@ const Subscribers = () => {
         setShowDeleteModal(true);
     };
 
-    // NEW: Activate handler
     const handleActivateClick = (subscriber) => {
         setSelectedSubscriber(subscriber);
         setShowActivateModal(true);
     };
 
-    // NEW: Activate subscriber API call
     const handleActivate = async () => {
         setSubmitting(true);
         try {
             await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
-                expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) // 30 days
+                expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
             });
             Alert.alert('Success', 'Subscriber activated successfully');
             fetchSubscribers();
@@ -164,6 +165,11 @@ const Subscribers = () => {
         }
         if (!formData.expiryDate) {
             Alert.alert('Error', 'Expiry date is required');
+            return;
+        }
+        // ✅ Validate packages
+        if (!formData.packages || formData.packages.length === 0) {
+            Alert.alert('Error', 'Please select at least one package');
             return;
         }
 
@@ -196,6 +202,21 @@ const Subscribers = () => {
             Alert.alert('Error', error.response?.data?.message || 'Delete failed');
         } finally {
             setSubmitting(false);
+        }
+    };
+
+    // ✅ Toggle package selection
+    const togglePackage = (packageId) => {
+        if (formData.packages.includes(packageId)) {
+            setFormData({
+                ...formData,
+                packages: formData.packages.filter(id => id !== packageId)
+            });
+        } else {
+            setFormData({
+                ...formData,
+                packages: [...formData.packages, packageId]
+            });
         }
     };
 
@@ -275,7 +296,6 @@ const Subscribers = () => {
                 {showFilters && (
                     <View className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
                         <View>
-                            {/* Status Filter */}
                             <View style={{ marginBottom: 16 }}>
                                 <Text className="text-sm font-semibold text-gray-700 mb-2">
                                     Status
@@ -294,7 +314,6 @@ const Subscribers = () => {
                                 </View>
                             </View>
 
-                            {/* Reseller Filter */}
                             {user.role !== 'reseller' && (
                                 <View style={{ marginBottom: 16 }}>
                                     <Text className="text-sm font-semibold text-gray-700 mb-2">
@@ -437,11 +456,12 @@ const Subscribers = () => {
                                                         {formatDate(subscriber.expiryDate)}
                                                     </Text>
                                                 </View>
-                                                {subscriber.primaryPackageId && (
+                                                {/* ✅ Show all packages */}
+                                                {subscriber.packages && subscriber.packages.length > 0 && (
                                                     <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                                                        <Text className="text-xs text-gray-500 w-24">Package:</Text>
+                                                        <Text className="text-xs text-gray-500 w-24">Packages:</Text>
                                                         <Text className="text-xs text-blue-600 font-semibold">
-                                                            {subscriber.primaryPackageId.name}
+                                                            {subscriber.packages.map(pkg => pkg.name).join(', ')}
                                                         </Text>
                                                     </View>
                                                 )}
@@ -458,7 +478,6 @@ const Subscribers = () => {
 
                                         {/* Action Buttons */}
                                         <View style={{ flexDirection: 'row', paddingTop: 12, borderTopWidth: 1, borderTopColor: '#e5e7eb' }}>
-                                            {/* NEW: Show Activate button for Inactive/Fresh */}
                                             {(subscriber.status === 'Inactive' || subscriber.status === 'Fresh') && (
                                                 <TouchableOpacity
                                                     onPress={() => handleActivateClick(subscriber)}
@@ -506,7 +525,7 @@ const Subscribers = () => {
                 </ScrollView>
             )}
 
-            {/* View Details Modal - SAME AS BEFORE */}
+            {/* View Details Modal */}
             <Modal
                 visible={showViewModal}
                 transparent
@@ -592,15 +611,22 @@ const Subscribers = () => {
                                     </Text>
                                 </View>
 
-                                {selectedSubscriber?.primaryPackageId && (
+                                {/* ✅ Show all packages */}
+                                {selectedSubscriber?.packages && selectedSubscriber.packages.length > 0 && (
                                     <View style={{ marginBottom: 12 }}>
-                                        <Text className="text-sm font-semibold text-gray-600 mb-1">
-                                            Package
+                                        <Text className="text-sm font-semibold text-gray-600 mb-2">
+                                            Packages ({selectedSubscriber.packages.length})
                                         </Text>
-                                        <Text className="text-base text-blue-600 font-semibold">
-                                            {selectedSubscriber.primaryPackageId.name} - ₹
-                                            {selectedSubscriber.primaryPackageId.cost}
-                                        </Text>
+                                        {selectedSubscriber.packages.map((pkg, idx) => (
+                                            <View key={idx} style={{ backgroundColor: '#eff6ff', padding: 8, borderRadius: 8, marginBottom: 4 }}>
+                                                <Text className="text-sm text-blue-900 font-semibold">
+                                                    {pkg.name}
+                                                </Text>
+                                                <Text className="text-xs text-blue-700">
+                                                    ₹{pkg.cost} / {pkg.duration} days
+                                                </Text>
+                                            </View>
+                                        ))}
                                     </View>
                                 )}
 
@@ -631,57 +657,7 @@ const Subscribers = () => {
                 </View>
             </Modal>
 
-            {/* ACTIVATE MODAL */}
-            <Modal
-                visible={showActivateModal}
-                transparent
-                animationType="fade"
-                onRequestClose={() => setShowActivateModal(false)}
-            >
-                <View className="flex-1 bg-black/50 justify-center items-center px-4">
-                    <View className="bg-white rounded-2xl w-full max-w-md">
-                        <View style={{ paddingHorizontal: 24, paddingVertical: 24 }}>
-                            <View style={{ width: 48, height: 48, backgroundColor: '#dcfce7', borderRadius: 24, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}>
-                                <CheckCircle size={24} color="#16a34a" />
-                            </View>
-                            <Text className="text-xl font-bold text-gray-900 text-center mb-2">
-                                Activate Subscriber
-                            </Text>
-                            <Text className="text-gray-600 text-center mb-6">
-                                Are you sure you want to activate "
-                                <Text className="font-semibold">
-                                    {selectedSubscriber?.subscriberName}
-                                </Text>
-                                "? This will set status to Active and extend expiry by 30 days.
-                            </Text>
-                            <View style={{ flexDirection: 'row' }}>
-                                <TouchableOpacity
-                                    onPress={handleActivate}
-                                    disabled={submitting}
-                                    style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#16a34a', borderRadius: 8, opacity: submitting ? 0.5 : 1 }}
-                                >
-                                    <Text className="text-white text-center font-semibold">
-                                        {submitting ? 'Activating...' : 'Activate'}
-                                    </Text>
-                                </TouchableOpacity>
-                                <TouchableOpacity
-                                    onPress={() => {
-                                        setShowActivateModal(false);
-                                        setSelectedSubscriber(null);
-                                    }}
-                                    style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#f3f4f6', borderRadius: 8 }}
-                                >
-                                    <Text className="text-gray-700 text-center font-semibold">
-                                        Cancel
-                                    </Text>
-                                </TouchableOpacity>
-                            </View>
-                        </View>
-                    </View>
-                </View>
-            </Modal>
-
-            {/* Edit Modal */}
+            {/* ✅ EDIT MODAL - WITH PACKAGE CHECKBOXES */}
             <Modal
                 visible={showEditModal}
                 transparent
@@ -792,37 +768,86 @@ const Subscribers = () => {
                                     </Text>
                                 </View>
 
-                                {/* Package */}
+                                {/* ✅ PACKAGES CHECKBOXES */}
                                 <View style={{ marginBottom: 24 }}>
-                                    <Text className="text-sm font-semibold text-gray-700 mb-2">
-                                        Package (Optional)
+                                    <Text className="text-sm font-semibold text-gray-700 mb-3">
+                                        Packages (Select Multiple) *
                                     </Text>
-                                    <View className="bg-gray-50 border border-gray-200 rounded-xl overflow-hidden">
-                                        <Picker
-                                            selectedValue={formData.package}
-                                            onValueChange={(value) =>
-                                                setFormData({ ...formData, package: value })
-                                            }
-                                            style={{ height: 50 }}
-                                        >
-                                            <Picker.Item label="Select Package" value="" />
-                                            {packages.map((pkg) => (
-                                                <Picker.Item
-                                                    key={pkg._id}
-                                                    label={`${pkg.name} - ₹${pkg.cost}`}
-                                                    value={pkg._id}
-                                                />
-                                            ))}
-                                        </Picker>
+                                    <View style={{ maxHeight: 240, borderWidth: 2, borderColor: '#e5e7eb', borderRadius: 12, padding: 12, backgroundColor: '#f9fafb' }}>
+                                        <ScrollView>
+                                            {packages.length === 0 ? (
+                                                <Text className="text-sm text-gray-500 text-center py-4">
+                                                    No packages available
+                                                </Text>
+                                            ) : (
+                                                packages.map((pkg) => (
+                                                    <TouchableOpacity
+                                                        key={pkg._id}
+                                                        onPress={() => togglePackage(pkg._id)}
+                                                        style={{
+                                                            flexDirection: 'row',
+                                                            alignItems: 'center',
+                                                            padding: 12,
+                                                            backgroundColor: formData.packages.includes(pkg._id) ? '#eff6ff' : '#ffffff',
+                                                            borderRadius: 8,
+                                                            marginBottom: 8,
+                                                            borderWidth: 1,
+                                                            borderColor: formData.packages.includes(pkg._id) ? '#3b82f6' : 'transparent',
+                                                        }}
+                                                    >
+                                                        <View style={{
+                                                            width: 20,
+                                                            height: 20,
+                                                            borderRadius: 4,
+                                                            borderWidth: 2,
+                                                            borderColor: formData.packages.includes(pkg._id) ? '#3b82f6' : '#d1d5db',
+                                                            backgroundColor: formData.packages.includes(pkg._id) ? '#3b82f6' : 'transparent',
+                                                            alignItems: 'center',
+                                                            justifyContent: 'center',
+                                                            marginRight: 12
+                                                        }}>
+                                                            {formData.packages.includes(pkg._id) && (
+                                                                <CheckCircle size={14} color="#ffffff" />
+                                                            )}
+                                                        </View>
+                                                        <View style={{ flex: 1 }}>
+                                                            <Text className="text-sm font-semibold text-gray-900">
+                                                                {pkg.name}
+                                                            </Text>
+                                                            <Text className="text-xs text-gray-500">
+                                                                ₹{pkg.cost} • {pkg.duration} days
+                                                            </Text>
+                                                        </View>
+                                                        {formData.packages.includes(pkg._id) && (
+                                                            <View style={{ backgroundColor: '#dbeafe', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 4 }}>
+                                                                <Text className="text-xs font-bold text-blue-600">
+                                                                    ✓ Selected
+                                                                </Text>
+                                                            </View>
+                                                        )}
+                                                    </TouchableOpacity>
+                                                ))
+                                            )}
+                                        </ScrollView>
                                     </View>
+                                    {formData.packages.length > 0 && (
+                                        <Text className="text-xs text-gray-600 mt-2">
+                                            {formData.packages.length} package(s) selected
+                                        </Text>
+                                    )}
+                                    {formData.packages.length === 0 && (
+                                        <Text className="text-xs text-red-600 mt-2">
+                                            Please select at least one package
+                                        </Text>
+                                    )}
                                 </View>
 
                                 {/* Buttons */}
                                 <View style={{ flexDirection: 'row', marginBottom: 24 }}>
                                     <TouchableOpacity
                                         onPress={handleUpdate}
-                                        disabled={submitting}
-                                        style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8, opacity: submitting ? 0.5 : 1 }}
+                                        disabled={submitting || formData.packages.length === 0}
+                                        style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#2563eb', borderRadius: 8, opacity: (submitting || formData.packages.length === 0) ? 0.5 : 1 }}
                                     >
                                         <Text className="text-white text-center font-semibold">
                                             {submitting ? 'Updating...' : 'Update'}
@@ -843,7 +868,57 @@ const Subscribers = () => {
                 </View>
             </Modal>
 
-            {/* Delete Confirmation Modal */}
+            {/* Activate Modal */}
+            <Modal
+                visible={showActivateModal}
+                transparent
+                animationType="fade"
+                onRequestClose={() => setShowActivateModal(false)}
+            >
+                <View className="flex-1 bg-black/50 justify-center items-center px-4">
+                    <View className="bg-white rounded-2xl w-full max-w-md">
+                        <View style={{ paddingHorizontal: 24, paddingVertical: 24 }}>
+                            <View style={{ width: 48, height: 48, backgroundColor: '#dcfce7', borderRadius: 24, alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16 }}>
+                                <CheckCircle size={24} color="#16a34a" />
+                            </View>
+                            <Text className="text-xl font-bold text-gray-900 text-center mb-2">
+                                Activate Subscriber
+                            </Text>
+                            <Text className="text-gray-600 text-center mb-6">
+                                Are you sure you want to activate "
+                                <Text className="font-semibold">
+                                    {selectedSubscriber?.subscriberName}
+                                </Text>
+                                "? This will set status to Active and extend expiry by 30 days.
+                            </Text>
+                            <View style={{ flexDirection: 'row' }}>
+                                <TouchableOpacity
+                                    onPress={handleActivate}
+                                    disabled={submitting}
+                                    style={{ flex: 1, marginRight: 12, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#16a34a', borderRadius: 8, opacity: submitting ? 0.5 : 1 }}
+                                >
+                                    <Text className="text-white text-center font-semibold">
+                                        {submitting ? 'Activating...' : 'Activate'}
+                                    </Text>
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        setShowActivateModal(false);
+                                        setSelectedSubscriber(null);
+                                    }}
+                                    style={{ flex: 1, paddingHorizontal: 16, paddingVertical: 12, backgroundColor: '#f3f4f6', borderRadius: 8 }}
+                                >
+                                    <Text className="text-gray-700 text-center font-semibold">
+                                        Cancel
+                                    </Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </View>
+            </Modal>
+
+            {/* Delete Modal */}
             <Modal
                 visible={showDeleteModal}
                 transparent

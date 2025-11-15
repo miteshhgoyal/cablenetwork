@@ -49,14 +49,26 @@ export const AuthProvider = ({ children }) => {
                 // Set API token
                 api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-                // Load cached channels
+                // Load cached channels (show immediately for faster UX)
                 const savedChannels = await AsyncStorage.getItem('channels');
+                const savedPackages = await AsyncStorage.getItem('packagesList');
                 if (savedChannels) {
                     setChannels(JSON.parse(savedChannels));
                 }
+                if (savedPackages) {
+                    setPackagesList(JSON.parse(savedPackages));
+                }
 
-                // ✅ CHECK STATUS FROM DB (but don't wait)
-                // Status will be checked by _layout.js
+                refreshChannels().then((result) => {
+                    if (result?.success) {
+
+                    } else {
+
+                    }
+                }).catch((error) => {
+
+                });
+
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
@@ -340,23 +352,41 @@ export const AuthProvider = ({ children }) => {
             if (response.data.success) {
                 const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
 
-                setUser(subscriber);
+                // ✅ Get current device info to preserve it
+                const currentUser = await AsyncStorage.getItem('user');
+                const parsedUser = currentUser ? JSON.parse(currentUser) : {};
+
+                // ✅ Merge subscriber data with device info
+                const enrichedSubscriber = {
+                    ...parsedUser, // Keep device info
+                    ...subscriber,  // Update with fresh subscriber data
+                    // Ensure device-specific fields are preserved
+                    modelName: parsedUser.modelName,
+                    brand: parsedUser.brand,
+                    manufacturer: parsedUser.manufacturer,
+                    osName: parsedUser.osName,
+                    osVersion: parsedUser.osVersion,
+                    deviceType: parsedUser.deviceType,
+                    appVersion: parsedUser.appVersion,
+                    buildVersion: parsedUser.buildVersion,
+                    deviceName: parsedUser.deviceName,
+                };
+
+                setUser(enrichedSubscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages);
 
-                await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+                await AsyncStorage.setItem('user', JSON.stringify(enrichedSubscriber));
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
                 await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
 
                 return { success: true };
             }
         } catch (error) {
-
-            // ✅ DON'T logout on 401/403 - let status check handle it
             if (error.response?.status === 401 || error.response?.status === 403) {
-
                 await checkSubscriptionStatus();
             }
+            return { success: false, error: error.message };
         } finally {
             setRefreshing(false);
         }
