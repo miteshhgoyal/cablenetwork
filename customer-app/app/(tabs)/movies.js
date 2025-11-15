@@ -1,4 +1,4 @@
-// app/(tabs)/movies.js
+// app/(tabs)/movies.js - FIXED VERSION
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     View,
@@ -40,9 +40,6 @@ export default function MoviesScreen() {
     const [errorMessage, setErrorMessage] = useState('');
     const [isPlaying, setIsPlaying] = useState(true);
     const videoRef = useRef(null);
-
-    // YouTube Playlist state
-    const [playlistInfo, setPlaylistInfo] = useState(null);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -160,28 +157,6 @@ export default function MoviesScreen() {
         return match ? match[1] : null;
     };
 
-    // Fetch basic video info using oEmbed (NO API KEY NEEDED)
-    const fetchVideoInfoOEmbed = async (videoId) => {
-        try {
-            const response = await fetch(
-                `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`
-            );
-            const data = await response.json();
-            return {
-                title: data.title || 'YouTube Video',
-                author: data.author_name || 'Unknown Channel',
-                thumbnail: data.thumbnail_url || null
-            };
-        } catch (error) {
-            console.error('Error fetching video info:', error);
-            return {
-                title: 'YouTube Video',
-                author: 'Unknown Channel',
-                thumbnail: null
-            };
-        }
-    };
-
     const renderStreamTypeBadge = (type) => {
         const badges = {
             'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
@@ -206,13 +181,13 @@ export default function MoviesScreen() {
     };
 
     // ==========================================
-    // YOUTUBE PLAYER COMPONENTS
+    // YOUTUBE PLAYER COMPONENTS (FIXED - SAME AS CHANNELS)
     // ==========================================
 
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,
+            muted: false, // Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -222,18 +197,17 @@ export default function MoviesScreen() {
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
             setVideoError(false);
-
-            // Fetch basic info using oEmbed
-            fetchVideoInfoOEmbed(videoId).then(info => {
-                setPlaylistInfo(info);
-            });
         });
 
         useYouTubeEvent(player, 'error', (error) => {
             console.error('YouTube error:', error);
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Error: ${error.message}`);
+            setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`);
+        });
+
+        useYouTubeEvent(player, 'autoplayBlocked', () => {
+            console.warn('Autoplay was blocked');
         });
 
         return (
@@ -246,7 +220,7 @@ export default function MoviesScreen() {
     const YouTubeLivePlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,
+            muted: false, // Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -256,17 +230,13 @@ export default function MoviesScreen() {
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
             setVideoError(false);
-
-            fetchVideoInfoOEmbed(videoId).then(info => {
-                setPlaylistInfo(info);
-            });
         });
 
         useYouTubeEvent(player, 'error', (error) => {
             console.error('YouTube live error:', error);
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Live Error: ${error.message}`);
+            setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`);
         });
 
         return (
@@ -280,10 +250,10 @@ export default function MoviesScreen() {
         );
     };
 
-    const YouTubePlaylistPlayer = ({ url, videoId, playlistId }) => {
+    const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
-            muted: false,
+            muted: false, // Start with sound
             controls: true,
             playsinline: true,
             rel: false,
@@ -302,51 +272,14 @@ export default function MoviesScreen() {
             console.error('YouTube playlist error:', error);
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Playlist Error: ${error.message}`);
+            setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`);
         });
 
         return (
-            <View className="w-full bg-gray-900">
-                <View className="w-full bg-black relative" style={{ height: 260 }}>
-                    <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
-
-                    <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg flex-row items-center">
-                        <Ionicons name="list" size={14} color="white" />
-                        <Text className="text-white text-xs font-bold ml-1.5">PLAYLIST</Text>
-                    </View>
-                </View>
-
-                <View className="bg-gray-800 p-4 border-t-2 border-purple-600">
-                    <View className="flex-row items-center mb-2">
-                        <Ionicons name="play-circle" size={20} color="#a855f7" />
-                        <Text className="text-purple-400 font-bold ml-2 text-sm">AUTO-PLAYING PLAYLIST</Text>
-                    </View>
-                    <Text className="text-white font-semibold text-base mb-1">
-                        YouTube Playlist Mode
-                    </Text>
-                    <Text className="text-gray-400 text-xs mb-3">
-                        Videos will play automatically. Use player controls to navigate between videos.
-                    </Text>
-
-                    <TouchableOpacity
-                        className="bg-red-600 py-3 rounded-lg flex-row items-center justify-center"
-                        onPress={() => Linking.openURL(url)}
-                    >
-                        <Ionicons name="logo-youtube" size={20} color="white" />
-                        <Text className="text-white font-semibold ml-2">View Full Playlist on YouTube</Text>
-                    </TouchableOpacity>
-                </View>
-
-                <View className="bg-gray-800 p-4 border-t border-gray-700">
-                    <Text className="text-gray-400 text-xs mb-2">
-                        💡 <Text className="font-semibold">Playlist Tips:</Text>
-                    </Text>
-                    <View className="space-y-1">
-                        <Text className="text-gray-500 text-xs">• Videos play automatically in sequence</Text>
-                        <Text className="text-gray-500 text-xs">• Use ⏭ button to skip to next video</Text>
-                        <Text className="text-gray-500 text-xs">• Tap "View Full Playlist" to see all videos</Text>
-                        <Text className="text-gray-500 text-xs">• Player remembers your position in playlist</Text>
-                    </View>
+            <View className="w-full bg-black relative" style={{ height: 260 }}>
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
+                    <Text className="text-white text-xs font-bold">PLAYLIST</Text>
                 </View>
             </View>
         );
@@ -446,7 +379,12 @@ export default function MoviesScreen() {
                     </View>
                 );
             }
-            return <YouTubePlaylistPlayer url={selectedMovie.mediaUrl} videoId={videoId} playlistId={playlistId} />;
+            return (
+                <>
+                    {renderStreamTypeBadge(type)}
+                    <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />
+                </>
+            );
         }
 
         // YouTube Channel
@@ -488,7 +426,7 @@ export default function MoviesScreen() {
                                 setVideoLoading(true);
                             }}
                         >
-                            <Text className="text-white font-semibold">🔄 Retry</Text>
+                            <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
                     </View>
                 )}
@@ -509,7 +447,7 @@ export default function MoviesScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
-                        console.error('❌ Video error:', error);
+                        console.error('Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                         setErrorMessage('Failed to load stream. Please check your connection.');
@@ -529,7 +467,7 @@ export default function MoviesScreen() {
     };
 
     // ==========================================
-    // RENDER MOVIE CARD (IMPROVED UI)
+    // RENDER MOVIE CARD
     // ==========================================
 
     const renderMovieCard = ({ item }) => (
@@ -541,7 +479,6 @@ export default function MoviesScreen() {
                 setShowPlayer(true);
                 setVideoError(false);
                 setVideoLoading(true);
-                setPlaylistInfo(null);
             }}
         >
             <View className="relative">
@@ -577,7 +514,7 @@ export default function MoviesScreen() {
     );
 
     // ==========================================
-    // RENDER GENRE SECTION (IMPROVED UI)
+    // RENDER GENRE SECTION
     // ==========================================
 
     const renderGenreSection = ({ item: section }) => (
@@ -666,12 +603,10 @@ export default function MoviesScreen() {
                     <TouchableOpacity
                         key={genre}
                         onPress={() => setSelectedGenre(genre)}
-                        className={`px-4 py-2 rounded-full mr-2 ${selectedGenre === genre ? 'bg-orange-500' : 'bg-gray-800'
-                            }`}
+                        className={`px-4 py-2 rounded-full mr-2 ${selectedGenre === genre ? 'bg-orange-500' : 'bg-gray-800'}`}
                     >
                         <Text
-                            className={`font-semibold capitalize ${selectedGenre === genre ? 'text-white' : 'text-gray-400'
-                                }`}
+                            className={`font-semibold capitalize ${selectedGenre === genre ? 'text-white' : 'text-gray-400'}`}
                         >
                             {genre}
                         </Text>
@@ -710,7 +645,6 @@ export default function MoviesScreen() {
                 onRequestClose={() => {
                     setShowPlayer(false);
                     setSelectedMovie(null);
-                    setPlaylistInfo(null);
                     videoRef.current?.pauseAsync();
                 }}
             >
@@ -723,7 +657,6 @@ export default function MoviesScreen() {
                             onPress={() => {
                                 setShowPlayer(false);
                                 setSelectedMovie(null);
-                                setPlaylistInfo(null);
                                 videoRef.current?.pauseAsync();
                             }}
                             className="flex-row items-center"
@@ -753,16 +686,6 @@ export default function MoviesScreen() {
                         <ScrollView showsVerticalScrollIndicator={false}>
                             {/* Video Player */}
                             {renderVideoPlayer()}
-
-                            {/* Video Info from oEmbed (if YouTube) */}
-                            {playlistInfo && (
-                                <View className="bg-gray-800 p-4 border-b border-gray-700">
-                                    <Text className="text-white font-semibold text-base mb-1">
-                                        {playlistInfo.title}
-                                    </Text>
-                                    <Text className="text-gray-400 text-sm">{playlistInfo.author}</Text>
-                                </View>
-                            )}
 
                             {/* Movie Details */}
                             <View className="p-4 bg-gray-900">
@@ -811,7 +734,6 @@ export default function MoviesScreen() {
                                                     setSelectedMovie(movie);
                                                     setVideoError(false);
                                                     setVideoLoading(true);
-                                                    setPlaylistInfo(null);
                                                 }}
                                             >
                                                 <Image
