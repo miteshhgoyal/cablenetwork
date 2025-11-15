@@ -55,14 +55,14 @@ export const AuthProvider = ({ children }) => {
                     setChannels(JSON.parse(savedChannels));
                 }
 
-                // ✅ CHECK STATUS FROM DB
-                await checkSubscriptionStatus();
+                // ✅ CHECK STATUS FROM DB (but don't wait)
+                // Status will be checked by _layout.js
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
             }
         } catch (error) {
-            console.error('Auth check error:', error);
+
             setIsAuthenticated(false);
         } finally {
             setLoading(false);
@@ -73,9 +73,11 @@ export const AuthProvider = ({ children }) => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
             if (!token) {
+
                 setSubscriptionStatus(null);
                 return { valid: false, needsLogin: true };
             }
+
 
             const response = await api.get('/customer/check-status', {
                 headers: { Authorization: `Bearer ${token}` }
@@ -104,11 +106,10 @@ export const AuthProvider = ({ children }) => {
                 setUser(mergedUser);
                 await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
 
-
-
                 return { valid: true, data: updatedUserData };
             } else {
-                // EXPIRED or INACTIVE
+                // EXPIRED or INACTIVE from API response
+
                 setSubscriptionStatus(response.data.code);
 
                 // ✅ UPDATE USER DATA EVEN IF EXPIRED (to show expiry date)
@@ -127,8 +128,6 @@ export const AuthProvider = ({ children }) => {
                 setUser(mergedUser);
                 await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
 
-
-
                 return {
                     valid: false,
                     code: response.data.code,
@@ -136,15 +135,49 @@ export const AuthProvider = ({ children }) => {
                 };
             }
         } catch (error) {
-            console.error('Status check failed:', error);
 
-            if (error.response?.status === 401 || error.response?.status === 403) {
-                await logout();
-                return { valid: false, needsLogin: true };
+
+            // ✅ CRITICAL FIX: Handle 403/401 as EXPIRED, DON'T LOGOUT
+            if (error.response?.status === 403 || error.response?.status === 401) {
+
+
+                // Try to extract status from error response
+                const errorData = error.response?.data;
+                const status = errorData?.code || 'EXPIRED';
+                const userData = errorData?.data;
+
+
+
+                setSubscriptionStatus(status);
+
+                // Update user data if available in error response
+                if (userData) {
+                    const currentUser = await AsyncStorage.getItem('user');
+                    const parsedUser = currentUser ? JSON.parse(currentUser) : {};
+
+                    const mergedUser = {
+                        ...parsedUser,
+                        expiryDate: userData.expiryDate || parsedUser.expiryDate,
+                        subscriberName: userData.subscriberName || parsedUser.subscriberName,
+                        status: userData.status || 'Expired',
+                        macAddress: userData.macAddress || parsedUser.macAddress
+                    };
+
+                    setUser(mergedUser);
+                    await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
+                }
+
+                // ✅ DON'T LOGOUT - Keep user authenticated but show expired screen
+                return {
+                    valid: false,
+                    code: status,
+                    data: userData
+                };
             }
 
-            // ✅ Don't log out on network errors - use cached data
-            return { valid: false };
+            // For other errors (network issues), don't change auth state
+
+            return { valid: false, error: error.message };
         }
     };
 
@@ -175,8 +208,6 @@ export const AuthProvider = ({ children }) => {
                 deviceName: deviceInfo.deviceName
             });
 
-
-
             // ✅ Check if login was successful
             if (!response.data.success) {
                 return {
@@ -193,12 +224,9 @@ export const AuthProvider = ({ children }) => {
             const fetchedPackages = response.data.data?.packagesList || [];
             const fetchedServerInfo = response.data.data?.serverInfo || {};
 
-
-
-
             // ✅ Validate
             if (!token) {
-                console.error('❌ No token in response!');
+
                 return {
                     success: false,
                     message: 'Authentication failed - no token received'
@@ -206,7 +234,7 @@ export const AuthProvider = ({ children }) => {
             }
 
             if (!subscriber) {
-                console.error('❌ No subscriber data in response!');
+
                 return {
                     success: false,
                     message: 'Authentication failed - no subscriber data'
@@ -219,8 +247,6 @@ export const AuthProvider = ({ children }) => {
             await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
             await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
             await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
-
-
 
             // Set API header
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
@@ -237,7 +263,6 @@ export const AuthProvider = ({ children }) => {
             fetchOttContent();
 
             // ✅ NAVIGATE IMMEDIATELY
-
             setTimeout(() => {
                 router.replace('/(tabs)');
             }, 300);
@@ -245,8 +270,8 @@ export const AuthProvider = ({ children }) => {
             return { success: true };
 
         } catch (error) {
-            console.error('❌ Login error:', error);
-            console.error('❌ Error response:', error.response?.data);
+
+
 
             if (error.response?.data) {
                 return {
@@ -292,7 +317,7 @@ export const AuthProvider = ({ children }) => {
                 setGroupedSeries(grouped);
             }
         } catch (error) {
-            console.error('Fetch OTT error:', error);
+
         }
     };
 
@@ -320,9 +345,11 @@ export const AuthProvider = ({ children }) => {
                 return { success: true };
             }
         } catch (error) {
-            console.error('Refresh error:', error);
-            if (error.response?.status === 401) {
-                await logout();
+
+            // ✅ DON'T logout on 401/403 - let status check handle it
+            if (error.response?.status === 401 || error.response?.status === 403) {
+
+                await checkSubscriptionStatus();
             }
         } finally {
             setRefreshing(false);
@@ -331,6 +358,8 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
+
+
             await AsyncStorage.multiRemove([
                 'accessToken',
                 'user',
@@ -351,7 +380,7 @@ export const AuthProvider = ({ children }) => {
 
             router.replace('/(auth)/signin');
         } catch (error) {
-            console.error('Logout error:', error);
+
         }
     };
 

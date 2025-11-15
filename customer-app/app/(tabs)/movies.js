@@ -593,7 +593,7 @@ export default function MoviesScreen() {
             </View>
 
             {/* Genre Filter */}
-            <ScrollView
+            {/* <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 className="bg-gray-900 border-b border-gray-800"
@@ -612,7 +612,7 @@ export default function MoviesScreen() {
                         </Text>
                     </TouchableOpacity>
                 ))}
-            </ScrollView>
+            </ScrollView> */}
 
             {/* Movies List */}
             <FlatList

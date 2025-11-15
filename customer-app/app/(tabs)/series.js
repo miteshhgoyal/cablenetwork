@@ -592,7 +592,7 @@ export default function SeriesScreen() {
             </View>
 
             {/* Genre Filter */}
-            <ScrollView
+            {/* <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 className="bg-gray-900 border-b border-gray-800"
@@ -611,7 +611,7 @@ export default function SeriesScreen() {
                         </Text>
                     </TouchableOpacity>
                 ))}
-            </ScrollView>
+            </ScrollView> */}
 
             {/* Series List */}
             <FlatList

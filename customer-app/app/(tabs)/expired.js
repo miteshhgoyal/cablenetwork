@@ -8,11 +8,12 @@ import { useAuth } from '../../context/authContext';
 
 export default function ExpiredScreen() {
     const router = useRouter();
-    const { user, logout, checkSubscriptionStatus } = useAuth();
+    const { user, logout, checkSubscriptionStatus, subscriptionStatus } = useAuth();
     const [checking, setChecking] = React.useState(false);
 
-    // ✅ Refresh data on mount
+    // Refresh data on mount
     useEffect(() => {
+
         refreshData();
     }, []);
 
@@ -20,6 +21,9 @@ export default function ExpiredScreen() {
         setChecking(true);
         await checkSubscriptionStatus();
         setChecking(false);
+
+        // If status becomes ACTIVE after refresh, navigate to tabs
+        // This will be handled by _layout.js automatically
     };
 
     const handleLogout = async () => {
@@ -34,8 +38,6 @@ export default function ExpiredScreen() {
             year: 'numeric'
         });
     };
-
-    
 
     return (
         <SafeAreaView className="flex-1 bg-black">
@@ -95,6 +97,15 @@ export default function ExpiredScreen() {
                         <View className="flex-1">
                             <Text className="text-gray-400 text-xs mb-1">MAC Address</Text>
                             <Text className="text-white text-sm font-mono">{user?.macAddress || 'N/A'}</Text>
+                        </View>
+                    </View>
+
+                    {/* Status Badge */}
+                    <View className="mt-5 pt-5 border-t border-gray-800">
+                        <View className="bg-red-500/20 px-4 py-2 rounded-full self-center">
+                            <Text className="text-red-500 font-bold text-sm">
+                                {subscriptionStatus || user?.status || 'EXPIRED'}
+                            </Text>
                         </View>
                     </View>
                 </View>

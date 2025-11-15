@@ -1,7 +1,7 @@
 // app/_layout.js
 import React, { useEffect, useState } from 'react';
 import { Stack, useSegments, useRouter } from 'expo-router';
-import { StatusBar, View, ActivityIndicator, Text, Image } from 'react-native';
+import { StatusBar, View, ActivityIndicator, Text } from 'react-native';
 import { AuthProvider, useAuth } from '@/context/authContext';
 import { Calendar, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import './globals.css';
@@ -12,75 +12,79 @@ function MainLayout() {
     const router = useRouter();
     const [checking, setChecking] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
+    const [statusChecked, setStatusChecked] = useState(false);
 
+    // ✅ Step 1: Check subscription status FIRST when authenticated
     useEffect(() => {
-        if (loading) return;
-        handleNavigation();
-    }, [isAuthenticated, loading, subscriptionStatus]);
+        const checkStatus = async () => {
+            if (!loading && isAuthenticated && !statusChecked) {
 
-    // ✅ Show splash for 2.5 seconds on app start
+                setChecking(true);
+                await checkSubscriptionStatus();
+                setChecking(false);
+                setStatusChecked(true);
+            }
+        };
+        checkStatus();
+    }, [isAuthenticated, loading, statusChecked]);
+
+    // ✅ Step 2: Show splash UNTIL status is checked
     useEffect(() => {
-        if (!loading && isAuthenticated && user) {
+        if (!loading && isAuthenticated && statusChecked) {
             const timer = setTimeout(() => {
+
                 setShowSplash(false);
-            }, 2500); // Show for 2.5 seconds
+            }, 2000); // Show for 2 seconds after status check
             return () => clearTimeout(timer);
-        } else {
+        } else if (!loading && !isAuthenticated) {
             setShowSplash(false);
         }
-    }, [loading, isAuthenticated, user]);
+    }, [loading, isAuthenticated, statusChecked, subscriptionStatus]);
 
-    const handleNavigation = async () => {
+    // ✅ Step 3: Navigate based on status
+    useEffect(() => {
+        if (loading || checking || showSplash) {
+
+            return;
+        }
+
+        handleNavigation();
+    }, [isAuthenticated, loading, subscriptionStatus, checking, showSplash]);
+
+    const handleNavigation = () => {
         const inAuthGroup = segments[0] === '(auth)';
         const inTabsGroup = segments[0] === '(tabs)';
         const currentRoute = segments.join('/');
 
-        // ✅ CASE 1: Not authenticated -> Sign in
+
+
+        // CASE 1: Not authenticated -> Sign in
         if (!isAuthenticated) {
             if (!inAuthGroup && currentRoute !== '(auth)/signin') {
-                
+
                 setTimeout(() => router.replace('/(auth)/signin'), 100);
             }
             return;
         }
 
-        // ✅ CASE 2: Authenticated but status not yet checked
-        if (isAuthenticated && !subscriptionStatus) {
-            
-            setChecking(true);
-            await checkSubscriptionStatus();
-            setChecking(false);
-            return;
-        }
-
-        // ✅ Wait for splash to finish before navigating
-        if (showSplash) {
-            
-            return;
-        }
-
-        // ✅ CASE 3: EXPIRED or INACTIVE -> Expired page
+        // CASE 2: EXPIRED or INACTIVE -> Expired page
         if (subscriptionStatus === 'EXPIRED' || subscriptionStatus === 'INACTIVE') {
-            if (!inTabsGroup || segments[1] !== 'expired') {
-                
-                setTimeout(() => router.replace('/(tabs)/expired'), 100);
+            if (segments[1] !== 'expired') {
+                // setTimeout(() => router.replace('/(tabs)/expired'), 100);
             }
             return;
         }
 
-        // ✅ CASE 4: ACTIVE -> Tabs
+        // CASE 3: ACTIVE -> Tabs
         if (subscriptionStatus === 'ACTIVE') {
-            // If we're in auth group OR route is empty (app just opened)
-            if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
-                
+            if (inAuthGroup || currentRoute === '' || currentRoute === 'index' || segments[1] === 'expired') {
+
                 setTimeout(() => router.replace('/(tabs)'), 100);
-            } else if (inTabsGroup) {
-                
             }
             return;
         }
 
-        
+
     };
 
     const formatDate = (dateString) => {
@@ -100,10 +104,10 @@ function MainLayout() {
         return days;
     };
 
-    // ✅ SPLASH SCREEN with Expiry Info
-    if (loading || checking || (showSplash && isAuthenticated && user)) {
+    // ✅ SPLASH SCREEN - Show while loading, checking, or splash duration
+    if (loading || checking || showSplash) {
         const daysRemaining = getDaysRemaining();
-        const isExpiring = daysRemaining !== null && daysRemaining < 7;
+        const isExpiring = daysRemaining !== null && daysRemaining < 7 && daysRemaining > 0;
         const isExpired = daysRemaining !== null && daysRemaining <= 0;
 
         return (
@@ -121,8 +125,8 @@ function MainLayout() {
                 {/* Loading Spinner */}
                 <ActivityIndicator size="large" color="#f97316" />
 
-                {/* Expiry Info Card - Show if user data exists */}
-                {user && user.expiryDate && !loading && (
+                {/* Expiry Info Card - Show if user data exists and status checked */}
+                {user && user.expiryDate && statusChecked && (
                     <View className="mt-8 mx-8 bg-gray-900 rounded-2xl p-5 border border-gray-800 w-80">
                         {/* User Name */}
                         <View className="flex-row items-center mb-4 pb-4 border-b border-gray-800">
@@ -172,12 +176,26 @@ function MainLayout() {
                                 </View>
                             )}
                         </View>
+
+                        {/* Status Message */}
+                        {subscriptionStatus && (
+                            <View className="mt-4 pt-4 border-t border-gray-800">
+                                <Text className={`text-center text-sm font-semibold ${subscriptionStatus === 'ACTIVE' ? 'text-green-500' :
+                                    subscriptionStatus === 'EXPIRED' ? 'text-red-500' :
+                                        'text-yellow-500'
+                                    }`}>
+                                    {subscriptionStatus === 'ACTIVE' && '✓ Active Subscription'}
+                                    {subscriptionStatus === 'EXPIRED' && '✕ Subscription Expired'}
+                                    {subscriptionStatus === 'INACTIVE' && '⚠ Subscription Inactive'}
+                                </Text>
+                            </View>
+                        )}
                     </View>
                 )}
 
                 {/* Loading Text */}
                 <Text className="text-gray-500 text-sm mt-6">
-                    {loading ? 'Loading...' : checking ? 'Verifying...' : 'Welcome!'}
+                    {loading ? 'Loading...' : checking ? 'Verifying subscription...' : 'Welcome!'}
                 </Text>
             </View>
         );
