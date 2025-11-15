@@ -789,11 +789,12 @@ export default function ChannelsScreen() {
                                     </View>
                                     <View className="flex-1">
                                         <Text className="text-white text-lg font-bold">{user.name}</Text>
-                                        <Text className="text-gray-400 text-sm">{user.macAddress}</Text>
+                                        <Text className="text-gray-400 text-xs mt-1">{user.subscriberName || 'Subscriber'}</Text>
                                     </View>
                                 </View>
 
                                 <View className="border-t border-gray-700 pt-3 space-y-2">
+                                    {/* Package */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Package</Text>
                                         <Text className="text-white font-semibold">
@@ -801,6 +802,7 @@ export default function ChannelsScreen() {
                                         </Text>
                                     </View>
 
+                                    {/* Expiry Date */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Expiry Date</Text>
                                         <Text className="text-white font-semibold">
@@ -808,6 +810,7 @@ export default function ChannelsScreen() {
                                         </Text>
                                     </View>
 
+                                    {/* Days Remaining */}
                                     {daysRemaining !== null && (
                                         <View className="flex-row justify-between py-2">
                                             <Text className="text-gray-400">Days Remaining</Text>
@@ -817,11 +820,13 @@ export default function ChannelsScreen() {
                                         </View>
                                     )}
 
+                                    {/* Total Channels */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Total Channels</Text>
                                         <Text className="text-white font-semibold">{channels.length}</Text>
                                     </View>
 
+                                    {/* Active Packages */}
                                     {user.totalPackages && (
                                         <View className="flex-row justify-between py-2">
                                             <Text className="text-gray-400">Active Packages</Text>
@@ -829,6 +834,64 @@ export default function ChannelsScreen() {
                                         </View>
                                     )}
                                 </View>
+                            </View>
+
+                            {/* Device Information Card */}
+                            <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                                <View className="flex-row items-center mb-3 pb-3 border-b border-gray-700">
+                                    <View className="bg-blue-500/20 p-2 rounded-full mr-3">
+                                        <Ionicons name="phone-portrait" size={20} color="#3b82f6" />
+                                    </View>
+                                    <Text className="text-white text-base font-semibold">Device Information</Text>
+                                </View>
+
+                                {/* MAC Address */}
+                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                    <Text className="text-gray-400 text-sm">MAC Address</Text>
+                                    <Text className="text-white text-xs font-mono font-semibold">
+                                        {user.macAddress || 'N/A'}
+                                    </Text>
+                                </View>
+
+                                {/* Device Name */}
+                                {user.deviceName && (
+                                    <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                        <Text className="text-gray-400 text-sm">Device Name</Text>
+                                        <Text className="text-white text-sm font-semibold" numberOfLines={1}>
+                                            {user.deviceName}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* Device Model */}
+                                {user.modelName && (
+                                    <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                        <Text className="text-gray-400 text-sm">Model</Text>
+                                        <Text className="text-white text-sm font-semibold" numberOfLines={1}>
+                                            {user.modelName}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* OS Info */}
+                                {user.osName && user.osVersion && (
+                                    <View className="flex-row justify-between items-center py-2">
+                                        <Text className="text-gray-400 text-sm">Operating System</Text>
+                                        <Text className="text-white text-sm font-semibold">
+                                            {user.osName} {user.osVersion}
+                                        </Text>
+                                    </View>
+                                )}
+
+                                {/* Device Type */}
+                                {user.deviceType && (
+                                    <View className="flex-row justify-between items-center py-2 border-t border-gray-700">
+                                        <Text className="text-gray-400 text-sm">Device Type</Text>
+                                        <Text className="text-white text-sm font-semibold">
+                                            {user.deviceType}
+                                        </Text>
+                                    </View>
+                                )}
                             </View>
 
                             {/* Packages List */}
@@ -863,6 +926,7 @@ export default function ChannelsScreen() {
                     </View>
                 </View>
             </Modal>
+
         </SafeAreaView>
     );
 }

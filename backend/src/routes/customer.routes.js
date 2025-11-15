@@ -254,10 +254,14 @@ router.post('/login', async (req, res) => {
             data: {
                 subscriber: {
                     name: subscriber.subscriberName,
+                    subscriberName: subscriber.subscriberName, // Add this
                     expiryDate: subscriber.expiryDate,
                     packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
                     totalPackages: subscriber.packages.length,
-                    totalChannels: channels.length
+                    totalChannels: channels.length,
+                    macAddress: subscriber.macAddress,
+                    deviceName: deviceName,
+                    status: subscriber.status
                 },
                 channels,
                 packagesList,
@@ -707,7 +711,6 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             });
         }
 
-        // All good
         res.json({
             success: true,
             code: 'ACTIVE',
@@ -715,6 +718,7 @@ router.get('/check-status', authenticateToken, async (req, res) => {
                 status: subscriber.status,
                 expiryDate: subscriber.expiryDate,
                 subscriberName: subscriber.subscriberName,
+                macAddress: subscriber.macAddress,
                 daysRemaining: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
             }
         });

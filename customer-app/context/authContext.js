@@ -73,17 +73,13 @@ export const AuthProvider = ({ children }) => {
         try {
             const token = await AsyncStorage.getItem('accessToken');
             if (!token) {
-
                 setSubscriptionStatus(null);
                 return { valid: false, needsLogin: true };
             }
 
-
             const response = await api.get('/customer/check-status', {
                 headers: { Authorization: `Bearer ${token}` }
             });
-
-
 
             if (response.data.success && response.data.code === 'ACTIVE') {
                 setSubscriptionStatus('ACTIVE');
@@ -93,13 +89,14 @@ export const AuthProvider = ({ children }) => {
                 const currentUser = await AsyncStorage.getItem('user');
                 const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
-                // Merge with existing user data
+                // ✅ Merge - preserve device info from local storage
                 const mergedUser = {
-                    ...parsedUser,
+                    ...parsedUser, // Keep local device info
                     expiryDate: updatedUserData.expiryDate,
                     subscriberName: updatedUserData.subscriberName,
                     status: updatedUserData.status,
-                    daysRemaining: updatedUserData.daysRemaining
+                    daysRemaining: updatedUserData.daysRemaining,
+                    macAddress: updatedUserData.macAddress || parsedUser.macAddress // ✅ Use from DB if available
                 };
 
                 // Update state and storage
@@ -109,20 +106,19 @@ export const AuthProvider = ({ children }) => {
                 return { valid: true, data: updatedUserData };
             } else {
                 // EXPIRED or INACTIVE from API response
-
                 setSubscriptionStatus(response.data.code);
 
-                // ✅ UPDATE USER DATA EVEN IF EXPIRED (to show expiry date)
+                // ✅ UPDATE USER DATA EVEN IF EXPIRED
                 const expiredUserData = response.data.data;
                 const currentUser = await AsyncStorage.getItem('user');
                 const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
                 const mergedUser = {
-                    ...parsedUser,
+                    ...parsedUser, // Keep local device info
                     expiryDate: expiredUserData.expiryDate,
                     subscriberName: expiredUserData.subscriberName,
                     status: expiredUserData.status,
-                    macAddress: expiredUserData.macAddress
+                    macAddress: expiredUserData.macAddress || parsedUser.macAddress // ✅ Use from DB if available
                 };
 
                 setUser(mergedUser);
@@ -226,7 +222,6 @@ export const AuthProvider = ({ children }) => {
 
             // ✅ Validate
             if (!token) {
-
                 return {
                     success: false,
                     message: 'Authentication failed - no token received'
@@ -234,16 +229,30 @@ export const AuthProvider = ({ children }) => {
             }
 
             if (!subscriber) {
-
                 return {
                     success: false,
                     message: 'Authentication failed - no subscriber data'
                 };
             }
 
-            // ✅ Save to AsyncStorage
+            // ✅ MERGE device info with subscriber data
+            const enrichedSubscriber = {
+                ...subscriber,
+                macAddress: subscriber.macAddress || deviceInfo.macAddress, // ✅ Ensure MAC is there
+                deviceName: subscriber.deviceName || deviceInfo.deviceName,
+                modelName: deviceInfo.modelName,
+                brand: deviceInfo.brand,
+                manufacturer: deviceInfo.manufacturer,
+                osName: deviceInfo.osName,
+                osVersion: deviceInfo.osVersion,
+                deviceType: deviceInfo.deviceType,
+                appVersion: deviceInfo.appVersion,
+                buildVersion: deviceInfo.buildVersion
+            };
+
+            // ✅ Save enriched data to AsyncStorage
             await AsyncStorage.setItem('accessToken', token);
-            await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+            await AsyncStorage.setItem('user', JSON.stringify(enrichedSubscriber));
             await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
             await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
             await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
@@ -251,13 +260,13 @@ export const AuthProvider = ({ children }) => {
             // Set API header
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-            // ✅ Update state BEFORE navigation
-            setUser(subscriber);
+            // ✅ Update state with enriched data
+            setUser(enrichedSubscriber);
             setChannels(fetchedChannels);
             setPackagesList(fetchedPackages);
             setServerInfo(fetchedServerInfo);
             setIsAuthenticated(true);
-            setSubscriptionStatus('ACTIVE'); // ✅ Set immediately
+            setSubscriptionStatus('ACTIVE');
 
             // Fetch OTT content in background
             fetchOttContent();
@@ -270,9 +279,6 @@ export const AuthProvider = ({ children }) => {
             return { success: true };
 
         } catch (error) {
-
-
-
             if (error.response?.data) {
                 return {
                     success: false,
