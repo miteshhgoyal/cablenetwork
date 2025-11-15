@@ -289,7 +289,23 @@ router.post('/login', async (req, res) => {
 // Refresh channels route
 router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
-        const subscriber = await Subscriber.findById(req.user.id);
+        // Fetch subscriber with their assigned packages
+        const subscriber = await Subscriber.findById(req.user.id)
+            .populate({
+                path: 'packages',
+                select: 'name cost duration channels',
+                populate: {
+                    path: 'channels',
+                    populate: [
+                        { path: 'language', select: 'name' },
+                        { path: 'genre', select: 'name' }
+                    ]
+                }
+            })
+            .populate({
+                path: 'primaryPackageId',
+                select: 'name'
+            });
 
         if (!subscriber) {
             return res.status(404).json({
@@ -298,39 +314,7 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             });
         }
 
-        const reseller = await User.findById(subscriber.resellerId).populate('packages');
-
-        if (!reseller) {
-            return res.status(404).json({
-                success: false,
-                message: 'Reseller not found'
-            });
-        }
-
-        const mergedPackages = [
-            ...new Map(
-                [
-                    ...subscriber.packages,
-                    ...reseller.packages.map(pkg => pkg._id)
-                ].map(id => [id.toString(), id])
-            ).values()
-        ];
-
-        subscriber.packages = mergedPackages;
-        await subscriber.save();
-
-        await subscriber.populate({
-            path: 'packages',
-            select: 'name cost duration channels',
-            populate: {
-                path: 'channels',
-                populate: [
-                    { path: 'language', select: 'name' },
-                    { path: 'genre', select: 'name' }
-                ]
-            }
-        });
-
+        // ✅ Build channels from subscriber's ASSIGNED packages (not reseller packages)
         const channelMap = new Map();
         const packagesList = [];
 
@@ -372,20 +356,18 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
 
         const channels = buildChannelResponse(channelMap);
 
-        await subscriber.populate({
-            path: 'primaryPackageId',
-            select: 'name'
-        });
-
         res.json({
             success: true,
             data: {
                 subscriber: {
                     name: subscriber.subscriberName,
+                    subscriberName: subscriber.subscriberName,
                     expiryDate: subscriber.expiryDate,
                     packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
                     totalPackages: subscriber.packages.length,
-                    totalChannels: channels.length
+                    totalChannels: channels.length,
+                    macAddress: subscriber.macAddress,
+                    status: subscriber.status
                 },
                 channels,
                 packagesList,
