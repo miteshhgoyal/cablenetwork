@@ -93,6 +93,12 @@
                 }
             ],
             [
+                "expo-screen-orientation",
+                {
+                    "initialOrientation": "PORTRAIT"
+                }
+            ],
+            [
                 "expo-location",
                 {
                     "locationAlwaysAndWhenInUsePermission": "Allow Digital Cable Network to track your location for service quality.",

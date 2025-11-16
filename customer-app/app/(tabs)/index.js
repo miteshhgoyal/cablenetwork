@@ -1,4 +1,4 @@
-// app/(tabs)/index.js - COMPLETE WITH PROXY ON BY DEFAULT
+// app/(tabs)/index.js - FINAL VERSION WITH WORKING LANDSCAPE FULLSCREEN
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -6,19 +6,25 @@ import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 export default function ChannelsScreen() {
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
+
     const [selectedChannel, setSelectedChannel] = useState(null);
     const [showPlayer, setShowPlayer] = useState(false);
     const [showUserInfo, setShowUserInfo] = useState(false);
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [isFullScreen, setIsFullScreen] = useState(false);
 
     // ✅ PROXY DEFAULT ON (for non-YouTube streams)
-    const [useProxy, setUseProxy] = useState(true); // Changed from false to true
+    const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
+
+    // ✅ Track current URL to detect changes
+    const [currentStreamUrl, setCurrentStreamUrl] = useState('');
 
     const videoRef = useRef(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -31,6 +37,21 @@ export default function ChannelsScreen() {
         });
         return () => subscription.remove();
     }, []);
+
+    // ==========================================
+    // SCREEN ORIENTATION HANDLER (FIXED)
+    // ==========================================
+
+    useEffect(() => {
+        const handleOrientation = async () => {
+            if (!showPlayer) {
+                // Lock to portrait when player is closed
+                await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+            }
+        };
+
+        handleOrientation();
+    }, [showPlayer]);
 
     // ==========================================
     // USER PACKAGE INFO
@@ -91,12 +112,14 @@ export default function ChannelsScreen() {
             return { type: 'youtube-video', isValid: true };
         }
 
-        // HLS
+        // HLS - Enhanced detection
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
 
-        // MP4
+        // MP4 - Enhanced detection for CDN links
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
+        if (url.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
 
         // MKV
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
@@ -163,6 +186,32 @@ export default function ChannelsScreen() {
 
         return selectedChannel.url;
     };
+
+    // ✅ AUTO-RELOAD VIDEO WHEN PROXY TOGGLE CHANGES
+    useEffect(() => {
+        if (selectedChannel && showPlayer) {
+            const newUrl = getCurrentStreamUrl();
+
+            // Only reload if URL actually changed
+            if (newUrl !== currentStreamUrl && currentStreamUrl !== '') {
+                setCurrentStreamUrl(newUrl);
+                setVideoLoading(true);
+                setVideoError(false);
+
+                // Force video reload by updating the key
+                if (videoRef.current) {
+                    videoRef.current.unloadAsync().then(() => {
+                        videoRef.current?.loadAsync(
+                            { uri: newUrl },
+                            { shouldPlay: true }
+                        );
+                    });
+                }
+            } else if (currentStreamUrl === '') {
+                setCurrentStreamUrl(newUrl);
+            }
+        }
+    }, [useProxy, selectedChannel]);
 
     // ==========================================
     // YOUTUBE PLAYER COMPONENTS
@@ -293,8 +342,8 @@ export default function ChannelsScreen() {
     // ==========================================
     const renderStreamTypeBadge = (type) => {
         const badges = {
-            'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
-            'youtube-live': { icon: 'radio', color: 'bg-red-600', text: 'YouTube Live' },
+            'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
+            'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
             'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
             'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS Stream' },
             'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
@@ -317,7 +366,7 @@ export default function ChannelsScreen() {
         if (!selectedChannel) return null;
 
         const currentUrl = getCurrentStreamUrl();
-        const { type, isValid } = analyzeStreamUrl(selectedChannel.url); // Check original URL for type
+        const { type, isValid } = analyzeStreamUrl(selectedChannel.url);
 
         if (!isValid) {
             return (
@@ -432,7 +481,6 @@ export default function ChannelsScreen() {
                             <Text className="text-white font-semibold">🔄 Retry</Text>
                         </TouchableOpacity>
 
-                        {/* Toggle proxy on error */}
                         {serverInfo?.proxyEnabled && (
                             <TouchableOpacity
                                 className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
@@ -452,6 +500,7 @@ export default function ChannelsScreen() {
                 )}
 
                 <Video
+                    key={currentUrl}
                     ref={videoRef}
                     source={{ uri: currentUrl }}
                     rate={1.0}
@@ -476,6 +525,26 @@ export default function ChannelsScreen() {
                         setVideoLoading(true);
                         setVideoError(false);
                     }}
+                    onFullscreenUpdate={async ({ fullscreenUpdate }) => {
+                        // fullscreenUpdate values:
+                        // 0 = WILL_PRESENT
+                        // 1 = DID_PRESENT (entered fullscreen)
+                        // 2 = WILL_DISMISS
+                        // 3 = DID_DISMISS (exited fullscreen)
+
+                        if (fullscreenUpdate === 0) {
+                            // ✅ BEFORE entering fullscreen - unlock to allow landscape
+                            await ScreenOrientation.unlockAsync();
+                        } else if (fullscreenUpdate === 1) {
+                            // ✅ AFTER entering fullscreen - force landscape
+                            setIsFullScreen(true);
+                            await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                        } else if (fullscreenUpdate === 3) {
+                            // ✅ AFTER exiting fullscreen - lock back to portrait
+                            setIsFullScreen(false);
+                            await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
+                        }
+                    }}
                 />
             </View>
         );
@@ -490,10 +559,10 @@ export default function ChannelsScreen() {
         setVideoError(false);
         setVideoLoading(true);
 
-        // ✅ Smart proxy default: OFF for YouTube, ON for others
         const { type } = analyzeStreamUrl(channel.url);
-        setUseProxy(!type.startsWith('youtube')); // ON for non-YouTube
+        setUseProxy(!type.startsWith('youtube'));
         setProxyAttempted(false);
+        setCurrentStreamUrl('');
     };
 
     // ==========================================
@@ -536,12 +605,10 @@ export default function ChannelsScreen() {
                 className="flex-row items-center p-4 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
                 onPress={() => handleChannelPress(item)}
             >
-                {/* LCN Number Badge */}
                 <View className="w-12 h-12 bg-orange-500 rounded-lg items-center justify-center mr-3">
                     <Text className="text-white font-bold text-base">{item.lcn || '?'}</Text>
                 </View>
 
-                {/* Channel Info */}
                 <View className="flex-1">
                     <Text className="text-white font-semibold text-base" numberOfLines={1}>
                         {item.name}
@@ -551,21 +618,14 @@ export default function ChannelsScreen() {
                             {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
                         </Text>
 
-                        {/* Stream Type Badge */}
-                        {isYouTube && (
-                            <View className="ml-2 bg-red-500/20 px-2 py-0.5 rounded">
-                                <Text className="text-red-500 text-xs font-bold">YT</Text>
-                            </View>
-                        )}
-                        {!isYouTube && item.proxyUrl && serverInfo?.proxyEnabled && (
+                        {/* {!isYouTube && item.proxyUrl && serverInfo?.proxyEnabled && (
                             <View className="ml-2 bg-orange-500/20 px-2 py-0.5 rounded">
                                 <Text className="text-orange-500 text-xs font-bold">PROXY</Text>
                             </View>
-                        )}
+                        )} */}
                     </View>
                 </View>
 
-                {/* Arrow Icon */}
                 <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
             </TouchableOpacity>
         );
@@ -614,7 +674,6 @@ export default function ChannelsScreen() {
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
 
-            {/* Header */}
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between mb-3">
                     <View className="flex-row items-center">
@@ -633,7 +692,6 @@ export default function ChannelsScreen() {
                     </View>
                 </View>
 
-                {/* Search Bar */}
                 <View className="bg-gray-800 rounded-lg px-4 py-3 flex-row items-center">
                     <Ionicons name="search" size={20} color="#9ca3af" />
                     <TextInput
@@ -651,7 +709,6 @@ export default function ChannelsScreen() {
                 </View>
             </View>
 
-            {/* Channels List */}
             <FlatList
                 data={filteredChannels}
                 keyExtractor={(item) => item._id}
@@ -674,7 +731,6 @@ export default function ChannelsScreen() {
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" />
 
-                    {/* Player Header WITH VISIBLE PROXY TOGGLE */}
                     <View className="flex-row items-center justify-between px-4 py-3 bg-gray-900 border-b border-gray-800">
                         <TouchableOpacity
                             onPress={() => {
@@ -694,7 +750,6 @@ export default function ChannelsScreen() {
                             </Text>
                         </View>
 
-                        {/* ✅ VISIBLE PROXY TOGGLE (for non-YouTube) */}
                         {selectedChannel && !analyzeStreamUrl(selectedChannel.url).type.startsWith('youtube') && serverInfo?.proxyEnabled && (
                             <View className="flex-row items-center bg-gray-800 px-3 py-2 rounded-lg">
                                 <Ionicons
@@ -721,30 +776,9 @@ export default function ChannelsScreen() {
                         )}
                     </View>
 
-                    {/* Video Player */}
                     <ScrollView className="flex-1">
                         {renderVideoPlayer()}
 
-
-                        {/* {selectedChannel && !analyzeStreamUrl(selectedChannel.url).type.startsWith('youtube') && (
-                            <View className="bg-gray-800 p-3 mx-4 mt-2 rounded-lg">
-                                <View className="flex-row items-center justify-between mb-2">
-                                    <Text className="text-gray-400 text-xs font-semibold">
-                                        {useProxy ? '🔒 PROXY MODE' : '🌐 DIRECT MODE'}
-                                    </Text>
-                                    <View className={`px-2 py-0.5 rounded ${useProxy ? 'bg-orange-500/20' : 'bg-blue-500/20'}`}>
-                                        <Text className={`text-xs font-bold ${useProxy ? 'text-orange-500' : 'text-blue-500'}`}>
-                                            {analyzeStreamUrl(selectedChannel.url).type.toUpperCase()}
-                                        </Text>
-                                    </View>
-                                </View>
-                                <Text className="text-white text-xs font-mono" numberOfLines={2}>
-                                    {getCurrentStreamUrl()}
-                                </Text>
-                            </View>
-                        )} */}
-
-                        {/* Channel Details */}
                         <View className="p-4 bg-gray-900">
                             <View className="flex-row items-center mb-3">
                                 <View className="flex-1">
@@ -768,7 +802,6 @@ export default function ChannelsScreen() {
                                 </View>
                             </View>
 
-                            {/* Package Info */}
                             {selectedChannel?.packageNames && selectedChannel.packageNames.length > 0 && (
                                 <View className="mt-3">
                                     <Text className="text-gray-400 text-sm mb-2">Available in:</Text>
@@ -783,7 +816,6 @@ export default function ChannelsScreen() {
                             )}
                         </View>
 
-                        {/* Recommended Channels */}
                         {getRecommendedChannels().length > 0 && (
                             <View className="p-4 bg-black">
                                 <Text className="text-white text-lg font-bold mb-3">
@@ -800,6 +832,7 @@ export default function ChannelsScreen() {
                                                 setVideoLoading(true);
                                                 const { type } = analyzeStreamUrl(channel.url);
                                                 setUseProxy(!type.startsWith('youtube'));
+                                                setCurrentStreamUrl('');
                                             }}
                                         >
                                             <View className="w-8 h-8 bg-orange-500 rounded items-center justify-center mb-2">

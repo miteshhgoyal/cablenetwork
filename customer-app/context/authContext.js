@@ -49,14 +49,26 @@ export const AuthProvider = ({ children }) => {
                 // Set API token
                 api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-                // Load cached channels (show immediately for faster UX)
+                // ✅ Load cached data (show immediately for faster UX)
                 const savedChannels = await AsyncStorage.getItem('channels');
                 const savedPackages = await AsyncStorage.getItem('packagesList');
+                const savedServerInfo = await AsyncStorage.getItem('serverInfo'); // ✅ ADD THIS LINE
+
                 if (savedChannels) {
                     setChannels(JSON.parse(savedChannels));
                 }
                 if (savedPackages) {
                     setPackagesList(JSON.parse(savedPackages));
+                }
+                // ✅ ADD THIS BLOCK
+                if (savedServerInfo) {
+                    setServerInfo(JSON.parse(savedServerInfo));
+                } else {
+                    // ✅ Set default serverInfo if not in storage
+                    setServerInfo({
+                        proxyEnabled: true,
+                        apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
+                    });
                 }
 
                 refreshChannels().then((result) => {
@@ -72,10 +84,19 @@ export const AuthProvider = ({ children }) => {
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
+                // ✅ Set default serverInfo even when not authenticated
+                setServerInfo({
+                    proxyEnabled: true,
+                    apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
+                });
             }
         } catch (error) {
-
             setIsAuthenticated(false);
+            // ✅ Set default serverInfo on error
+            setServerInfo({
+                proxyEnabled: true,
+                apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
+            });
         } finally {
             setLoading(false);
         }
@@ -350,7 +371,12 @@ export const AuthProvider = ({ children }) => {
             });
 
             if (response.data.success) {
-                const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages } = response.data.data;
+                const {
+                    subscriber,
+                    channels: fetchedChannels,
+                    packagesList: fetchedPackages,
+                    serverInfo: fetchedServerInfo // ✅ Extract serverInfo from response
+                } = response.data.data;
 
                 // ✅ Get current device info to preserve it
                 const currentUser = await AsyncStorage.getItem('user');
@@ -358,9 +384,8 @@ export const AuthProvider = ({ children }) => {
 
                 // ✅ Merge subscriber data with device info
                 const enrichedSubscriber = {
-                    ...parsedUser, // Keep device info
-                    ...subscriber,  // Update with fresh subscriber data
-                    // Ensure device-specific fields are preserved
+                    ...parsedUser,
+                    ...subscriber,
                     modelName: parsedUser.modelName,
                     brand: parsedUser.brand,
                     manufacturer: parsedUser.manufacturer,
@@ -375,6 +400,12 @@ export const AuthProvider = ({ children }) => {
                 setUser(enrichedSubscriber);
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages);
+
+                // ✅ Update serverInfo if provided
+                if (fetchedServerInfo) {
+                    setServerInfo(fetchedServerInfo);
+                    await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+                }
 
                 await AsyncStorage.setItem('user', JSON.stringify(enrichedSubscriber));
                 await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
