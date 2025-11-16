@@ -100,15 +100,15 @@ const buildChannelResponse = (channelMap) => {
 // PUBLIC ROUTES
 // ==========================================
 
-// LOGIN ROUTE WITH MAC VALIDATION
+// LOGIN ROUTE WITH CUSTOM MAC SUPPORT
 router.post('/login', async (req, res) => {
     try {
-        const { partnerCode, macAddress, deviceName } = req.body;
+        const { partnerCode, macAddress, deviceName, customMac } = req.body;
 
         if (!partnerCode || !macAddress) {
             return res.status(400).json({
                 success: false,
-                message: 'Partner code and MAC address required'
+                message: 'Partner code and device MAC address required'
             });
         }
 
@@ -133,56 +133,154 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // ==========================================
-        // MAC ADDRESS VALIDATION LOGIC
-        // ==========================================
-        const mac = macAddress.trim().toLowerCase();
-        let subscriber = await Subscriber.findOne({ macAddress: mac });
+        const deviceMac = macAddress.trim().toLowerCase();
+        let subscriber;
+        let usingCustomMac = false;
 
-        // CASE 1: MAC not found - Create Fresh subscriber
-        if (!subscriber) {
-            subscriber = new Subscriber({
-                resellerId: reseller._id,
-                subscriberName: deviceName || 'User',
-                serialNumber: mac,
-                macAddress: mac,
-                packages: reseller.packages.map(pkg => pkg._id),
-                primaryPackageId: reseller.packages[0]._id,
-                status: 'Inactive',  // Default to Fresh
-                expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+        // ==========================================
+        // CASE 1: Custom MAC Provided
+        // ==========================================
+        if (customMac) {
+            const customMacAddress = customMac.trim().toLowerCase();
+
+            // ✅ Find the ACTIVE subscriber with this custom MAC (from ANY reseller)
+            const activeSubscriber = await Subscriber.findOne({
+                serialNumber: customMacAddress,
+                status: 'Active'
             });
+
+            if (!activeSubscriber) {
+                return res.status(404).json({
+                    success: false,
+                    code: 'CUSTOM_MAC_NOT_ACTIVE',
+                    message: `Custom MAC not found or not active.\n\nEntered MAC: ${customMac}\n\nPlease ensure:\n• MAC address is correct\n• The account is Active`,
+                });
+            }
+
+            // Check if custom MAC subscription is expired
+            if (new Date() > new Date(activeSubscriber.expiryDate)) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'CUSTOM_MAC_EXPIRED',
+                    message: `Custom MAC subscription expired.\n\nMAC: ${customMac}\nExpired on: ${new Date(activeSubscriber.expiryDate).toLocaleDateString()}\n\nPlease use another active MAC or contact admin.`,
+                });
+            }
+
+            // ✅ Check if current device MAC exists as subscriber
+            subscriber = await Subscriber.findOne({
+                resellerId: reseller._id,
+                serialNumber: deviceMac
+            });
+
+            // If device MAC doesn't exist, create it as Fresh (will inherit custom MAC's status)
+            if (!subscriber) {
+                subscriber = new Subscriber({
+                    resellerId: reseller._id,
+                    subscriberName: deviceName || 'User',
+                    serialNumber: deviceMac,
+                    macAddress: deviceMac,
+                    packages: activeSubscriber.packages,
+                    primaryPackageId: activeSubscriber.primaryPackageId,
+                    status: 'Fresh',
+                    expiryDate: activeSubscriber.expiryDate
+                });
+                await subscriber.save();
+            }
+
+            // ✅ Store the custom MAC in macAddress field for reference
+            subscriber.macAddress = customMacAddress;
+            subscriber.deviceInfo = {
+                ...subscriber.deviceInfo,
+                lastIPAddress: req.ip || req.connection.remoteAddress,
+                deviceModel: deviceName || subscriber.deviceInfo?.deviceModel,
+            };
             await subscriber.save();
 
-            return res.status(201).json({
-                success: false,
-                code: 'MAC_INACTIVE',
-                message: 'Device registered successfully. Please contact admin/reseller to activate your account.',
-            });
-        }
+            // ✅ Use the ACTIVE subscriber's data for login
+            subscriber = activeSubscriber;
+            usingCustomMac = true;
 
-        // CASE 2: MAC found but NOT Active
-        if (subscriber.status !== 'Active') {
-            return res.status(403).json({
-                success: false,
-                code: 'MAC_INACTIVE',
-                message: `Your device is ${subscriber.status}. Please contact admin/reseller to activate.`,
-            });
-        }
+            console.log(`✅ Login with custom MAC: ${customMacAddress} from device: ${deviceMac}`);
 
-        // CASE 3: MAC found and Active - Check expiry
-        if (new Date() > new Date(subscriber.expiryDate)) {
-            return res.status(403).json({
-                success: false,
-                code: 'SUBSCRIPTION_EXPIRED',
-                message: 'Subscription expired. Please contact admin/reseller to renew.',
+            // ==========================================
+            // CASE 2: No Custom MAC - Use Own Device MAC
+            // ==========================================
+        } else {
+            subscriber = await Subscriber.findOne({
+                resellerId: reseller._id,
+                serialNumber: deviceMac
             });
+
+            // SUB-CASE A: Device MAC not found - Create Fresh subscriber
+            if (!subscriber) {
+                subscriber = new Subscriber({
+                    resellerId: reseller._id,
+                    subscriberName: deviceName || 'User',
+                    serialNumber: deviceMac,
+                    macAddress: deviceMac,
+                    packages: reseller.packages.map(pkg => pkg._id),
+                    primaryPackageId: reseller.packages[0]._id,
+                    status: 'Inactive',
+                    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
+                });
+                await subscriber.save();
+
+                return res.status(201).json({
+                    success: false,
+                    code: 'MAC_INACTIVE',
+                    message: 'Device registered successfully. Please contact admin/reseller to activate your account.',
+                    data: {
+                        deviceMac: deviceMac,
+                        status: 'Inactive',
+                        canUseCustomMac: true
+                    }
+                });
+            }
+
+            // SUB-CASE B: Device MAC found but NOT Active
+            if (subscriber.status !== 'Active') {
+                return res.status(403).json({
+                    success: false,
+                    code: 'MAC_INACTIVE',
+                    message: `Your device is ${subscriber.status}. Please contact admin/reseller to activate.`,
+                    data: {
+                        deviceMac: deviceMac,
+                        status: subscriber.status,
+                        canUseCustomMac: true
+                    }
+                });
+            }
+
+            // SUB-CASE C: Device MAC Active but Expired
+            if (new Date() > new Date(subscriber.expiryDate)) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'SUBSCRIPTION_EXPIRED',
+                    message: `Subscription expired on ${new Date(subscriber.expiryDate).toLocaleDateString()}. Please contact admin/reseller to renew.`,
+                    data: {
+                        deviceMac: deviceMac,
+                        status: subscriber.status,
+                        expiryDate: subscriber.expiryDate,
+                        canUseCustomMac: true
+                    }
+                });
+            }
+
+            // SUB-CASE D: Device MAC Active and Valid
+            subscriber.deviceInfo = {
+                ...subscriber.deviceInfo,
+                lastIPAddress: req.ip || req.connection.remoteAddress,
+                deviceModel: deviceName || subscriber.deviceInfo?.deviceModel,
+            };
+            await subscriber.save();
+
+            console.log(`✅ Login with own device MAC: ${deviceMac}`);
         }
 
         // ==========================================
-        // PROCEED WITH LOGIN (Active subscriber)
+        // PROCEED WITH LOGIN
         // ==========================================
 
-        // Populate ALL packages and their channels
         await subscriber.populate({
             path: 'packages',
             select: 'name cost duration channels',
@@ -195,7 +293,6 @@ router.post('/login', async (req, res) => {
             }
         });
 
-        // Create channels map with package information
         const channelMap = new Map();
         const packagesList = [];
 
@@ -212,7 +309,6 @@ router.post('/login', async (req, res) => {
                 pkg.channels.forEach(channel => {
                     if (channel._id) {
                         const channelId = channel._id.toString();
-
                         if (channelMap.has(channelId)) {
                             const existing = channelMap.get(channelId);
                             if (!existing.packageNames.includes(pkg.name)) {
@@ -242,9 +338,8 @@ router.post('/login', async (req, res) => {
             select: 'name'
         });
 
-        // Generate token
         const token = jwt.sign(
-            { id: subscriber._id, resellerId: reseller._id },
+            { id: subscriber._id, resellerId: subscriber.resellerId },
             process.env.JWT_SECRET,
             { expiresIn: '30d' }
         );
@@ -254,14 +349,16 @@ router.post('/login', async (req, res) => {
             data: {
                 subscriber: {
                     name: subscriber.subscriberName,
-                    subscriberName: subscriber.subscriberName, // Add this
+                    subscriberName: subscriber.subscriberName,
                     expiryDate: subscriber.expiryDate,
                     packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
                     totalPackages: subscriber.packages.length,
                     totalChannels: channels.length,
-                    macAddress: subscriber.macAddress,
+                    macAddress: subscriber.serialNumber,
+                    currentMac: usingCustomMac ? customMac : deviceMac,
                     deviceName: deviceName,
-                    status: subscriber.status
+                    status: subscriber.status,
+                    usingCustomMac: usingCustomMac
                 },
                 channels,
                 packagesList,
@@ -277,7 +374,7 @@ router.post('/login', async (req, res) => {
         console.error('Login error:', error);
         res.status(500).json({
             success: false,
-            message: 'Login failed'
+            message: 'Login failed. Please try again.'
         });
     }
 });

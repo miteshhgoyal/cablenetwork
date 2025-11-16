@@ -1,11 +1,10 @@
-// app/(auth)/signin.js
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Alert } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable } from 'react-native';
 import React, { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
-import Constants from 'expo-constants';
+import * as Constants from 'expo-constants';
 import Loading from '../../components/Loading';
 import CustomKeyboardView from "../../components/CustomKeyboardView";
 import { useAuth } from '@/context/authContext';
@@ -17,57 +16,29 @@ const signin = () => {
     const [error, setError] = useState('');
     const [deviceInfo, setDeviceInfo] = useState({});
 
-    // Get comprehensive device info on mount
+    // ✅ Custom MAC Modal States
+    const [showCustomMacModal, setShowCustomMacModal] = useState(false);
+    const [customMac, setCustomMac] = useState('');
+    const [inactiveMessage, setInactiveMessage] = useState('');
+
     React.useEffect(() => {
         const getDeviceInfo = async () => {
             const info = {
-                // Device Identification
                 macAddress: Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE',
                 deviceName: Device.deviceName || 'Unknown Device',
                 modelName: Device.modelName || 'Unknown Model',
                 brand: Device.brand || 'Unknown',
-                manufacturer: Device.manufacturer || 'Unknown',
-
-                // OS Information
                 osName: Device.osName || 'Unknown OS',
                 osVersion: Device.osVersion || 'Unknown',
-                platformApiLevel: Device.platformApiLevel || 'N/A',
-
-                // Device Type
-                deviceType: Device.deviceType ? getDeviceTypeName(Device.deviceType) : 'Unknown',
-
-                // App Information
                 appVersion: Application.nativeApplicationVersion || '1.0.0',
                 buildVersion: Application.nativeBuildVersion || '1',
-                bundleId: Application.applicationId || 'unknown',
-
-                // Additional Info
-                isDevice: Device.isDevice,
-                totalMemory: Device.totalMemory || 'Unknown',
-                supportedCpuArchitectures: Device.supportedCpuArchitectures?.join(', ') || 'Unknown',
-
-                // System Info
-                expoVersion: Constants.expoVersion || 'Unknown',
-                installationId: Constants.installationId || 'Unknown',
             };
-
             setDeviceInfo(info);
         };
         getDeviceInfo();
     }, []);
 
-    const getDeviceTypeName = (type) => {
-        const types = {
-            [Device.DeviceType.PHONE]: 'Phone',
-            [Device.DeviceType.TABLET]: 'Tablet',
-            [Device.DeviceType.DESKTOP]: 'Desktop',
-            [Device.DeviceType.TV]: 'TV',
-            [Device.DeviceType.UNKNOWN]: 'Unknown'
-        };
-        return types[type] || 'Unknown';
-    };
-
-    const handleSubmit = async () => {
+    const handleSubmit = async (useCustomMac = false) => {
         setError('');
 
         if (!partnerCode.trim()) {
@@ -75,30 +46,53 @@ const signin = () => {
             return;
         }
 
+        if (useCustomMac && !customMac.trim()) {
+            setError('Please enter custom MAC address');
+            return;
+        }
+
         setIsLoading(true);
         try {
-            const result = await login(partnerCode.trim(), deviceInfo);
-
-            
+            const result = await login(
+                partnerCode.trim(),
+                {
+                    ...deviceInfo,
+                    customMac: useCustomMac ? customMac.trim() : null
+                }
+            );
 
             if (result.success) {
-                // ✅ SUCCESS - authContext will navigate automatically
-                
-                // Don't navigate here - let _layout.js handle it
+                // Success - authContext will navigate
+                setShowCustomMacModal(false);
+                setCustomMac('');
             } else {
-                // ✅ Handle error codes
-                if (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED') {
-                    setError(`${result.message}\n\n🔹 Device MAC: ${deviceInfo.macAddress}\n🔹 Device: ${deviceInfo.deviceName}`);
+                // ✅ Check if can use custom MAC
+                if (result.data?.canUseCustomMac && (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED')) {
+                    setInactiveMessage(result.message);
+                    setShowCustomMacModal(true);
+                } else if (result.code === 'CUSTOM_MAC_NOT_ACTIVE' || result.code === 'CUSTOM_MAC_EXPIRED') {
+                    setError(result.message);
+                    setShowCustomMacModal(false);
                 } else {
-                    setError(result.message || 'Invalid partner code');
+                    setError(result.message || 'Login failed');
                 }
             }
         } catch (error) {
-            console.error('Login catch error:', error);
+            console.error('Login error:', error);
             setError('Login failed. Please try again.');
         } finally {
             setIsLoading(false);
         }
+    };
+
+    const handleCustomMacLogin = () => {
+        handleSubmit(true);
+    };
+
+    const closeModal = () => {
+        setShowCustomMacModal(false);
+        setCustomMac('');
+        setInactiveMessage('');
     };
 
     return (
@@ -139,10 +133,9 @@ const signin = () => {
                         <View className="mb-6 p-4 bg-gray-900 rounded-xl border border-gray-700">
                             <View className="flex-row items-center mb-3">
                                 <Ionicons name="phone-portrait-outline" size={18} color="#f97316" />
-                                <Text className="text-white text-sm font-semibold ml-2">Device Information</Text>
+                                <Text className="text-white text-sm font-semibold ml-2">This Device</Text>
                             </View>
 
-                            {/* MAC Address */}
                             <View className="flex-row items-center justify-between py-2 border-b border-gray-800">
                                 <Text className="text-gray-400 text-xs">MAC Address:</Text>
                                 <Text className="text-white text-xs font-mono font-semibold">
@@ -150,7 +143,6 @@ const signin = () => {
                                 </Text>
                             </View>
 
-                            {/* Device Name */}
                             <View className="flex-row items-center justify-between py-2 border-b border-gray-800">
                                 <Text className="text-gray-400 text-xs">Device Name:</Text>
                                 <Text className="text-white text-xs font-semibold" numberOfLines={1}>
@@ -158,15 +150,6 @@ const signin = () => {
                                 </Text>
                             </View>
 
-                            {/* Model */}
-                            <View className="flex-row items-center justify-between py-2 border-b border-gray-800">
-                                <Text className="text-gray-400 text-xs">Model:</Text>
-                                <Text className="text-white text-xs font-semibold" numberOfLines={1}>
-                                    {deviceInfo.modelName || 'Loading...'}
-                                </Text>
-                            </View>
-
-                            {/* OS */}
                             <View className="flex-row items-center justify-between py-2">
                                 <Text className="text-gray-400 text-xs">OS:</Text>
                                 <Text className="text-white text-xs font-semibold">
@@ -176,7 +159,7 @@ const signin = () => {
                         </View>
 
                         {/* Partner Code Input */}
-                        <View className="mb-8">
+                        <View className="mb-6">
                             <Text className="text-sm font-semibold text-gray-300 mb-3">Partner Code</Text>
                             <View className="flex-row items-center bg-gray-800 border-2 border-gray-700 rounded-xl px-4 py-4">
                                 <Ionicons name="key-outline" size={22} color="#f97316" />
@@ -189,7 +172,7 @@ const signin = () => {
                                     autoCorrect={false}
                                     maxLength={20}
                                     className="flex-1 ml-3 text-white text-base"
-                                    onSubmitEditing={handleSubmit}
+                                    onSubmitEditing={() => handleSubmit(false)}
                                     returnKeyType="done"
                                 />
                                 {partnerCode.length > 0 && (
@@ -202,7 +185,7 @@ const signin = () => {
 
                         {/* Submit Button */}
                         <TouchableOpacity
-                            onPress={handleSubmit}
+                            onPress={() => handleSubmit(false)}
                             disabled={isLoading}
                             className={`py-4 rounded-xl ${isLoading ? 'bg-gray-700' : 'bg-orange-500'} shadow-lg`}
                             style={{ elevation: 5 }}
@@ -220,40 +203,16 @@ const signin = () => {
                             )}
                         </TouchableOpacity>
 
-                        {/* Feature Info Cards */}
+                        {/* Info Cards */}
                         <View className="mt-10 space-y-3">
                             <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
                                 <View className="flex-row items-center">
                                     <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
-                                        <Ionicons name="tv-outline" size={20} color="#f97316" />
+                                        <Ionicons name="swap-horizontal-outline" size={20} color="#f97316" />
                                     </View>
                                     <View className="ml-3 flex-1">
-                                        <Text className="text-white font-semibold text-sm">Live TV Channels</Text>
-                                        <Text className="text-gray-400 text-xs mt-0.5">Watch 500+ channels</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-                                <View className="flex-row items-center">
-                                    <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
-                                        <Ionicons name="film-outline" size={20} color="#f97316" />
-                                    </View>
-                                    <View className="ml-3 flex-1">
-                                        <Text className="text-white font-semibold text-sm">Movies & Series</Text>
-                                        <Text className="text-gray-400 text-xs mt-0.5">Unlimited streaming</Text>
-                                    </View>
-                                </View>
-                            </View>
-
-                            <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-                                <View className="flex-row items-center">
-                                    <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
-                                        <Ionicons name="shield-checkmark-outline" size={20} color="#f97316" />
-                                    </View>
-                                    <View className="ml-3 flex-1">
-                                        <Text className="text-white font-semibold text-sm">Secure Access</Text>
-                                        <Text className="text-gray-400 text-xs mt-0.5">Device verified login</Text>
+                                        <Text className="text-white font-semibold text-sm">Custom MAC Support</Text>
+                                        <Text className="text-gray-400 text-xs mt-0.5">Login with another device's active MAC</Text>
                                     </View>
                                 </View>
                             </View>
@@ -261,21 +220,107 @@ const signin = () => {
 
                         {/* Footer */}
                         <View className="mt-10 items-center">
-                            <View className="flex-row items-center mb-2">
-                                <Ionicons name="help-circle-outline" size={16} color="#6b7280" />
-                                <Text className="text-gray-500 text-xs ml-1.5">Need Help?</Text>
-                            </View>
                             <Text className="text-center text-gray-400 text-xs">
-                                Share your device information with admin/reseller for activation
+                                Contact admin/reseller for activation or device management
+                            </Text>
+                            <Text className="text-center text-gray-600 text-xs mt-3">
+                                Version {deviceInfo.appVersion || '1.0.0'}
                             </Text>
                         </View>
-
-                        <Text className="text-center text-gray-600 text-xs mt-6">
-                            Version {deviceInfo.appVersion || '1.0.0'} • Build {deviceInfo.buildVersion || '1'}
-                        </Text>
                     </View>
                 </ScrollView>
             </CustomKeyboardView>
+
+            {/* ✅ CUSTOM MAC MODAL */}
+            <Modal
+                animationType="slide"
+                transparent={true}
+                visible={showCustomMacModal}
+                onRequestClose={closeModal}
+            >
+                <Pressable
+                    className="flex-1 bg-black/80 justify-end"
+                    onPress={closeModal}
+                >
+                    <Pressable
+                        className="bg-gray-900 rounded-t-3xl p-6 border-t-2 border-orange-500"
+                        onPress={(e) => e.stopPropagation()}
+                    >
+                        {/* Header */}
+                        <View className="items-center mb-6">
+                            <View className="w-16 h-16 bg-orange-500/20 rounded-full items-center justify-center mb-4">
+                                <Ionicons name="swap-horizontal" size={32} color="#f97316" />
+                            </View>
+                            <Text className="text-xl font-bold text-white">Use Custom MAC</Text>
+                            <Text className="text-gray-400 text-sm mt-2 text-center">
+                                Your device is not active. Login with another device's active MAC address.
+                            </Text>
+                        </View>
+
+                        {/* Inactive Message */}
+                        {inactiveMessage ? (
+                            <View className="mb-6 p-4 bg-yellow-900/30 rounded-xl border border-yellow-600">
+                                <Text className="text-yellow-300 text-xs leading-5">{inactiveMessage}</Text>
+                            </View>
+                        ) : null}
+
+                        {/* Current Device Info */}
+                        <View className="mb-6 p-4 bg-gray-800 rounded-xl">
+                            <Text className="text-gray-400 text-xs mb-2">Your Device MAC:</Text>
+                            <Text className="text-white text-sm font-mono font-bold">{deviceInfo.macAddress}</Text>
+                        </View>
+
+                        {/* Custom MAC Input */}
+                        <View className="mb-6">
+                            <Text className="text-sm font-semibold text-gray-300 mb-3">Custom MAC Address</Text>
+                            <View className="flex-row items-center bg-gray-800 border-2 border-orange-500/50 rounded-xl px-4 py-4">
+                                <Ionicons name="hardware-chip-outline" size={22} color="#f97316" />
+                                <TextInput
+                                    value={customMac}
+                                    onChangeText={setCustomMac}
+                                    placeholder="Enter active MAC address"
+                                    placeholderTextColor="#6b7280"
+                                    autoCapitalize="characters"
+                                    autoCorrect={false}
+                                    className="flex-1 ml-3 text-white text-base font-mono"
+                                />
+                                {customMac.length > 0 && (
+                                    <TouchableOpacity onPress={() => setCustomMac('')}>
+                                        <Ionicons name="close-circle" size={20} color="#6b7280" />
+                                    </TouchableOpacity>
+                                )}
+                            </View>
+                            <Text className="text-gray-500 text-xs mt-2">
+                                Enter the MAC address of an already active device
+                            </Text>
+                        </View>
+
+                        {/* Buttons */}
+                        <View className="space-y-3">
+                            <TouchableOpacity
+                                onPress={handleCustomMacLogin}
+                                disabled={isLoading || !customMac.trim()}
+                                className={`py-4 rounded-xl ${(!customMac.trim() || isLoading) ? 'bg-gray-700' : 'bg-orange-500'}`}
+                            >
+                                <View className="flex-row items-center justify-center">
+                                    <Ionicons name="checkmark-circle" size={22} color="white" />
+                                    <Text className="text-white font-bold text-base ml-2">Login with Custom MAC</Text>
+                                </View>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity
+                                onPress={closeModal}
+                                className="py-4 rounded-xl bg-gray-800 border border-gray-700"
+                            >
+                                <View className="flex-row items-center justify-center">
+                                    <Ionicons name="close" size={22} color="#9ca3af" />
+                                    <Text className="text-gray-400 font-semibold text-base ml-2">Cancel</Text>
+                                </View>
+                            </TouchableOpacity>
+                        </View>
+                    </Pressable>
+                </Pressable>
+            </Modal>
         </SafeAreaView>
     );
 };

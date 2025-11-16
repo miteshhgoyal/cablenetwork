@@ -52,10 +52,7 @@ if __name__ == "__main__":
   '_layout.js',
   'index.js',
   'authContext.js',
-  'api.js',
-  'tokenService.js',
-  'signin.js',
-  'expired.js',
+  'signin.js',  
   'customer.routes.js',
     ]
     

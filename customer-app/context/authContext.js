@@ -234,95 +234,51 @@ export const AuthProvider = ({ children }) => {
             const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
                 macAddress: deviceInfo.macAddress,
-                deviceName: deviceInfo.deviceName
+                deviceName: deviceInfo.deviceName,
+                customMac: customDeviceInfo.customMac || null // ✅ Pass custom MAC
             });
 
-            // ✅ Check if login was successful
             if (!response.data.success) {
                 return {
                     success: false,
                     code: response.data.code,
-                    message: response.data.message
+                    message: response.data.message,
+                    data: response.data.data // ✅ Include data for canUseCustomMac flag
                 };
             }
 
-            // ✅ Extract data
-            const token = response.data.data?.token;
-            const subscriber = response.data.data?.subscriber;
-            const fetchedChannels = response.data.data?.channels || [];
-            const fetchedPackages = response.data.data?.packagesList || [];
-            const fetchedServerInfo = response.data.data?.serverInfo || {};
+            const { token, subscriber, channels, packagesList, serverInfo } = response.data.data;
 
-            // ✅ Validate
-            if (!token) {
-                return {
-                    success: false,
-                    message: 'Authentication failed - no token received'
-                };
-            }
-
-            if (!subscriber) {
-                return {
-                    success: false,
-                    message: 'Authentication failed - no subscriber data'
-                };
-            }
-
-            // ✅ MERGE device info with subscriber data
-            const enrichedSubscriber = {
-                ...subscriber,
-                macAddress: subscriber.macAddress || deviceInfo.macAddress, // ✅ Ensure MAC is there
-                deviceName: subscriber.deviceName || deviceInfo.deviceName,
-                modelName: deviceInfo.modelName,
-                brand: deviceInfo.brand,
-                manufacturer: deviceInfo.manufacturer,
-                osName: deviceInfo.osName,
-                osVersion: deviceInfo.osVersion,
-                deviceType: deviceInfo.deviceType,
-                appVersion: deviceInfo.appVersion,
-                buildVersion: deviceInfo.buildVersion
-            };
-
-            // ✅ Save enriched data to AsyncStorage
             await AsyncStorage.setItem('accessToken', token);
-            await AsyncStorage.setItem('user', JSON.stringify(enrichedSubscriber));
-            await AsyncStorage.setItem('channels', JSON.stringify(fetchedChannels));
-            await AsyncStorage.setItem('packagesList', JSON.stringify(fetchedPackages));
-            await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
+            await AsyncStorage.setItem('user', JSON.stringify(subscriber));
+            await AsyncStorage.setItem('channels', JSON.stringify(channels));
+            await AsyncStorage.setItem('packagesList', JSON.stringify(packagesList));
+            await AsyncStorage.setItem('serverInfo', JSON.stringify(serverInfo));
 
-            // Set API header
             api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-            // ✅ Update state with enriched data
-            setUser(enrichedSubscriber);
-            setChannels(fetchedChannels);
-            setPackagesList(fetchedPackages);
-            setServerInfo(fetchedServerInfo);
             setIsAuthenticated(true);
-            setSubscriptionStatus('ACTIVE');
-
-            // Fetch OTT content in background
-            fetchOttContent();
-
-            // ✅ NAVIGATE IMMEDIATELY
-            setTimeout(() => {
-                router.replace('/(tabs)');
-            }, 300);
+            setUser(subscriber);
+            setChannels(channels);
+            setPackagesList(packagesList);
 
             return { success: true };
 
         } catch (error) {
+            console.error('Login error:', error);
+
             if (error.response?.data) {
                 return {
                     success: false,
                     code: error.response.data.code,
-                    message: error.response.data.message
+                    message: error.response.data.message,
+                    data: error.response.data.data
                 };
             }
 
             return {
                 success: false,
-                message: error.message || 'Login failed - network error'
+                message: error.message || 'Login failed'
             };
         }
     };
