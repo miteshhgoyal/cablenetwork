@@ -204,7 +204,7 @@ const signin = () => {
                         </TouchableOpacity>
 
                         {/* Info Cards */}
-                        <View className="mt-10 space-y-3">
+                        <View className="mt-10">
                             <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
                                 <View className="flex-row items-center">
                                     <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
@@ -296,11 +296,11 @@ const signin = () => {
                         </View>
 
                         {/* Buttons */}
-                        <View className="space-y-3">
+                        <View className="">
                             <TouchableOpacity
                                 onPress={handleCustomMacLogin}
                                 disabled={isLoading || !customMac.trim()}
-                                className={`py-4 rounded-xl ${(!customMac.trim() || isLoading) ? 'bg-gray-700' : 'bg-orange-500'}`}
+                                className={`py-4 mb-3 rounded-xl ${(!customMac.trim() || isLoading) ? 'bg-gray-700' : 'bg-orange-500'}`}
                             >
                                 <View className="flex-row items-center justify-center">
                                     <Ionicons name="checkmark-circle" size={22} color="white" />
