@@ -1,4 +1,3 @@
-// app/(tabs)/movies.js - COMPLETE WITH LANDSCAPE FULLSCREEN FIX
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
     View,
@@ -13,6 +12,7 @@ import {
     FlatList,
     StatusBar,
     Alert,
+    TextInput,
     Linking
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -34,19 +34,16 @@ export default function MoviesScreen() {
     const [selectedMovie, setSelectedMovie] = useState(null);
     const [showPlayer, setShowPlayer] = useState(false);
     const [selectedGenre, setSelectedGenre] = useState('all');
+    const [searchQuery, setSearchQuery] = useState('');
 
-    // Video player state
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const [isPlaying, setIsPlaying] = useState(true);
     const [isFullScreen, setIsFullScreen] = useState(false);
 
-    // Proxy support (default ON for non-YouTube)
     const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
-    
-    // ✅ Track current URL to detect changes
     const [currentStreamUrl, setCurrentStreamUrl] = useState('');
 
     const videoRef = useRef(null);
@@ -57,18 +54,13 @@ export default function MoviesScreen() {
         }
     }, [isAuthenticated]);
 
-    // ==========================================
-    // SCREEN ORIENTATION HANDLER (FIXED)
-    // ==========================================
     useEffect(() => {
         const handleOrientation = async () => {
             if (!showPlayer) {
-                // Lock to portrait when player is closed
                 await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
                 setIsFullScreen(false);
             }
         };
-
         handleOrientation();
     }, [showPlayer]);
 
@@ -76,10 +68,8 @@ export default function MoviesScreen() {
         try {
             setLoading(true);
             const response = await api.get('/customer/movies');
-
             if (response.data.success) {
                 setMovies(response.data.data.movies);
-
                 const sections = Object.entries(response.data.data.groupedByGenre).map(
                     ([genre, movies]) => ({
                         title: genre,
@@ -89,7 +79,6 @@ export default function MoviesScreen() {
                 setGroupedMovies(sections);
             }
         } catch (error) {
-            console.error('Fetch movies error:', error);
             Alert.alert('Error', 'Failed to load movies. Please try again.');
         } finally {
             setLoading(false);
@@ -108,20 +97,27 @@ export default function MoviesScreen() {
     }, [movies]);
 
     const filteredSections = useMemo(() => {
-        if (selectedGenre === 'all') return groupedMovies;
-        return groupedMovies.filter(section => section.title === selectedGenre);
-    }, [groupedMovies, selectedGenre]);
-
-    // ==========================================
-    // STREAM URL ANALYSIS (ENHANCED WITH CDN SUPPORT)
-    // ==========================================
+        let sections = groupedMovies;
+        if (selectedGenre !== 'all') {
+            sections = groupedMovies.filter(section => section.title === selectedGenre);
+        }
+        if (searchQuery.trim() !== '') {
+            const lowerQuery = searchQuery.toLowerCase();
+            sections = sections.map(section => ({
+                title: section.title,
+                data: section.data.filter(movie =>
+                    movie.title.toLowerCase().includes(lowerQuery) ||
+                    movie.genre?.name.toLowerCase().includes(lowerQuery)
+                )
+            })).filter(section => section.data.length > 0);
+        }
+        return sections;
+    }, [groupedMovies, selectedGenre, searchQuery]);
 
     const analyzeStreamUrl = (url) => {
         if (!url) return { type: 'unknown', isValid: false };
-
         const urlLower = url.toLowerCase();
 
-        // YouTube detection
         if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
             if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
             if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
@@ -130,26 +126,20 @@ export default function MoviesScreen() {
             return { type: 'youtube-video', isValid: true };
         }
 
-        // HLS - Enhanced detection
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
         if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
 
-        // MP4 - Enhanced detection for CDN links with query parameters
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
-        if (url.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
+        if (urlLower.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
 
-        // MKV
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
 
-        // IPTV patterns
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
         if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
 
-        // RTMP
         if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
 
-        // Generic stream
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
@@ -157,7 +147,6 @@ export default function MoviesScreen() {
 
     const extractVideoId = (url) => {
         if (!url) return null;
-
         const shortRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
         const shortMatch = url.match(shortRegex);
         if (shortMatch) return shortMatch[1];
@@ -184,45 +173,28 @@ export default function MoviesScreen() {
         return match ? match[1] : null;
     };
 
-    // ==========================================
-    // GET CURRENT STREAM URL WITH SMART PROXY
-    // ==========================================
     const getCurrentStreamUrl = () => {
         if (!selectedMovie) return '';
-
         const { type } = analyzeStreamUrl(selectedMovie.mediaUrl);
-
-        // NEVER use proxy for YouTube
         if (type.startsWith('youtube')) {
             return selectedMovie.mediaUrl;
         }
-
-        // Use proxy based on toggle (default ON for non-YouTube)
         if (useProxy && selectedMovie.proxyUrl && serverInfo?.proxyEnabled) {
             return selectedMovie.proxyUrl;
         }
-
         return selectedMovie.mediaUrl;
     };
 
-    // ✅ AUTO-RELOAD VIDEO WHEN PROXY TOGGLE CHANGES
     useEffect(() => {
         if (selectedMovie && showPlayer) {
             const newUrl = getCurrentStreamUrl();
-            
-            // Only reload if URL actually changed
             if (newUrl !== currentStreamUrl && currentStreamUrl !== '') {
                 setCurrentStreamUrl(newUrl);
                 setVideoLoading(true);
                 setVideoError(false);
-                
-                // Force video reload
                 if (videoRef.current) {
                     videoRef.current.unloadAsync().then(() => {
-                        videoRef.current?.loadAsync(
-                            { uri: newUrl },
-                            { shouldPlay: true }
-                        );
+                        videoRef.current?.loadAsync({ uri: newUrl }, { shouldPlay: true });
                     });
                 }
             } else if (currentStreamUrl === '') {
@@ -243,9 +215,7 @@ export default function MoviesScreen() {
             'rtmp': { icon: 'cloud-upload', color: 'bg-pink-600', text: 'RTMP' },
             'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' }
         };
-
         const badge = badges[type] || { icon: 'help-circle', color: 'bg-gray-600', text: 'Unknown' };
-
         return (
             <View className={`${badge.color} px-3 py-1.5 rounded-full flex-row items-center absolute top-3 right-3 z-10`}>
                 <Ionicons name={badge.icon} size={14} color="white" />
@@ -253,10 +223,6 @@ export default function MoviesScreen() {
             </View>
         );
     };
-
-    // ==========================================
-    // YOUTUBE PLAYER COMPONENTS
-    // ==========================================
 
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
@@ -274,14 +240,9 @@ export default function MoviesScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`);
-        });
-
-        useYouTubeEvent(player, 'autoplayBlocked', () => {
-            console.warn('Autoplay was blocked');
         });
 
         return (
@@ -307,7 +268,6 @@ export default function MoviesScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube live error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`);
@@ -317,7 +277,7 @@ export default function MoviesScreen() {
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
-                    <Text className="text-white text-xs font-bold">● LIVE</Text>
+                    <Text className="text-white text-xs font-bold">LIVE</Text>
                 </View>
                 <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
             </View>
@@ -343,7 +303,6 @@ export default function MoviesScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube playlist error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`);
@@ -359,29 +318,20 @@ export default function MoviesScreen() {
         );
     };
 
-    const YouTubeChannelPlayer = ({ url }) => {
-        return (
-            <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                <Ionicons name="logo-youtube" size={80} color="#ff0000" />
-                <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
-                    YouTube Channel Detected
-                </Text>
-                <Text className="text-gray-400 text-sm mt-2 text-center px-6">
-                    Please use a specific video or playlist URL
-                </Text>
-                <TouchableOpacity
-                    className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
-                    onPress={() => Linking.openURL(url)}
-                >
-                    <Text className="text-white font-semibold">Open in YouTube</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    };
-
-    // ==========================================
-    // VIDEO PLAYER (ALL TYPES WITH PROXY & LANDSCAPE SUPPORT)
-    // ==========================================
+    const YouTubeChannelPlayer = ({ url }) => (
+        <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+            <Ionicons name="logo-youtube" size={80} color="#ff0000" />
+            <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
+                YouTube Channel Detected
+            </Text>
+            <Text className="text-gray-400 text-sm mt-2 text-center px-6">
+                Please use a specific video or playlist URL
+            </Text>
+            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
+                <Text className="text-white font-semibold">Open in YouTube</Text>
+            </TouchableOpacity>
+        </View>
+    );
 
     const renderVideoPlayer = () => {
         if (!selectedMovie) return null;
@@ -393,9 +343,7 @@ export default function MoviesScreen() {
             return (
                 <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">
-                        Invalid stream URL
-                    </Text>
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid stream URL</Text>
                     <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
                         {errorMessage || 'The provided URL format is not supported'}
                     </Text>
@@ -403,7 +351,6 @@ export default function MoviesScreen() {
             );
         }
 
-        // YouTube Video
         if (type === 'youtube-video') {
             const videoId = extractVideoId(selectedMovie.mediaUrl);
             if (!videoId) {
@@ -422,7 +369,6 @@ export default function MoviesScreen() {
             );
         }
 
-        // YouTube Live
         if (type === 'youtube-live') {
             const videoId = extractVideoId(selectedMovie.mediaUrl);
             if (!videoId) {
@@ -441,11 +387,9 @@ export default function MoviesScreen() {
             );
         }
 
-        // YouTube Playlist
         if (type === 'youtube-playlist') {
             const videoId = extractVideoId(selectedMovie.mediaUrl);
             const playlistId = extractPlaylistId(selectedMovie.mediaUrl);
-
             if (!playlistId) {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
@@ -462,7 +406,6 @@ export default function MoviesScreen() {
             );
         }
 
-        // YouTube Channel
         if (type === 'youtube-channel') {
             return (
                 <>
@@ -472,7 +415,6 @@ export default function MoviesScreen() {
             );
         }
 
-        // Regular video streams (HLS, MP4, MKV, IPTV, RTMP, etc.) WITH PROXY & LANDSCAPE
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 {renderStreamTypeBadge(type)}
@@ -487,12 +429,8 @@ export default function MoviesScreen() {
                 {videoError && (
                     <View className="absolute inset-0 bg-black items-center justify-center z-30">
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Stream Error
-                        </Text>
-                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
-                            {errorMessage || 'Unable to load the stream'}
-                        </Text>
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Stream Error</Text>
+                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">{errorMessage || 'Unable to load the stream'}</Text>
 
                         <TouchableOpacity
                             className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
@@ -501,7 +439,7 @@ export default function MoviesScreen() {
                                 setVideoLoading(true);
                             }}
                         >
-                            <Text className="text-white font-semibold">🔄 Retry</Text>
+                            <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
 
                         {serverInfo?.proxyEnabled && (
@@ -515,7 +453,7 @@ export default function MoviesScreen() {
                                 }}
                             >
                                 <Text className="text-white font-semibold">
-                                    {useProxy ? '🌐 Try Direct Connection' : '🔒 Try Proxy Connection'}
+                                    {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
                                 </Text>
                             </TouchableOpacity>
                         )}
@@ -523,9 +461,9 @@ export default function MoviesScreen() {
                 )}
 
                 <Video
-                    key={currentUrl}
+                    key={currentStreamUrl}
                     ref={videoRef}
-                    source={{ uri: currentUrl }}
+                    source={{ uri: currentStreamUrl }}
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
@@ -539,7 +477,6 @@ export default function MoviesScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
-                        console.error('❌ Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
                         setErrorMessage('Failed to load stream. Please check your connection.');
@@ -554,18 +491,12 @@ export default function MoviesScreen() {
                         }
                     }}
                     onFullscreenUpdate={async ({ fullscreenUpdate }) => {
-                        // 0 = WILL_PRESENT, 1 = DID_PRESENT
-                        // 2 = WILL_DISMISS, 3 = DID_DISMISS
-
                         if (fullscreenUpdate === 0) {
-                            // ✅ BEFORE entering fullscreen - unlock to allow landscape
                             await ScreenOrientation.unlockAsync();
                         } else if (fullscreenUpdate === 1) {
-                            // ✅ AFTER entering fullscreen - force landscape
                             setIsFullScreen(true);
                             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
                         } else if (fullscreenUpdate === 3) {
-                            // ✅ AFTER exiting fullscreen - lock back to portrait
                             setIsFullScreen(false);
                             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
                         }
@@ -574,10 +505,6 @@ export default function MoviesScreen() {
             </View>
         );
     };
-
-    // ==========================================
-    // RENDER MOVIE CARD
-    // ==========================================
 
     const renderMovieCard = ({ item }) => (
         <TouchableOpacity
@@ -625,10 +552,6 @@ export default function MoviesScreen() {
         </TouchableOpacity>
     );
 
-    // ==========================================
-    // RENDER GENRE SECTION
-    // ==========================================
-
     const renderGenreSection = ({ item: section }) => (
         <View className="mb-6">
             <View className="flex-row items-center justify-between px-4 mb-3">
@@ -640,7 +563,6 @@ export default function MoviesScreen() {
                     <Text className="text-gray-300 text-xs font-semibold">{section.data.length} movies</Text>
                 </View>
             </View>
-
             <FlatList
                 data={section.data}
                 renderItem={renderMovieCard}
@@ -652,22 +574,13 @@ export default function MoviesScreen() {
         </View>
     );
 
-    // ==========================================
-    // RECOMMENDED MOVIES
-    // ==========================================
-
     const getRecommendedMovies = () => {
         if (!selectedMovie) return [];
-
         return movies.filter(m =>
             m.genre?.name === selectedMovie.genre?.name &&
             m._id !== selectedMovie._id
         ).slice(0, 10);
     };
-
-    // ==========================================
-    // MAIN RENDER
-    // ==========================================
 
     if (loading) {
         return (
@@ -681,8 +594,6 @@ export default function MoviesScreen() {
     return (
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
-
-            {/* Header */}
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between">
                     <View className="flex-row items-center">
@@ -702,13 +613,28 @@ export default function MoviesScreen() {
                         </TouchableOpacity>
                     </View>
                 </View>
+                <View className="mt-3 bg-gray-800 rounded-lg px-4 py-2 flex-row items-center">
+                    <Ionicons name="search" size={20} color="#9ca3af" />
+                    <TextInput
+                        placeholder="Search movies or genres..."
+                        placeholderTextColor="#9ca3af"
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                        className="flex-1 ml-2 text-white"
+                        returnKeyType="search"
+                        autoCorrect={false}
+                    />
+                    {searchQuery !== '' && (
+                        <TouchableOpacity onPress={() => setSearchQuery('')}>
+                            <Ionicons name="close-circle" size={20} color="#9ca3af" />
+                        </TouchableOpacity>
+                    )}
+                </View>
             </View>
-
-            {/* Movies List */}
             <FlatList
                 data={filteredSections}
                 renderItem={renderGenreSection}
-                keyExtractor={(item) => item.title}
+                keyExtractor={item => item.title}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={{ paddingTop: 16, paddingBottom: 20 }}
                 refreshControl={
@@ -726,8 +652,6 @@ export default function MoviesScreen() {
                     </View>
                 }
             />
-
-            {/* Video Player Modal */}
             <Modal
                 visible={showPlayer}
                 animationType="slide"
@@ -740,8 +664,6 @@ export default function MoviesScreen() {
             >
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" />
-
-                    {/* Header */}
                     <View className="px-4 py-3 bg-gray-900 flex-row items-center justify-between border-b border-gray-800">
                         <TouchableOpacity
                             onPress={() => {
@@ -754,7 +676,6 @@ export default function MoviesScreen() {
                             <Ionicons name="arrow-back" size={24} color="white" />
                             <Text className="text-white text-lg font-semibold ml-2">Back</Text>
                         </TouchableOpacity>
-
                         <View className="flex-row items-center">
                             {selectedMovie && !analyzeStreamUrl(selectedMovie.mediaUrl).type.startsWith('youtube') && serverInfo?.proxyEnabled && (
                                 <View className="flex-row items-center bg-gray-800 px-3 py-2 rounded-lg mr-3">
@@ -780,7 +701,6 @@ export default function MoviesScreen() {
                                     </TouchableOpacity>
                                 </View>
                             )}
-
                             <TouchableOpacity
                                 onPress={() => {
                                     if (isPlaying) {
@@ -798,28 +718,17 @@ export default function MoviesScreen() {
                             </TouchableOpacity>
                         </View>
                     </View>
-
                     {selectedMovie && (
                         <ScrollView showsVerticalScrollIndicator={false}>
-                            {/* Video Player */}
                             {renderVideoPlayer()}
-
-                            {/* Movie Details */}
                             <View className="p-4 bg-gray-900">
-                                <Text className="text-white text-2xl font-bold mb-3">
-                                    {selectedMovie.title}
-                                </Text>
-
+                                <Text className="text-white text-2xl font-bold mb-3">{selectedMovie.title}</Text>
                                 <View className="flex-row items-center flex-wrap mb-4">
                                     <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-2 mb-2">
-                                        <Text className="text-white font-semibold text-sm">
-                                            {selectedMovie.genre?.name || 'Movie'}
-                                        </Text>
+                                        <Text className="text-white font-semibold text-sm">{selectedMovie.genre?.name || 'Movie'}</Text>
                                     </View>
                                     <View className="bg-gray-800 px-3 py-1.5 rounded-full mr-2 mb-2">
-                                        <Text className="text-gray-300 font-medium text-sm">
-                                            {selectedMovie.language?.name || 'Unknown'}
-                                        </Text>
+                                        <Text className="text-gray-300 font-medium text-sm">{selectedMovie.language?.name || 'Unknown'}</Text>
                                     </View>
                                     <View className="bg-gray-800 px-3 py-1.5 rounded-full mb-2">
                                         <View className="flex-row items-center">
@@ -828,22 +737,18 @@ export default function MoviesScreen() {
                                         </View>
                                     </View>
                                 </View>
-
-                                {/* Horizontal Poster */}
                                 <Image
                                     source={{ uri: selectedMovie.horizontalUrl }}
                                     className="w-full h-48 rounded-xl mb-6 bg-gray-800"
                                     resizeMode="cover"
                                 />
-
-                                {/* Recommended Movies */}
                                 {getRecommendedMovies().length > 0 && (
                                     <View>
                                         <View className="flex-row items-center mb-3">
                                             <Text className="text-white text-lg font-bold">More Like This</Text>
                                             <View className="ml-2 bg-orange-500 w-1.5 h-1.5 rounded-full" />
                                         </View>
-                                        {getRecommendedMovies().map((movie) => (
+                                        {getRecommendedMovies().map(movie => (
                                             <TouchableOpacity
                                                 key={movie._id}
                                                 className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-xl active:bg-gray-700"
@@ -851,7 +756,6 @@ export default function MoviesScreen() {
                                                     setSelectedMovie(movie);
                                                     setVideoError(false);
                                                     setVideoLoading(true);
-
                                                     const { type } = analyzeStreamUrl(movie.mediaUrl);
                                                     setUseProxy(!type.startsWith('youtube'));
                                                     setCurrentStreamUrl('');
@@ -863,18 +767,12 @@ export default function MoviesScreen() {
                                                     resizeMode="cover"
                                                 />
                                                 <View className="flex-1">
-                                                    <Text className="text-white font-semibold text-base" numberOfLines={2}>
-                                                        {movie.title}
-                                                    </Text>
+                                                    <Text className="text-white font-semibold text-base" numberOfLines={2}>{movie.title}</Text>
                                                     <View className="flex-row items-center mt-1">
                                                         <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-2">
-                                                            <Text className="text-orange-500 text-xs font-semibold">
-                                                                {movie.genre?.name}
-                                                            </Text>
+                                                            <Text className="text-orange-500 text-xs font-semibold">{movie.genre?.name}</Text>
                                                         </View>
-                                                        <Text className="text-gray-400 text-xs">
-                                                            {movie.language?.name}
-                                                        </Text>
+                                                        <Text className="text-gray-400 text-xs">{movie.language?.name}</Text>
                                                     </View>
                                                 </View>
                                                 <View className="bg-orange-500/20 rounded-full p-2">

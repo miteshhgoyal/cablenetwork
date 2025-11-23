@@ -1,5 +1,4 @@
-// app/(tabs)/index.js - FINAL VERSION WITH WORKING LANDSCAPE FULLSCREEN
-import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
@@ -19,11 +18,9 @@ export default function ChannelsScreen() {
     const [errorMessage, setErrorMessage] = useState('');
     const [isFullScreen, setIsFullScreen] = useState(false);
 
-    // ✅ PROXY DEFAULT ON (for non-YouTube streams)
+    // Proxy toggle default on for non-YouTube streams
     const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
-
-    // ✅ Track current URL to detect changes
     const [currentStreamUrl, setCurrentStreamUrl] = useState('');
 
     const videoRef = useRef(null);
@@ -38,24 +35,15 @@ export default function ChannelsScreen() {
         return () => subscription.remove();
     }, []);
 
-    // ==========================================
-    // SCREEN ORIENTATION HANDLER (FIXED)
-    // ==========================================
-
     useEffect(() => {
         const handleOrientation = async () => {
             if (!showPlayer) {
-                // Lock to portrait when player is closed
                 await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
             }
         };
-
         handleOrientation();
     }, [showPlayer]);
 
-    // ==========================================
-    // USER PACKAGE INFO
-    // ==========================================
     const getUserPackage = () => {
         if (!user?.package || !packagesList) return null;
         return packagesList.find(pkg => pkg._id === user.package);
@@ -76,16 +64,9 @@ export default function ChannelsScreen() {
         return diffDays;
     };
 
-    // ==========================================
-    // SORT CHANNELS BY LCN
-    // ==========================================
     const sortedChannels = useMemo(() => {
         if (!channels || channels.length === 0) return [];
-        return [...channels].sort((a, b) => {
-            const lcnA = a.lcn || 999999;
-            const lcnB = b.lcn || 999999;
-            return lcnA - lcnB;
-        });
+        return [...channels].sort((a, b) => (a.lcn || 999999) - (b.lcn || 999999));
     }, [channels]);
 
     const getRecommendedChannels = () => {
@@ -95,15 +76,10 @@ export default function ChannelsScreen() {
             .slice(0, 15);
     };
 
-    // ==========================================
-    // STREAM URL ANALYSIS
-    // ==========================================
     const analyzeStreamUrl = (url) => {
         if (!url) return { type: 'unknown', isValid: false };
-
         const urlLower = url.toLowerCase();
 
-        // YouTube detection
         if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
             if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
             if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
@@ -112,26 +88,20 @@ export default function ChannelsScreen() {
             return { type: 'youtube-video', isValid: true };
         }
 
-        // HLS - Enhanced detection
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
         if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
 
-        // MP4 - Enhanced detection for CDN links
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
-        if (url.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
+        if (urlLower.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
 
-        // MKV
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
 
-        // IPTV patterns
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
         if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
 
-        // RTMP
         if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
 
-        // Generic stream
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
@@ -139,7 +109,6 @@ export default function ChannelsScreen() {
 
     const extractVideoId = (url) => {
         if (!url) return null;
-
         const shortRegex = /youtu\.be\/([a-zA-Z0-9_-]{11})/;
         const shortMatch = url.match(shortRegex);
         if (shortMatch) return shortMatch[1];
@@ -166,56 +135,56 @@ export default function ChannelsScreen() {
         return match ? match[1] : null;
     };
 
-    // ==========================================
-    // GET CURRENT STREAM URL WITH SMART PROXY
-    // ==========================================
     const getCurrentStreamUrl = () => {
-        if (!selectedChannel) return '';
+        if (!selectedChannel) return null;
 
         const { type } = analyzeStreamUrl(selectedChannel.url);
 
-        // ✅ NEVER use proxy for YouTube
         if (type.startsWith('youtube')) {
-            return selectedChannel.url;
+            return { uri: selectedChannel.url };
         }
 
-        // ✅ Use proxy based on toggle (default ON for non-YouTube)
-        if (useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled) {
-            return selectedChannel.proxyUrl;
-        }
+        const baseUrl = useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled
+            ? selectedChannel.proxyUrl
+            : selectedChannel.url;
 
-        return selectedChannel.url;
+        return {
+            uri: baseUrl,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Referer': selectedChannel.url.split('/').slice(0, 3).join('/') + '/',
+                'Origin': selectedChannel.url.split('/').slice(0, 3).join('/'),
+                'Accept': '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                'Pragma': 'no-cache',
+                'Accept-Encoding': 'identity',
+                'Connection': 'keep-alive'
+            }
+        };
     };
 
-    // ✅ AUTO-RELOAD VIDEO WHEN PROXY TOGGLE CHANGES
     useEffect(() => {
         if (selectedChannel && showPlayer) {
             const newUrl = getCurrentStreamUrl();
+            const newUrlString = JSON.stringify(newUrl);
 
-            // Only reload if URL actually changed
-            if (newUrl !== currentStreamUrl && currentStreamUrl !== '') {
-                setCurrentStreamUrl(newUrl);
+            if (newUrlString !== currentStreamUrl && currentStreamUrl !== '') {
+                setCurrentStreamUrl(newUrlString);
                 setVideoLoading(true);
                 setVideoError(false);
 
-                // Force video reload by updating the key
                 if (videoRef.current) {
                     videoRef.current.unloadAsync().then(() => {
-                        videoRef.current?.loadAsync(
-                            { uri: newUrl },
-                            { shouldPlay: true }
-                        );
+                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true });
                     });
                 }
             } else if (currentStreamUrl === '') {
-                setCurrentStreamUrl(newUrl);
+                setCurrentStreamUrl(newUrlString);
             }
         }
     }, [useProxy, selectedChannel]);
 
-    // ==========================================
-    // YOUTUBE PLAYER COMPONENTS
-    // ==========================================
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
@@ -232,14 +201,9 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`);
-        });
-
-        useYouTubeEvent(player, 'autoplayBlocked', () => {
-            console.warn('Autoplay was blocked');
         });
 
         return (
@@ -265,7 +229,6 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube live error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`);
@@ -275,7 +238,7 @@ export default function ChannelsScreen() {
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
-                    <Text className="text-white text-xs font-bold">● LIVE</Text>
+                    <Text className="text-white text-xs font-bold">LIVE</Text>
                 </View>
                 <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
             </View>
@@ -301,7 +264,6 @@ export default function ChannelsScreen() {
         });
 
         useYouTubeEvent(player, 'error', (error) => {
-            console.error('YouTube playlist error:', error);
             setVideoError(true);
             setVideoLoading(false);
             setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`);
@@ -317,29 +279,21 @@ export default function ChannelsScreen() {
         );
     };
 
-    const YouTubeChannelPlayer = ({ url }) => {
-        return (
-            <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                <Ionicons name="logo-youtube" size={80} color="#ff0000" />
-                <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
-                    YouTube Channel Detected
-                </Text>
-                <Text className="text-gray-400 text-sm mt-2 text-center px-6">
-                    Please use a specific video or playlist URL
-                </Text>
-                <TouchableOpacity
-                    className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
-                    onPress={() => Linking.openURL(url)}
-                >
-                    <Text className="text-white font-semibold">Open in YouTube</Text>
-                </TouchableOpacity>
-            </View>
-        );
-    };
+    const YouTubeChannelPlayer = ({ url }) => (
+        <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+            <Ionicons name="logo-youtube" size={80} color="#ff0000" />
+            <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
+                YouTube Channel Detected
+            </Text>
+            <Text className="text-gray-400 text-sm mt-2 text-center px-6">
+                Please use a specific video or playlist URL
+            </Text>
+            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
+                <Text className="text-white font-semibold">Open in YouTube</Text>
+            </TouchableOpacity>
+        </View>
+    );
 
-    // ==========================================
-    // RENDER VIDEO PLAYER BASED ON TYPE
-    // ==========================================
     const renderStreamTypeBadge = (type) => {
         const badges = {
             'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
@@ -380,7 +334,6 @@ export default function ChannelsScreen() {
             );
         }
 
-        // YouTube Video
         if (type === 'youtube-video') {
             const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
@@ -399,7 +352,6 @@ export default function ChannelsScreen() {
             );
         }
 
-        // YouTube Live
         if (type === 'youtube-live') {
             const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
@@ -418,7 +370,6 @@ export default function ChannelsScreen() {
             );
         }
 
-        // YouTube Playlist
         if (type === 'youtube-playlist') {
             const videoId = extractVideoId(selectedChannel.url);
             const playlistId = extractPlaylistId(selectedChannel.url);
@@ -439,7 +390,6 @@ export default function ChannelsScreen() {
             );
         }
 
-        // YouTube Channel
         if (type === 'youtube-channel') {
             return (
                 <>
@@ -449,7 +399,6 @@ export default function ChannelsScreen() {
             );
         }
 
-        // Regular video streams (HLS, MP4, IPTV, RTMP, etc.) WITH PROXY SUPPORT
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 {renderStreamTypeBadge(type)}
@@ -458,6 +407,9 @@ export default function ChannelsScreen() {
                     <View className="absolute inset-0 bg-black items-center justify-center z-20">
                         <ActivityIndicator size="large" color="#f97316" />
                         <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                        <Text className="text-gray-400 mt-1 text-xs">
+                            {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
+                        </Text>
                     </View>
                 )}
 
@@ -478,7 +430,7 @@ export default function ChannelsScreen() {
                                 setVideoLoading(true);
                             }}
                         >
-                            <Text className="text-white font-semibold">🔄 Retry</Text>
+                            <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
 
                         {serverInfo?.proxyEnabled && (
@@ -492,7 +444,7 @@ export default function ChannelsScreen() {
                                 }}
                             >
                                 <Text className="text-white font-semibold">
-                                    {useProxy ? '🌐 Try Direct Connection' : '🔒 Try Proxy Connection'}
+                                    {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
                                 </Text>
                             </TouchableOpacity>
                         )}
@@ -500,9 +452,9 @@ export default function ChannelsScreen() {
                 )}
 
                 <Video
-                    key={currentUrl}
+                    key={currentStreamUrl}
                     ref={videoRef}
-                    source={{ uri: currentUrl }}
+                    source={currentUrl}
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
@@ -516,31 +468,28 @@ export default function ChannelsScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
-                        console.error('❌ Video error:', error);
                         setVideoError(true);
                         setVideoLoading(false);
-                        setErrorMessage('Failed to load stream. Please check your connection.');
+
+                        let msg = 'Failed to load stream.';
+                        if (error?.error?.code === -1100) {
+                            msg = 'Network error. Check your connection.';
+                        } else if (error?.error?.domain === 'AVFoundationErrorDomain') {
+                            msg = 'Stream format not supported or unavailable.';
+                        }
+                        setErrorMessage(msg);
                     }}
                     onLoadStart={() => {
                         setVideoLoading(true);
                         setVideoError(false);
                     }}
                     onFullscreenUpdate={async ({ fullscreenUpdate }) => {
-                        // fullscreenUpdate values:
-                        // 0 = WILL_PRESENT
-                        // 1 = DID_PRESENT (entered fullscreen)
-                        // 2 = WILL_DISMISS
-                        // 3 = DID_DISMISS (exited fullscreen)
-
                         if (fullscreenUpdate === 0) {
-                            // ✅ BEFORE entering fullscreen - unlock to allow landscape
                             await ScreenOrientation.unlockAsync();
                         } else if (fullscreenUpdate === 1) {
-                            // ✅ AFTER entering fullscreen - force landscape
                             setIsFullScreen(true);
                             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
                         } else if (fullscreenUpdate === 3) {
-                            // ✅ AFTER exiting fullscreen - lock back to portrait
                             setIsFullScreen(false);
                             await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
                         }
@@ -550,9 +499,6 @@ export default function ChannelsScreen() {
         );
     };
 
-    // ==========================================
-    // CHANNEL SELECTION
-    // ==========================================
     const handleChannelPress = (channel) => {
         setSelectedChannel(channel);
         setShowPlayer(true);
@@ -565,9 +511,6 @@ export default function ChannelsScreen() {
         setCurrentStreamUrl('');
     };
 
-    // ==========================================
-    // LOGOUT HANDLER
-    // ==========================================
     const handleLogout = () => {
         Alert.alert(
             'Logout',
@@ -579,9 +522,6 @@ export default function ChannelsScreen() {
         );
     };
 
-    // ==========================================
-    // SEARCH FILTERING
-    // ==========================================
     const filteredChannels = useMemo(() => {
         if (!searchQuery.trim()) return sortedChannels;
 
@@ -593,12 +533,8 @@ export default function ChannelsScreen() {
         );
     }, [sortedChannels, searchQuery]);
 
-    // ==========================================
-    // RENDER FUNCTIONS
-    // ==========================================
     const renderChannelItem = ({ item }) => {
         const { type } = analyzeStreamUrl(item.url);
-        const isYouTube = type.startsWith('youtube');
 
         return (
             <TouchableOpacity
@@ -613,16 +549,10 @@ export default function ChannelsScreen() {
                     <Text className="text-white font-semibold text-base" numberOfLines={1}>
                         {item.name}
                     </Text>
-                    <View className="flex-row items-center">
+                    <View className="flex-col items-start">
                         <Text className="text-gray-400 text-sm mt-0.5">
                             {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
                         </Text>
-
-                        {/* {!isYouTube && item.proxyUrl && serverInfo?.proxyEnabled && (
-                            <View className="ml-2 bg-orange-500/20 px-2 py-0.5 rounded">
-                                <Text className="text-orange-500 text-xs font-bold">PROXY</Text>
-                            </View>
-                        )} */}
                     </View>
                 </View>
 
@@ -631,9 +561,6 @@ export default function ChannelsScreen() {
         );
     };
 
-    // ==========================================
-    // MAIN RENDER
-    // ==========================================
     if (!user) {
         return (
             <SafeAreaView className="flex-1 bg-black items-center justify-center">
@@ -656,10 +583,7 @@ export default function ChannelsScreen() {
                     <Text className="text-gray-400 mt-2 text-center">
                         Please check your subscription or contact support
                     </Text>
-                    <TouchableOpacity
-                        className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
-                        onPress={refreshChannels}
-                    >
+                    <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={refreshChannels}>
                         <Text className="text-white font-semibold">Refresh Channels</Text>
                     </TouchableOpacity>
                 </View>
@@ -774,6 +698,7 @@ export default function ChannelsScreen() {
                                 </TouchableOpacity>
                             </View>
                         )}
+
                     </View>
 
                     <ScrollView className="flex-1">
@@ -855,7 +780,6 @@ export default function ChannelsScreen() {
             <Modal visible={showUserInfo} animationType="slide" transparent onRequestClose={() => setShowUserInfo(false)}>
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
-                        {/* Modal Header */}
                         <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
                             <Text className="text-white text-xl font-bold">Account Info</Text>
                             <TouchableOpacity onPress={() => setShowUserInfo(false)}>
@@ -864,7 +788,6 @@ export default function ChannelsScreen() {
                         </View>
 
                         <ScrollView className="px-6 py-4" style={{ maxHeight: 500 }}>
-                            {/* User Details */}
                             <View className="bg-gray-800 rounded-xl p-4 mb-4">
                                 <View className="flex-row items-center mb-4">
                                     <View className="w-16 h-16 bg-orange-500 rounded-full items-center justify-center mr-4">
@@ -877,7 +800,6 @@ export default function ChannelsScreen() {
                                 </View>
 
                                 <View className="border-t border-gray-700 pt-3 space-y-2">
-                                    {/* Package */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Package</Text>
                                         <Text className="text-white font-semibold">
@@ -885,7 +807,6 @@ export default function ChannelsScreen() {
                                         </Text>
                                     </View>
 
-                                    {/* Expiry Date */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Expiry Date</Text>
                                         <Text className="text-white font-semibold">
@@ -893,7 +814,6 @@ export default function ChannelsScreen() {
                                         </Text>
                                     </View>
 
-                                    {/* Days Remaining */}
                                     {daysRemaining !== null && (
                                         <View className="flex-row justify-between py-2">
                                             <Text className="text-gray-400">Days Remaining</Text>
@@ -903,13 +823,11 @@ export default function ChannelsScreen() {
                                         </View>
                                     )}
 
-                                    {/* Total Channels */}
                                     <View className="flex-row justify-between py-2">
                                         <Text className="text-gray-400">Total Channels</Text>
                                         <Text className="text-white font-semibold">{channels.length}</Text>
                                     </View>
 
-                                    {/* Active Packages */}
                                     {user.totalPackages && (
                                         <View className="flex-row justify-between py-2">
                                             <Text className="text-gray-400">Active Packages</Text>
@@ -919,7 +837,6 @@ export default function ChannelsScreen() {
                                 </View>
                             </View>
 
-                            {/* Device Information Card */}
                             <View className="bg-gray-800 rounded-xl p-4 mb-4">
                                 <View className="flex-row items-center mb-3 pb-3 border-b border-gray-700">
                                     <View className="bg-blue-500/20 p-2 rounded-full mr-3">
@@ -928,7 +845,6 @@ export default function ChannelsScreen() {
                                     <Text className="text-white text-base font-semibold">Device Information</Text>
                                 </View>
 
-                                {/* MAC Address */}
                                 <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
                                     <Text className="text-gray-400 text-sm">MAC Address</Text>
                                     <Text className="text-white text-xs font-mono font-semibold">
@@ -936,7 +852,6 @@ export default function ChannelsScreen() {
                                     </Text>
                                 </View>
 
-                                {/* Device Name */}
                                 {user.deviceName && (
                                     <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
                                         <Text className="text-gray-400 text-sm">Device Name</Text>
@@ -946,7 +861,6 @@ export default function ChannelsScreen() {
                                     </View>
                                 )}
 
-                                {/* Device Model */}
                                 {user.modelName && (
                                     <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
                                         <Text className="text-gray-400 text-sm">Model</Text>
@@ -956,7 +870,6 @@ export default function ChannelsScreen() {
                                     </View>
                                 )}
 
-                                {/* OS Info */}
                                 {user.osName && user.osVersion && (
                                     <View className="flex-row justify-between items-center py-2">
                                         <Text className="text-gray-400 text-sm">Operating System</Text>
@@ -966,7 +879,6 @@ export default function ChannelsScreen() {
                                     </View>
                                 )}
 
-                                {/* Device Type */}
                                 {user.deviceType && (
                                     <View className="flex-row justify-between items-center py-2 border-t border-gray-700">
                                         <Text className="text-gray-400 text-sm">Device Type</Text>
@@ -977,7 +889,6 @@ export default function ChannelsScreen() {
                                 )}
                             </View>
 
-                            {/* Packages List */}
                             {packagesList && packagesList.length > 0 && (
                                 <View className="mb-4">
                                     <Text className="text-white text-lg font-bold mb-3">Your Packages</Text>
@@ -995,7 +906,6 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {/* Logout Button */}
                             <TouchableOpacity
                                 className="bg-red-600 py-4 rounded-xl items-center mb-4"
                                 onPress={handleLogout}
@@ -1009,7 +919,6 @@ export default function ChannelsScreen() {
                     </View>
                 </View>
             </Modal>
-
         </SafeAreaView>
     );
 }
