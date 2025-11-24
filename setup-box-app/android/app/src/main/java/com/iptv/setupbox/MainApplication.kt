@@ -1,4 +1,4 @@
-package com.miteshhq.setupboxiptv
+package com.iptv.setupbox
 
 import android.app.Application
 import android.content.res.Configuration

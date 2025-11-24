@@ -1,4 +1,4 @@
-package com.miteshhq.setupboxiptv
+package com.iptv.setupbox
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build
