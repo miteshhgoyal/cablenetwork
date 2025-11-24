@@ -28,9 +28,9 @@ android {
 
     namespace 'com.iptv.setupbox'
     defaultConfig {
-        applicationId 'com.iptv.setupbox'
-        minSdkVersion 21        // Ensure minSdkVersion >= 21 for Android TV support
-        targetSdkVersion 33     // Prefer targetSdkVersion 31 or above
+         applicationId 'com.miteshhq.setupboxiptv'
+        minSdkVersion rootProject.ext.minSdkVersion
+        targetSdkVersion rootProject.ext.targetSdkVersion
 
         versionCode 1
         versionName "1.0.0"
