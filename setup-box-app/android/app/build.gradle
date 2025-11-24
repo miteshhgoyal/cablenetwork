@@ -28,7 +28,7 @@ android {
 
     namespace 'com.iptv.setupbox'
     defaultConfig {
-         applicationId 'com.miteshhq.setupboxiptv'
+         applicationId 'com.iptv.setupbox'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
 
