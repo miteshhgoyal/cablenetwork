@@ -7,13 +7,12 @@ import {
     ActivityIndicator,
     ScrollView,
     Modal,
-    Dimensions,
-    RefreshControl,
-    FlatList,
     StatusBar,
     Alert,
     Linking,
-    TextInput
+    TextInput,
+    TVEventHandler,
+    Platform
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -23,82 +22,92 @@ import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
-const { width } = Dimensions.get('window');
-
 export default function SeriesScreen() {
     const { isAuthenticated, serverInfo } = useAuth();
     const [series, setSeries] = useState([]);
     const [groupedSeries, setGroupedSeries] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [refreshing, setRefreshing] = useState(false);
     const [selectedSeries, setSelectedSeries] = useState(null);
-    const [showPlayer, setShowPlayer] = useState(false);
-    const [selectedGenre, setSelectedGenre] = useState('all');
-    const [searchQuery, setSearchQuery] = useState('');
-
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
-    const [isPlaying, setIsPlaying] = useState(true);
-    const [isFullScreen, setIsFullScreen] = useState(false);
-
     const [useProxy, setUseProxy] = useState(true);
+    const [focusedGenre, setFocusedGenre] = useState(0);
+    const [focusedShowIndex, setFocusedShowIndex] = useState(0);
     const [proxyAttempted, setProxyAttempted] = useState(false);
+    const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState('');
+    const [showUserMenu, setShowUserMenu] = useState(false);
 
     const videoRef = useRef(null);
+    const tvEventHandler = useRef(null);
 
     useEffect(() => {
         if (isAuthenticated) fetchSeries();
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     }, [isAuthenticated]);
 
     useEffect(() => {
-        if (!showPlayer) {
-            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-            setIsFullScreen(false);
+        if (groupedSeries.length > 0 && groupedSeries[0].data?.length > 0) {
+            handleShowChange(groupedSeries[0].data[0]);
         }
-    }, [showPlayer]);
+    }, [groupedSeries]);
 
-    const fetchSeries = async () => {
+    useEffect(() => {
+        if (Platform.isTV) {
+            tvEventHandler.current = new TVEventHandler();
+            tvEventHandler.current.enable(null, (component, evt) => {
+                if (evt.eventType === 'select') {
+                    const currentGenre = groupedSeries[focusedGenre];
+                    if (currentGenre) {
+                        const show = currentGenre.data[focusedShowIndex];
+                        if (show) handleShowChange(show);
+                    }
+                } else if (evt.eventType === 'right') {
+                    if (groupedSeries[focusedGenre]?.data.length - 1 > focusedShowIndex)
+                        setFocusedShowIndex(focusedShowIndex + 1);
+                } else if (evt.eventType === 'left') {
+                    if (focusedShowIndex > 0)
+                        setFocusedShowIndex(focusedShowIndex - 1);
+                } else if (evt.eventType === 'down') {
+                    if (focusedGenre < groupedSeries.length - 1) {
+                        setFocusedGenre(focusedGenre + 1);
+                        setFocusedShowIndex(0);
+                    }
+                } else if (evt.eventType === 'up') {
+                    if (focusedGenre > 0) {
+                        setFocusedGenre(focusedGenre - 1);
+                        setFocusedShowIndex(0);
+                    }
+                } else if (evt.eventType === 'menu') {
+                    setShowUserMenu(true);
+                }
+            });
+            return () => tvEventHandler.current?.disable();
+        }
+    }, [focusedGenre, focusedShowIndex, groupedSeries]);
+
+    async function fetchSeries() {
         try {
             setLoading(true);
             const response = await api.get('/customer/series');
             if (response.data.success) {
                 setSeries(response.data.data.series);
-                const sections = Object.entries(response.data.data.groupedByGenre).map(([genre, series]) => ({ title: genre, data: series }));
-                setGroupedSeries(sections);
+                setGroupedSeries(
+                    Object.entries(response.data.data.groupedByGenre).map(([genre, shows]) => ({
+                        title: genre,
+                        data: shows
+                    }))
+                );
             }
         } catch {
             Alert.alert('Error', 'Failed to load series. Please try again.');
         } finally {
             setLoading(false);
         }
-    };
+    }
 
-    const onRefresh = async () => {
-        setRefreshing(true);
-        await fetchSeries();
-        setRefreshing(false);
-    };
-
-    const genres = useMemo(() => ['all', ...new Set(series.map(s => s.genre?.name).filter(Boolean))], [series]);
-
-    const filteredSections = useMemo(() => {
-        let sections = groupedSeries;
-        if (selectedGenre !== 'all') sections = groupedSeries.filter(section => section.title === selectedGenre);
-        if (searchQuery.trim() !== '') {
-            const lowerQuery = searchQuery.toLowerCase();
-            sections = sections.map(section => ({
-                title: section.title,
-                data: section.data.filter(item =>
-                    item.title.toLowerCase().includes(lowerQuery) || item.genre?.name.toLowerCase().includes(lowerQuery)
-                )
-            })).filter(section => section.data.length > 0);
-        }
-        return sections;
-    }, [groupedSeries, selectedGenre, searchQuery]);
-
-    const analyzeStreamUrl = (url) => {
+    function analyzeStreamUrl(url) {
         if (!url) return { type: 'unknown', isValid: false };
         const u = url.toLowerCase();
         if (u.includes('youtube.com') || u.includes('youtu.be')) {
@@ -115,46 +124,81 @@ export default function SeriesScreen() {
         if (u.includes('rtmp://')) return { type: 'rtmp', isValid: true };
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
         return { type: 'unknown', isValid: false };
-    };
+    }
 
-    const extractVideoId = (url) => {
+    function extractVideoId(url) {
         if (!url) return null;
-        let match = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/) || url.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/) || url.match(/youtube\.com\/live\/([a-zA-Z0-9_-]{11})/) || url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
+        let match = url.match(/youtu\.be\/([a-zA-Z0-9_-]{11})/) ||
+            url.match(/youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/) ||
+            url.match(/youtube\.com\/live\/([a-zA-Z0-9_-]{11})/) ||
+            url.match(/youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/);
         return match ? match[1] : null;
-    };
+    }
 
-    const extractPlaylistId = (url) => {
+    function extractPlaylistId(url) {
         if (!url) return null;
         const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
         return match ? match[1] : null;
-    };
+    }
 
-    const getCurrentStreamUrl = () => {
-        if (!selectedSeries) return '';
+    // Always return an object for Video source, never string.
+    function getCurrentStreamUrl() {
+        if (!selectedSeries) return { uri: "" };
         const { type } = analyzeStreamUrl(selectedSeries.mediaUrl);
-        if (type.startsWith('youtube')) return selectedSeries.mediaUrl;
-        if (useProxy && selectedSeries.proxyUrl && serverInfo?.proxyEnabled) return selectedSeries.proxyUrl;
-        return selectedSeries.mediaUrl;
-    };
+        if (type.startsWith('youtube')) return { uri: "" }; // don't load YouTube URLs in Video
+        if (useProxy && selectedSeries.proxyUrl && serverInfo?.proxyEnabled)
+            return { uri: selectedSeries.proxyUrl };
+        return { uri: selectedSeries.mediaUrl };
+    }
 
     useEffect(() => {
-        if (selectedSeries && showPlayer) {
+        if (selectedSeries) {
             const newUrl = getCurrentStreamUrl();
-            if (newUrl !== currentStreamUrl && currentStreamUrl !== '') {
-                setCurrentStreamUrl(newUrl);
+            const newUrlString = JSON.stringify(newUrl);
+            if (newUrlString !== currentStreamUrl || !currentStreamUrl) {
+                setCurrentStreamUrl(newUrlString);
                 setVideoLoading(true);
                 setVideoError(false);
                 if (videoRef.current) {
-                    videoRef.current.unloadAsync()
-                        .then(() => videoRef.current?.loadAsync({ uri: newUrl }, { shouldPlay: true }));
+                    videoRef.current.unloadAsync().then(() => {
+                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true });
+                    });
                 }
-            } else if (currentStreamUrl === '') {
-                setCurrentStreamUrl(newUrl);
             }
         }
     }, [useProxy, selectedSeries]);
 
-    const renderStreamTypeBadge = (type) => {
+    useEffect(() => {
+        return () => {
+            // Cleanup on component unmount
+            if (videoRef.current) {
+                videoRef.current.unloadAsync().catch(() => {
+                    console.log('Error unloading video on unmount');
+                });
+            }
+
+            // Reset state
+            setSelectedSeries(null);
+            setVideoLoading(false);
+            setVideoError(false);
+        };
+    }, []);
+
+    function handleStreamError() {
+        if (!proxyAttempted && serverInfo?.proxyEnabled) {
+            setProxyAttempted(true);
+            setUseProxy(!useProxy);
+            setVideoError(false);
+            setVideoLoading(true);
+        } else {
+            setBothAttemptsFailed(true);
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage('Both proxy and direct stream failed. Please try another show.');
+        }
+    }
+
+    function renderStreamTypeBadge(type) {
         const badges = {
             'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
             'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
@@ -173,117 +217,152 @@ export default function SeriesScreen() {
                 <Text className="text-white text-xs font-bold ml-1.5">{badge.text}</Text>
             </View>
         );
-    };
+    }
 
-    const YouTubeVideoPlayer = ({ videoId }) => {
-        const player = useYouTubePlayer(videoId, { autoplay: true, muted: false, controls: true, playsinline: true, rel: false, modestbranding: true });
-        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); });
-        useYouTubeEvent(player, 'error', error => { setVideoError(true); setVideoLoading(false); setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`); });
-        return <View className="w-full bg-black relative" style={{ height: 260 }}><YoutubeView player={player} style={{ width: '100%', height: 260 }} /></View>;
-    };
+    function handleShowChange(show) {
+        setSelectedSeries(show);
+        setVideoError(false);
+        setVideoLoading(true);
+        setBothAttemptsFailed(false);
+        setProxyAttempted(false);
+        setUseProxy(!analyzeStreamUrl(show.mediaUrl).type.startsWith('youtube'));
+        if (videoRef.current) videoRef.current.unloadAsync().catch(() => { });
+    }
 
-    const YouTubeLivePlayer = ({ videoId }) => {
+    function YouTubeVideoPlayer({ videoId }) {
         const player = useYouTubePlayer(videoId, { autoplay: true, muted: false, controls: true, playsinline: true, rel: false, modestbranding: true });
-        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); });
-        useYouTubeEvent(player, 'error', error => { setVideoError(true); setVideoLoading(false); setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`); });
+        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); setBothAttemptsFailed(false); });
+        useYouTubeEvent(player, 'error', err => { setVideoError(true); setVideoLoading(false); setErrorMessage(String(err)); });
+        return <View className="w-full h-full bg-black"><YoutubeView player={player} style={{ width: "100%", height: "100%" }} /></View>;
+    }
+
+    function YouTubeLivePlayer({ videoId }) {
+        const player = useYouTubePlayer(videoId, { autoplay: true, muted: false, controls: true, playsinline: true, rel: false, modestbranding: true });
+        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); setBothAttemptsFailed(false); });
+        useYouTubeEvent(player, 'error', err => { setVideoError(true); setVideoLoading(false); setErrorMessage(String(err)); });
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
+            <View className="w-full h-full bg-black relative">
                 <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
                     <Text className="text-white text-xs font-bold">LIVE</Text>
                 </View>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                <YoutubeView player={player} style={{ width: '100%', height: '100%' }} />
             </View>
         );
-    };
+    }
 
-    const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
+    function YouTubePlaylistPlayer({ videoId, playlistId }) {
         const player = useYouTubePlayer(videoId, { autoplay: true, muted: false, controls: true, playsinline: true, rel: false, modestbranding: true, loop: true, list: playlistId, listType: 'playlist' });
-        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); });
-        useYouTubeEvent(player, 'error', error => { setVideoError(true); setVideoLoading(false); setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`); });
+        useYouTubeEvent(player, 'ready', () => { setVideoLoading(false); setVideoError(false); setBothAttemptsFailed(false); });
+        useYouTubeEvent(player, 'error', err => { setVideoError(true); setVideoLoading(false); setErrorMessage(String(err)); });
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+            <View className="w-full h-full bg-black relative">
+                <YoutubeView player={player} style={{ width: '100%', height: '100%' }} />
                 <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
                     <Text className="text-white text-xs font-bold">PLAYLIST</Text>
                 </View>
             </View>
         );
-    };
+    }
 
-    const YouTubeChannelPlayer = ({ url }) => (
-        <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-            <Ionicons name="logo-youtube" size={80} color="#ff0000" />
-            <Text className="text-white text-lg font-semibold mt-4 text-center px-6">YouTube Channel Detected</Text>
-            <Text className="text-gray-400 text-sm mt-2 text-center px-6">Please use a specific video or playlist URL</Text>
-            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}><Text className="text-white font-semibold">Open in YouTube</Text></TouchableOpacity>
-        </View>
-    );
+    function YouTubeChannelPlayer({ url }) {
+        return (
+            <View className="w-full h-full bg-black items-center justify-center">
+                <Ionicons name="logo-youtube" size={80} color="#ff0000" />
+                <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
+                    YouTube Channel Detected
+                </Text>
+                <Text className="text-gray-400 text-sm mt-2 text-center px-6">
+                    Please use a specific video or playlist URL
+                </Text>
+                <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
+                    <Text className="text-white font-semibold">Open in YouTube</Text>
+                </TouchableOpacity>
+            </View>
+        );
+    }
 
-    const renderVideoPlayer = () => {
-        if (!selectedSeries) return null;
+    function renderVideoPlayer() {
+        if (!selectedSeries) return (
+            <View className="w-full h-full bg-black items-center justify-center">
+                <Ionicons name="play-circle-outline" size={80} color="#6b7280" />
+                <Text className="text-white text-xl font-semibold mt-4">No Series Selected</Text>
+            </View>
+        );
         const currentUrl = getCurrentStreamUrl();
         const { type, isValid } = analyzeStreamUrl(selectedSeries.mediaUrl);
-        if (!isValid) {
-            return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                    <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid stream URL</Text>
-                    <Text className="text-gray-400 text-center mt-2 px-4 text-sm">{errorMessage || 'The provided URL format is not supported'}</Text>
-                </View>
-            );
-        }
+
+        if (!isValid) return (
+            <View className="w-full h-full bg-black items-center justify-center">
+                <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid stream URL</Text>
+                <Text className="text-gray-400 text-center mt-2 px-4 text-sm">{errorMessage || 'URL format not supported'}</Text>
+            </View>
+        );
         if (type === 'youtube-video') {
             const videoId = extractVideoId(selectedSeries.mediaUrl);
             if (!videoId) return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                <View className="w-full h-full bg-black items-center justify-center">
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
                 </View>
             );
-            return (<><>{renderStreamTypeBadge(type)}</><YouTubeVideoPlayer videoId={videoId} /></>);
+            return (<>{renderStreamTypeBadge(type)}<YouTubeVideoPlayer videoId={videoId} /></>);
         }
         if (type === 'youtube-live') {
             const videoId = extractVideoId(selectedSeries.mediaUrl);
             if (!videoId) return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                <View className="w-full h-full bg-black items-center justify-center">
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
                 </View>
             );
-            return (<><>{renderStreamTypeBadge(type)}</><YouTubeLivePlayer videoId={videoId} /></>);
+            return (<>{renderStreamTypeBadge(type)}<YouTubeLivePlayer videoId={videoId} /></>);
         }
         if (type === 'youtube-playlist') {
             const videoId = extractVideoId(selectedSeries.mediaUrl);
             const playlistId = extractPlaylistId(selectedSeries.mediaUrl);
             if (!playlistId) return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                <View className="w-full h-full bg-black items-center justify-center">
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                    <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
+                    <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid Playlist URL</Text>
                 </View>
             );
-            return (<><>{renderStreamTypeBadge(type)}</><YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} /></>);
+            return (<>{renderStreamTypeBadge(type)}<YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} /></>);
         }
-        if (type === 'youtube-channel') return (<><>{renderStreamTypeBadge(type)}</><YouTubeChannelPlayer url={selectedSeries.mediaUrl} /></>);
+        if (type === 'youtube-channel')
+            return (<>{renderStreamTypeBadge(type)}<YouTubeChannelPlayer url={selectedSeries.mediaUrl} /></>);
+        // Standard video player
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
+            <View className="w-full h-full bg-black relative">
                 {renderStreamTypeBadge(type)}
                 {videoLoading && (
                     <View className="absolute inset-0 bg-black items-center justify-center z-20">
                         <ActivityIndicator size="large" color="#f97316" />
                         <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                        <Text className="text-gray-400 mt-1 text-xs">{useProxy ? 'Using Proxy' : 'Direct Connection'}</Text>
                     </View>
                 )}
                 {videoError && (
-                    <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                    <View className="absolute inset-0 bg-black/90 items-center justify-center z-30 px-8">
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                         <Text className="text-white text-center mt-4 text-lg font-semibold">Stream Error</Text>
-                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">{errorMessage || 'Unable to load the stream'}</Text>
-                        <TouchableOpacity className="mt-4 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => { setVideoError(false); setVideoLoading(true); }}>
-                            <Text className="text-white font-semibold">Retry</Text>
-                        </TouchableOpacity>
-                        {serverInfo?.proxyEnabled && (
-                            <TouchableOpacity className="mt-3 bg-blue-600 px-6 py-3 rounded-lg" onPress={() => { setUseProxy(!useProxy); setVideoError(false); setVideoLoading(true); setProxyAttempted(true); }}>
+                        <Text className="text-gray-400 text-center mt-2 text-sm">{errorMessage}</Text>
+                        {bothAttemptsFailed && (
+                            <Text className="text-orange-500 text-center mt-4 text-base font-semibold">Try another series</Text>
+                        )}
+                        {!bothAttemptsFailed && (
+                            <TouchableOpacity className="mt-4 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => { setVideoError(false); setVideoLoading(true); }}>
+                                <Text className="text-white font-semibold">Retry</Text>
+                            </TouchableOpacity>
+                        )}
+                        {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
+                            <TouchableOpacity className="mt-3 bg-blue-600 px-6 py-3 rounded-lg" onPress={() => {
+                                setUseProxy(!useProxy);
+                                setVideoError(false);
+                                setVideoLoading(true);
+                                setProxyAttempted(true);
+                            }}>
                                 <Text className="text-white font-semibold">{useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}</Text>
                             </TouchableOpacity>
                         )}
@@ -292,228 +371,160 @@ export default function SeriesScreen() {
                 <Video
                     key={currentStreamUrl}
                     ref={videoRef}
-                    source={{ uri: currentStreamUrl }}
+                    // Always ensure source is an object (never a string/empty value)
+                    source={typeof currentUrl === 'object' ? currentUrl : { uri: "" }}
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
                     resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={isPlaying}
+                    shouldPlay={true}
                     isLooping={false}
-                    useNativeControls
-                    style={{ width: '100%', height: 260 }}
-                    onLoad={() => { setVideoLoading(false); setVideoError(false); }}
-                    onError={() => { setVideoError(true); setVideoLoading(false); setErrorMessage('Failed to load stream. Please check your connection.'); }}
+                    useNativeControls={false}
+                    style={{ width: '100%', height: '100%' }}
+                    onLoad={() => { setVideoLoading(false); setVideoError(false); setBothAttemptsFailed(false); }}
+                    onError={handleStreamError}
                     onLoadStart={() => { setVideoLoading(true); setVideoError(false); }}
-                    onPlaybackStatusUpdate={status => { if (status.isLoaded) setIsPlaying(status.isPlaying); }}
-                    onFullscreenUpdate={async ({ fullscreenUpdate }) => {
-                        if (fullscreenUpdate === 0) await ScreenOrientation.unlockAsync();
-                        else if (fullscreenUpdate === 1) { setIsFullScreen(true); await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE); }
-                        else if (fullscreenUpdate === 3) { setIsFullScreen(false); await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT); }
-                    }}
                 />
-            </View>
-        );
-    };
-
-    const renderSeriesCard = ({ item }) => (
-        <TouchableOpacity className="mr-3" style={{ width: 140 }} onPress={() => {
-            setSelectedSeries(item);
-            setShowPlayer(true);
-            setVideoError(false);
-            setVideoLoading(true);
-            const { type } = analyzeStreamUrl(item.mediaUrl);
-            setUseProxy(!type.startsWith('youtube'));
-            setProxyAttempted(false);
-            setCurrentStreamUrl('');
-        }}>
-            <View className="relative">
-                <Image source={{ uri: item.verticalUrl }} className="w-full h-52 rounded-xl bg-gray-800" resizeMode="cover" />
-                <View className="absolute top-2 right-2 bg-orange-500 px-2 py-1 rounded-lg shadow-lg">
-                    <Text className="text-white text-xs font-bold">{`S${item.seasonsCount}`}</Text>
-                </View>
-                <View className="absolute inset-0 items-center justify-center">
-                    <View className="bg-black/50 rounded-full p-3">
-                        <Ionicons name="play" size={32} color="white" />
+                {/* Series Info Overlay */}
+                <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent p-6">
+                    <View className="flex-row items-center">
+                        <Image source={{ uri: selectedSeries.verticalUrl }} style={{ width: 56, height: 84, borderRadius: 8, marginRight: 18 }} />
+                        <View>
+                            <Text className="text-white text-2xl font-bold mb-2">{selectedSeries.title}</Text>
+                            <View className="flex-row items-center flex-wrap">
+                                <View className="bg-orange-500 px-3 py-1 rounded-full mr-2 mb-2">
+                                    <Text className="text-white font-bold text-xs">{selectedSeries.genre?.name}</Text>
+                                </View>
+                                <View className="bg-gray-700 px-3 py-1 rounded-full mr-2 mb-2">
+                                    <Text className="text-gray-200 font-semibold text-xs">{selectedSeries.language?.name}</Text>
+                                </View>
+                                <View className="bg-gray-700 px-3 py-1 rounded-full mb-2 flex-row items-center">
+                                    <Text className="text-gray-200 font-semibold text-xs ml-1">{selectedSeries.seasonsCount} Season{selectedSeries.seasonsCount > 1 ? "s" : ""}</Text>
+                                </View>
+                            </View>
+                        </View>
+                        <TouchableOpacity onPress={() => setShowUserMenu(true)} style={{ backgroundColor: '#1f2937', padding: 12, borderRadius: 22, marginLeft: 'auto' }}><Ionicons name="menu" size={24} color="#f97316" /></TouchableOpacity>
                     </View>
                 </View>
             </View>
-            <Text className="text-white font-semibold mt-2 text-sm" numberOfLines={2}>{item.title}</Text>
-            <View className="flex-row items-center mt-1">
-                <Ionicons name="language" size={12} color="#9ca3af" />
-                <Text className="text-gray-400 text-xs ml-1">{item.language?.name || 'Unknown'}</Text>
-            </View>
-        </TouchableOpacity>
-    );
-
-    const renderGenreSection = ({ item: section }) => (
-        <View className="mb-6">
-            <View className="flex-row items-center justify-between px-4 mb-3">
-                <View>
-                    <Text className="text-white text-xl font-bold">{section.title}</Text>
-                    <View className="h-1 w-12 bg-orange-500 mt-1 rounded-full" />
-                </View>
-                <View className="bg-gray-800 px-3 py-1.5 rounded-full">
-                    <Text className="text-gray-300 text-xs font-semibold">{section.data.length} shows</Text>
-                </View>
-            </View>
-            <FlatList
-                data={section.data}
-                renderItem={renderSeriesCard}
-                keyExtractor={(item) => item._id}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={{ paddingHorizontal: 16 }}
-            />
-        </View>
-    );
-
-    const getRecommendedSeries = () => {
-        if (!selectedSeries) return [];
-        return series.filter(s => s.genre?.name === selectedSeries.genre?.name && s._id !== selectedSeries._id).slice(0, 10);
-    };
-
-    if (loading) {
-        return (
-            <SafeAreaView className="flex-1 bg-black items-center justify-center">
-                <ActivityIndicator size="large" color="#f97316" />
-                <Text className="text-white mt-4 text-base">Loading Web Series...</Text>
-            </SafeAreaView>
         );
     }
 
+    if (loading) return (
+        <SafeAreaView className="flex-1 bg-black items-center justify-center">
+            <StatusBar barStyle="light-content" hidden />
+            <ActivityIndicator size="large" color="#f97316" />
+            <Text className="text-white mt-4 text-base">Loading Web Series...</Text>
+        </SafeAreaView>
+    );
+
+    if (!series || series.length === 0) return (
+        <SafeAreaView className="flex-1 bg-black items-center justify-center">
+            <StatusBar barStyle="light-content" hidden />
+            <Ionicons name="play-circle-outline" size={80} color="#6b7280" />
+            <Text className="text-white text-xl font-semibold mt-4">No Series Available</Text>
+            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={fetchSeries}>
+                <Text className="text-white font-semibold">Refresh Series</Text>
+            </TouchableOpacity>
+        </SafeAreaView>
+    );
+
     return (
         <SafeAreaView className="flex-1 bg-black">
-            <StatusBar barStyle="light-content" />
-            <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
-                <View className="flex-row items-center justify-between">
-                    <View className="flex-row items-center">
-                        <Text className="text-3xl mr-2">📺</Text>
-                        <Text className="text-white text-2xl font-bold">Web Series</Text>
-                    </View>
-                    <View className="flex-row items-center">
-                        <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-3">
-                            <Text className="text-white text-sm font-bold">{series.length}</Text>
+            <StatusBar barStyle="light-content" hidden />
+            <View style={{ height: '65%', width: '100%' }}>{renderVideoPlayer()}</View>
+            <View style={{ height: '35%', width: '100%' }} className="bg-gray-900">
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 14 }}>
+                    {groupedSeries.map((genre, genreIndex) => (
+                        <View key={genre.title} className="mb-4">
+                            <View className="flex-row items-center justify-between px-6 mb-3">
+                                <Text className="text-white text-lg font-bold">{genre.title}</Text>
+                                <Text className="text-gray-500 text-sm">{genre.data.length} series</Text>
+                            </View>
+                            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24 }}>
+                                {genre.data.map((show, showIndex) => {
+                                    const isFocused = focusedGenre === genreIndex && focusedShowIndex === showIndex;
+                                    const isPlaying = selectedSeries?._id === show._id;
+                                    return (
+                                        <TouchableOpacity
+                                            key={show._id}
+                                            className={`mr-4 rounded-lg overflow-hidden ${isPlaying ? 'border-2 border-orange-500' : isFocused ? 'border-2 border-orange-500 opacity-80' : ''}`}
+                                            style={{ width: 120 }}
+                                            onPress={() => handleShowChange(show)}
+                                            hasTVPreferredFocus={genreIndex === 0 && showIndex === 0}
+                                        >
+                                            <View className="relative">
+                                                <Image source={{ uri: show.verticalUrl }} style={{ width: "100%", height: 160, backgroundColor: "#222", borderRadius: 10 }} />
+                                                {isPlaying && (
+                                                    <View className="absolute inset-0 bg-black/30 items-center justify-center">
+                                                        <View className="bg-orange-500 rounded-full p-2">
+                                                            <Ionicons name="play" size={20} color="white" />
+                                                        </View>
+                                                    </View>
+                                                )}
+                                            </View>
+                                            <View className={`p-2 ${isPlaying ? 'bg-orange-500' : 'bg-gray-800'}`}>
+                                                <Text className={`font-semibold text-xs ${isPlaying ? 'text-white' : 'text-gray-200'}`} numberOfLines={2}>{show.title}</Text>
+                                                <Text className={`text-xs mt-1 ${isPlaying ? 'text-white/80' : 'text-gray-400'}`}>{show.language?.name}</Text>
+                                            </View>
+                                        </TouchableOpacity>
+                                    );
+                                })}
+                            </ScrollView>
                         </View>
-                        <TouchableOpacity onPress={onRefresh} disabled={refreshing}>
-                            <Ionicons name="refresh" size={24} color={refreshing ? '#9ca3af' : '#f97316'} />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-                <View className="mt-3 bg-gray-800 rounded-lg px-4 py-2 flex-row items-center">
-                    <Ionicons name="search" size={20} color="#9ca3af" />
-                    <TextInput
-                        placeholder="Search series or genres..."
-                        placeholderTextColor="#9ca3af"
-                        value={searchQuery}
-                        onChangeText={setSearchQuery}
-                        className="flex-1 ml-2 text-white"
-                        returnKeyType="search"
-                        autoCorrect={false}
-                    />
-                    {searchQuery !== '' && (
-                        <TouchableOpacity onPress={() => setSearchQuery('')}>
-                            <Ionicons name="close-circle" size={20} color="#9ca3af" />
-                        </TouchableOpacity>
-                    )}
-                </View>
+                    ))}
+                </ScrollView>
             </View>
-            <FlatList
-                data={filteredSections}
-                renderItem={renderGenreSection}
-                keyExtractor={item => item.title}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={{ paddingTop: 16, paddingBottom: 20 }}
-                refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#f97316" colors={['#f97316']} />}
-                ListEmptyComponent={
-                    <View className="items-center justify-center py-20">
-                        <Ionicons name="play-circle-outline" size={64} color="#4b5563" />
-                        <Text className="text-gray-400 mt-4 text-base">No series available</Text>
-                    </View>
-                }
-            />
-            <Modal
-                visible={showPlayer}
-                animationType="slide"
-                presentationStyle="fullScreen"
-                onRequestClose={() => {
-                    setShowPlayer(false);
-                    setSelectedSeries(null);
-                    videoRef.current?.pauseAsync();
-                }}
-            >
-                <SafeAreaView className="flex-1 bg-black">
-                    <StatusBar barStyle="light-content" />
-                    <View className="px-4 py-3 bg-gray-900 flex-row items-center justify-between border-b border-gray-800">
-                        <TouchableOpacity onPress={() => { setShowPlayer(false); setSelectedSeries(null); videoRef.current?.pauseAsync(); }} className="flex-row items-center">
-                            <Ionicons name="arrow-back" size={24} color="white" />
-                            <Text className="text-white text-lg font-semibold ml-2">Back</Text>
-                        </TouchableOpacity>
-                        <View className="flex-row items-center">
-                            {selectedSeries && !analyzeStreamUrl(selectedSeries.mediaUrl).type.startsWith('youtube') && serverInfo?.proxyEnabled && (
-                                <View className="flex-row items-center bg-gray-800 px-3 py-2 rounded-lg mr-3">
-                                    <Ionicons name={useProxy ? "shield-checkmark" : "shield-outline"} size={16} color={useProxy ? "#f97316" : "#9ca3af"} />
-                                    <Text className={`text-xs ml-1.5 mr-2 font-semibold ${useProxy ? 'text-orange-500' : 'text-gray-400'}`}>Proxy</Text>
-                                    <TouchableOpacity onPress={() => { setUseProxy(!useProxy); setVideoError(false); setVideoLoading(true); setProxyAttempted(false); }} className={`w-10 h-5 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`} style={{ padding: 2 }}>
-                                        <View className={`w-4 h-4 rounded-full bg-white ${useProxy ? 'self-end' : 'self-start'}`} />
-                                    </TouchableOpacity>
-                                </View>
-                            )}
-                            <TouchableOpacity onPress={() => { if (isPlaying) videoRef.current?.pauseAsync(); else videoRef.current?.playAsync(); }}>
-                                <Ionicons name={isPlaying ? 'pause' : 'play'} size={24} color="white" />
+            {/* User Menu Modal */}
+            <Modal visible={showUserMenu} animationType="slide" transparent onRequestClose={() => setShowUserMenu(false)}>
+                <View className="flex-1 bg-black/70 justify-end">
+                    <View className="bg-gray-900 rounded-t-3xl">
+                        <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
+                            <Text className="text-white text-xl font-bold">Menu</Text>
+                            <TouchableOpacity onPress={() => setShowUserMenu(false)}>
+                                <Ionicons name="close" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
-                    </View>
-                    {selectedSeries && (
-                        <ScrollView showsVerticalScrollIndicator={false}>
-                            {renderVideoPlayer()}
-                            <View className="p-4 bg-gray-900">
-                                <Text className="text-white text-2xl font-bold mb-3">{selectedSeries.title}</Text>
-                                <View className="flex-row items-center flex-wrap mb-4">
-                                    <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-2 mb-2">
-                                        <Text className="text-white font-semibold text-sm">{selectedSeries.genre?.name || 'Series'}</Text>
-                                    </View>
-                                    <View className="bg-gray-800 px-3 py-1.5 rounded-full mr-2 mb-2">
-                                        <Text className="text-gray-300 font-medium text-sm">{selectedSeries.language?.name || 'Unknown'}</Text>
-                                    </View>
-                                    <View className="bg-gray-800 px-3 py-1.5 rounded-full mb-2">
-                                        <Text className="text-gray-300 font-medium text-sm">{selectedSeries.seasonsCount} Season{selectedSeries.seasonsCount > 1 ? 's' : ''}</Text>
-                                    </View>
+                        <ScrollView className="px-6 py-4" style={{ maxHeight: 400 }}>
+                            <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                                <View className="flex-row items-center mb-3">
+                                    <Ionicons name="play-circle" size={24} color="#f97316" />
+                                    <Text className="text-white text-lg font-bold ml-3">Series Library</Text>
                                 </View>
-                                <Image source={{ uri: selectedSeries.horizontalUrl }} className="w-full h-48 rounded-xl mb-6 bg-gray-800" resizeMode="cover" />
-                                {getRecommendedSeries().length > 0 && (
-                                    <View>
-                                        <View className="flex-row items-center mb-3">
-                                            <Text className="text-white text-lg font-bold">More Like This</Text>
-                                            <View className="ml-2 bg-orange-500 w-1.5 h-1.5 rounded-full" />
-                                        </View>
-                                        {getRecommendedSeries().map(show => (
-                                            <TouchableOpacity key={show._id} className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-xl active:bg-gray-700" onPress={() => { setSelectedSeries(show); setVideoError(false); setVideoLoading(true); const { type } = analyzeStreamUrl(show.mediaUrl); setUseProxy(!type.startsWith('youtube')); setCurrentStreamUrl(''); }}>
-                                                <View className="relative">
-                                                    <Image source={{ uri: show.verticalUrl }} className="w-16 h-24 rounded-lg bg-gray-700 mr-3" resizeMode="cover" />
-                                                    <View className="absolute top-1 right-4 bg-orange-500 px-1.5 py-0.5 rounded shadow-lg">
-                                                        <Text className="text-white text-xs font-bold">S{show.seasonsCount}</Text>
-                                                    </View>
-                                                </View>
-                                                <View className="flex-1">
-                                                    <Text className="text-white font-semibold text-base" numberOfLines={2}>{show.title}</Text>
-                                                    <View className="flex-row items-center mt-1">
-                                                        <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-2">
-                                                            <Text className="text-orange-500 text-xs font-semibold">{show.genre?.name}</Text>
-                                                        </View>
-                                                        <Text className="text-gray-400 text-xs">{show.language?.name}</Text>
-                                                    </View>
-                                                </View>
-                                                <View className="bg-orange-500/20 rounded-full p-2">
-                                                    <Ionicons name="play" size={24} color="#f97316" />
-                                                </View>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </View>
-                                )}
+                                <View className="flex-row justify-between py-2 border-t border-gray-700">
+                                    <Text className="text-gray-400">Total Shows</Text>
+                                    <Text className="text-white font-semibold">{series.length}</Text>
+                                </View>
+                                <View className="flex-row justify-between py-2 border-t border-gray-700">
+                                    <Text className="text-gray-400">Genres</Text>
+                                    <Text className="text-white font-semibold">{groupedSeries.length}</Text>
+                                </View>
                             </View>
+                            {serverInfo?.whatsappNumber && (
+                                <TouchableOpacity className="bg-green-600 py-4 rounded-xl items-center mb-3" onPress={() => Linking.openURL(`https://wa.me/${serverInfo.whatsappNumber}`).catch(() => Alert.alert('Error', 'Unable to open WhatsApp'))}>
+                                    <View className="flex-row items-center">
+                                        <Ionicons name="logo-whatsapp" size={20} color="white" />
+                                        <Text className="text-white font-bold text-base ml-2">Contact Support</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                            {serverInfo?.customButtonLink && serverInfo?.customButtonText && (
+                                <TouchableOpacity className="bg-blue-600 py-4 rounded-xl items-center mb-3" onPress={() => Linking.openURL(serverInfo.customButtonLink).catch(() => Alert.alert('Error', 'Unable to open link'))}>
+                                    <View className="flex-row items-center">
+                                        <Ionicons name="open-outline" size={20} color="white" />
+                                        <Text className="text-white font-bold text-base ml-2">{serverInfo.customButtonText}</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            )}
+                            <TouchableOpacity className="bg-orange-600 py-4 rounded-xl items-center mb-4" onPress={() => { setShowUserMenu(false); fetchSeries(); }}>
+                                <View className="flex-row items-center">
+                                    <Ionicons name="refresh" size={20} color="white" />
+                                    <Text className="text-white font-bold text-base ml-2">Refresh Series</Text>
+                                </View>
+                            </TouchableOpacity>
                         </ScrollView>
-                    )}
-                </SafeAreaView>
+                    </View>
+                </View>
             </Modal>
         </SafeAreaView>
     );

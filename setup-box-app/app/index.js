@@ -1,18 +1,22 @@
-// app/index.js
 import { ActivityIndicator, View } from "react-native";
 import { useEffect } from "react";
 import { useRouter } from "expo-router";
 import { useAuth } from "@/context/authContext";
+import * as ScreenOrientation from 'expo-screen-orientation'; // import screen orientation
 
 function Index() {
     const { loading } = useAuth();
     const router = useRouter();
 
     useEffect(() => {
-        // Let _layout.js handle all navigation logic
-        // This is just a placeholder that shouldn't be seen
-        if (!loading) {
+        // Lock orientation to landscape
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    }, []);
 
+    // Navigation logic handled in _layout.js as before
+    useEffect(() => {
+        if (!loading) {
+            // Placeholder, no action needed here
         }
     }, [loading]);
 

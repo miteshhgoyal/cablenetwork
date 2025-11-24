@@ -1,5 +1,5 @@
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable } from 'react-native';
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react'; // added useEffect import
 import { Ionicons } from '@expo/vector-icons';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
@@ -8,6 +8,7 @@ import * as Constants from 'expo-constants';
 import Loading from '../../components/Loading';
 import CustomKeyboardView from "../../components/CustomKeyboardView";
 import { useAuth } from '@/context/authContext';
+import * as ScreenOrientation from 'expo-screen-orientation'; // import ScreenOrientation
 
 const signin = () => {
     const { login } = useAuth();
@@ -16,10 +17,19 @@ const signin = () => {
     const [error, setError] = useState('');
     const [deviceInfo, setDeviceInfo] = useState({});
 
-    // ✅ Custom MAC Modal States
     const [showCustomMacModal, setShowCustomMacModal] = useState(false);
     const [customMac, setCustomMac] = useState('');
     const [inactiveMessage, setInactiveMessage] = useState('');
+
+    useEffect(() => {
+        // Lock screen orientation to landscape on mount
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+
+        // Optional: unlock on unmount if needed
+        return () => {
+            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
+        };
+    }, []);
 
     React.useEffect(() => {
         const getDeviceInfo = async () => {
@@ -62,11 +72,9 @@ const signin = () => {
             );
 
             if (result.success) {
-                // Success - authContext will navigate
                 setShowCustomMacModal(false);
                 setCustomMac('');
             } else {
-                // ✅ Check if can use custom MAC
                 if (result.data?.canUseCustomMac && (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED')) {
                     setInactiveMessage(result.message);
                     setShowCustomMacModal(true);
@@ -128,6 +136,7 @@ const signin = () => {
                                 </View>
                             </View>
                         ) : null}
+
 
                         {/* Device Information Card */}
                         <View className="mb-6 p-4 bg-gray-900 rounded-xl border border-gray-700">
@@ -231,7 +240,7 @@ const signin = () => {
                 </ScrollView>
             </CustomKeyboardView>
 
-            {/* ✅ CUSTOM MAC MODAL */}
+            {/* CUSTOM MAC MODAL */}
             <Modal
                 animationType="slide"
                 transparent={true}
@@ -246,7 +255,8 @@ const signin = () => {
                         className="bg-gray-900 rounded-t-3xl p-6 border-t-2 border-orange-500"
                         onPress={(e) => e.stopPropagation()}
                     >
-                        {/* Header */}
+                        {/* Modal content with same structure and styles */}
+                        {/* ... continuing as in your original modal ... */}
                         <View className="items-center mb-6">
                             <View className="w-16 h-16 bg-orange-500/20 rounded-full items-center justify-center mb-4">
                                 <Ionicons name="swap-horizontal" size={32} color="#f97316" />
@@ -257,20 +267,17 @@ const signin = () => {
                             </Text>
                         </View>
 
-                        {/* Inactive Message */}
                         {inactiveMessage ? (
                             <View className="mb-6 p-4 bg-yellow-900/30 rounded-xl border border-yellow-600">
                                 <Text className="text-yellow-300 text-xs leading-5">{inactiveMessage}</Text>
                             </View>
                         ) : null}
 
-                        {/* Current Device Info */}
                         <View className="mb-6 p-4 bg-gray-800 rounded-xl">
                             <Text className="text-gray-400 text-xs mb-2">Your Device MAC:</Text>
                             <Text className="text-white text-sm font-mono font-bold">{deviceInfo.macAddress}</Text>
                         </View>
 
-                        {/* Custom MAC Input */}
                         <View className="mb-6">
                             <Text className="text-sm font-semibold text-gray-300 mb-3">Custom MAC Address</Text>
                             <View className="flex-row items-center bg-gray-800 border-2 border-orange-500/50 rounded-xl px-4 py-4">
@@ -295,8 +302,7 @@ const signin = () => {
                             </Text>
                         </View>
 
-                        {/* Buttons */}
-                        <View className="">
+                        <View>
                             <TouchableOpacity
                                 onPress={handleCustomMacLogin}
                                 disabled={isLoading || !customMac.trim()}

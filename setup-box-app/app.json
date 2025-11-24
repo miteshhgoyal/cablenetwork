@@ -3,7 +3,7 @@
         "name": "Setup Box IPTV",
         "slug": "setup-box-iptv",
         "version": "1.0.0",
-        "orientation": "portrait",
+        "orientation": "landscape",
         "icon": "./assets/icon.png",
         "scheme": "setupboxiptv",
         "userInterfaceStyle": "dark",

@@ -52,8 +52,9 @@ if __name__ == "__main__":
   '_layout.js',
   'index.js',
   'authContext.js',
-  'signin.js',  
-  'customer.routes.js',
+  'signin.js',
+  'eas.json',
+  'app.json'
     ]
     
     # Start the search from current directory
