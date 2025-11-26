@@ -29,14 +29,14 @@ android {
     
     defaultConfig {
         applicationId 'com.iptv.setupbox'
-        minSdkVersion 21
+        minSdkVersion 24  // Changed from 21 to 24
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
         
-        // Support all architectures for Android TV boxes
+        // Support all architectures
         ndk {
             abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
         }
