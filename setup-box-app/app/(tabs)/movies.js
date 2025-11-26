@@ -17,7 +17,7 @@ import {
     TVEventHandler,
     Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
@@ -647,17 +647,17 @@ export default function MoviesScreen() {
 
     if (loading) {
         return (
-            <SafeAreaView className="flex-1 bg-black items-center justify-center">
+            <View className="flex-1 bg-black items-center justify-center">
                 <StatusBar barStyle="light-content" hidden />
                 <ActivityIndicator size="large" color="#f97316" />
                 <Text className="text-white mt-4 text-base">Loading Movies...</Text>
-            </SafeAreaView>
+            </View>
         );
     }
 
     if (!movies || movies.length === 0) {
         return (
-            <SafeAreaView className="flex-1 bg-black items-center justify-center">
+            <View className="flex-1 bg-black items-center justify-center">
                 <StatusBar barStyle="light-content" hidden />
                 <Ionicons name="film-outline" size={80} color="#6b7280" />
                 <Text className="text-white text-xl font-semibold mt-4">No Movies Available</Text>
@@ -667,12 +667,12 @@ export default function MoviesScreen() {
                 >
                     <Text className="text-white font-semibold">Refresh Movies</Text>
                 </TouchableOpacity>
-            </SafeAreaView>
+            </View>
         );
     }
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" hidden />
 
             {/* Video Player - Full Width Top Section (65%) */}
@@ -842,6 +842,6 @@ export default function MoviesScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }

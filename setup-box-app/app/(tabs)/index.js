@@ -1,6 +1,6 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
 import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput, TVEventHandler, Platform } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Video, ResizeMode } from 'expo-av';
@@ -630,7 +630,7 @@ export default function ChannelsScreen() {
 
     if (!user || !channels || channels.length === 0) {
         return (
-            <SafeAreaView className="flex-1 bg-black items-center justify-center">
+            <View className="flex-1 bg-black items-center justify-center">
                 <StatusBar barStyle="light-content" hidden />
                 <Ionicons name="tv-outline" size={80} color="#6b7280" />
                 <Text className="text-white text-xl font-semibold mt-4">No Channels Available</Text>
@@ -641,7 +641,7 @@ export default function ChannelsScreen() {
                 >
                     <Text className="text-white font-semibold">Refresh Channels</Text>
                 </TouchableOpacity>
-            </SafeAreaView>
+            </View>
         );
     }
 
@@ -649,7 +649,7 @@ export default function ChannelsScreen() {
     const daysRemaining = getDaysRemaining();
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" hidden />
 
             {/* Video Player - Full Width Top Section (65%) */}
@@ -928,6 +928,6 @@ export default function ChannelsScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }

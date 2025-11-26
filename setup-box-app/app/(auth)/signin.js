@@ -1,7 +1,7 @@
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable } from 'react-native';
 import React, { useState, useEffect } from 'react'; // added useEffect import
 import { Ionicons } from '@expo/vector-icons';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import * as Constants from 'expo-constants';
@@ -104,7 +104,7 @@ const signin = () => {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" backgroundColor="#000" />
             <CustomKeyboardView>
                 <ScrollView
@@ -327,7 +327,7 @@ const signin = () => {
                     </Pressable>
                 </Pressable>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 };
 

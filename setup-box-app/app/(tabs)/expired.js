@@ -1,7 +1,7 @@
 // app/(tabs)/expired.js
 import React, { useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, StatusBar } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { AlertCircle, Calendar, HardDrive, User, LogOut, RefreshCw } from 'lucide-react-native';
 import { useAuth } from '../../context/authContext';
@@ -40,7 +40,7 @@ export default function ExpiredScreen() {
     };
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" backgroundColor="#000" />
             <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: 24 }}>
                 {/* Icon */}
@@ -141,6 +141,6 @@ export default function ExpiredScreen() {
                     <Text className="text-white font-bold text-base">Back to Login</Text>
                 </TouchableOpacity>
             </ScrollView>
-        </SafeAreaView>
+        </View>
     );
 }

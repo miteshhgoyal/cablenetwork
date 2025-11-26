@@ -14,7 +14,7 @@ import {
     TVEventHandler,
     Platform
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+// import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
@@ -411,26 +411,26 @@ export default function SeriesScreen() {
     }
 
     if (loading) return (
-        <SafeAreaView className="flex-1 bg-black items-center justify-center">
+        <View className="flex-1 bg-black items-center justify-center">
             <StatusBar barStyle="light-content" hidden />
             <ActivityIndicator size="large" color="#f97316" />
             <Text className="text-white mt-4 text-base">Loading Web Series...</Text>
-        </SafeAreaView>
+        </View>
     );
 
     if (!series || series.length === 0) return (
-        <SafeAreaView className="flex-1 bg-black items-center justify-center">
+        <View className="flex-1 bg-black items-center justify-center">
             <StatusBar barStyle="light-content" hidden />
             <Ionicons name="play-circle-outline" size={80} color="#6b7280" />
             <Text className="text-white text-xl font-semibold mt-4">No Series Available</Text>
             <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={fetchSeries}>
                 <Text className="text-white font-semibold">Refresh Series</Text>
             </TouchableOpacity>
-        </SafeAreaView>
+        </View>
     );
 
     return (
-        <SafeAreaView className="flex-1 bg-black">
+        <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" hidden />
             <View style={{ height: '65%', width: '100%' }}>{renderVideoPlayer()}</View>
             <View style={{ height: '35%', width: '100%' }} className="bg-gray-900">
@@ -526,6 +526,6 @@ export default function SeriesScreen() {
                     </View>
                 </View>
             </Modal>
-        </SafeAreaView>
+        </View>
     );
 }
