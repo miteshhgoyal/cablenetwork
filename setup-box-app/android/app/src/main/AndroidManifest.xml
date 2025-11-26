@@ -37,6 +37,8 @@
         <action android:name="android.intent.action.VIEW"/>
         <category android:name="android.intent.category.DEFAULT"/>
         <category android:name="android.intent.category.BROWSABLE"/>
+        <data android:scheme="Digital Cable Network"/>
+        <data android:scheme="digitalcablenetwork"/>
         <data android:scheme="setupboxiptv"/>
       </intent-filter>
       <intent-filter data-generated="true">
