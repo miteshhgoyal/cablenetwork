@@ -1,0 +1,168 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base Styles */
+@layer base {
+    * {
+        font-family: 'System', sans-serif;
+    }
+}
+
+/* Component Utilities */
+@layer components {
+
+    /* Containers */
+    .container-light {
+        @apply bg-surface-light border border-border-light;
+    }
+
+    .container-dark {
+        @apply bg-surface-dark border border-border-dark;
+    }
+
+    .container-glass-light {
+        @apply bg-surface-light/90 backdrop-blur-xl border border-border-light/20;
+    }
+
+    .container-glass-dark {
+        @apply bg-surface-dark/50 backdrop-blur-xl border border-border-dark;
+    }
+
+    /* Inputs */
+    .input-base {
+        @apply rounded-lg px-4 py-4 text-base border;
+    }
+
+    .input-light {
+        @apply input-base bg-input-light border-border-light text-text-light;
+    }
+
+    .input-dark {
+        @apply input-base bg-input-dark border-border-dark text-text-dark;
+    }
+
+    .input-container-light {
+        @apply input-light flex-row items-center;
+    }
+
+    .input-container-dark {
+        @apply input-dark flex-row items-center;
+    }
+
+    /* Buttons */
+    .btn-base {
+        @apply rounded-lg py-4;
+    }
+
+    .btn-text {
+        @apply text-gray-100 font-bold text-center text-lg;
+    }
+
+    /* Typography */
+    .text-heading-light {
+        @apply text-text-light text-2xl font-bold;
+    }
+
+    .text-heading-dark {
+        @apply text-text-dark text-2xl font-bold;
+    }
+
+    .text-label-light {
+        @apply text-text-light text-sm font-semibold mb-2 ml-1;
+    }
+
+    .text-label-dark {
+        @apply text-text-dark text-sm font-semibold mb-2 ml-1;
+    }
+
+    .text-muted {
+        @apply text-text-muted text-sm;
+    }
+
+    /* Layout */
+    .screen-container {
+        @apply flex-1 px-6;
+    }
+
+    .form-container {
+        @apply rounded-3xl p-6 mb-6;
+    }
+
+    .step-indicator-inactive {
+        @apply w-8 h-8 rounded-full items-center justify-center bg-text-muted/30;
+    }
+
+    .step-line-inactive {
+        @apply w-8 h-0.5 bg-text-muted/30;
+    }
+
+    /* Phone Input */
+    .phone-prefix {
+        @apply font-semibold;
+    }
+
+    .phone-divider {
+        @apply w-px h-6 mx-3;
+    }
+
+    .phone-divider-light {
+        @apply phone-divider bg-border-light;
+    }
+
+    .phone-divider-dark {
+        @apply phone-divider bg-border-dark;
+    }
+
+    /* Gender */
+    .gender-btn-base {
+        @apply flex-1 py-3 px-4 rounded-lg border;
+    }
+
+    .gender-btn-light {
+        @apply gender-btn-base bg-input-light border-border-light;
+    }
+
+    .gender-btn-dark {
+        @apply gender-btn-base bg-input-dark border-border-dark;
+    }
+
+    /* OTP Inputs */
+    .otp-input {
+        @apply w-12 h-12 border rounded-lg text-center text-xl font-bold;
+    }
+
+    .otp-input-light {
+        @apply otp-input bg-input-light border-border-light text-text-light;
+    }
+
+    .otp-input-dark {
+        @apply otp-input bg-input-dark border-border-dark text-text-dark;
+    }
+
+    /* Icons */
+    .icon-container {
+        @apply w-20 h-20 rounded-full items-center justify-center mb-4;
+    }
+
+    /* Divider */
+    .divider-light {
+        @apply flex-1 h-px bg-border-light;
+    }
+
+    .divider-dark {
+        @apply flex-1 h-px bg-border-dark;
+    }
+
+    /* Loading */
+    .loading-container {
+        @apply flex-row justify-center py-4;
+    }
+}
+
+/* Safe Utilities */
+@layer utilities {
+    .placeholder-muted {
+        color: #64748b;
+    }
+}
