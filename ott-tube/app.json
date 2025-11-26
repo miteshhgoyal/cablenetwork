@@ -1,7 +1,7 @@
 {
     "expo": {
         "name": "OTT Tube",
-        "slug": "digital-cable-network",
+        "slug": "ott-tube",
         "version": "1.0.0",
         "orientation": "portrait",
         "icon": "./assets/icon.png",
