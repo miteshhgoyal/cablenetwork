@@ -12,15 +12,28 @@ import {
     Linking,
     TextInput,
     TVEventHandler,
-    Platform
+    Platform,
 } from 'react-native';
-// import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
-import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+
+function assertDefined(name, value) {
+    if (value === undefined || value === null) {
+        throw new Error(`${name} is undefined at runtime in SeriesScreen`);
+    }
+}
+
+assertDefined('Ionicons', Ionicons);
+assertDefined('Video', Video);
+assertDefined('ResizeMode', ResizeMode);
+assertDefined('YoutubeView', YoutubeView);
+assertDefined('useYouTubePlayer', useYouTubePlayer);
+assertDefined('useYouTubeEvent', useYouTubeEvent);
+assertDefined('TVEventHandler', TVEventHandler);
 
 export default function SeriesScreen() {
     const { isAuthenticated, serverInfo } = useAuth();

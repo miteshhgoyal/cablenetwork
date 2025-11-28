@@ -17,13 +17,27 @@ import {
     TVEventHandler,
     Platform
 } from 'react-native';
-// import { SafeAreaView } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
-import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+
+// ADD ASSERTIONS RIGHT AFTER IMPORTS
+function assertDefined(name, value) {
+    if (value === undefined || value === null) {
+        throw new Error(`${name} is undefined at runtime in MoviesScreen`);
+    }
+}
+
+assertDefined('Ionicons', Ionicons);
+assertDefined('Video', Video);
+assertDefined('ResizeMode', ResizeMode);
+assertDefined('YoutubeView', YoutubeView);
+assertDefined('useYouTubePlayer', useYouTubePlayer);
+assertDefined('useYouTubeEvent', useYouTubeEvent);
+assertDefined('TVEventHandler', TVEventHandler);
 
 const { width } = Dimensions.get('window');
 

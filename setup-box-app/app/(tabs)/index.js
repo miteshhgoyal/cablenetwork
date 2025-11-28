@@ -1,11 +1,41 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput, TVEventHandler, Platform } from 'react-native';
+import {
+    View,
+    Text,
+    TouchableOpacity,
+    Modal,
+    ScrollView,
+    StatusBar,
+    Linking,
+    ActivityIndicator,
+    Alert,
+    AppState,
+    FlatList,
+    TextInput,
+    TVEventHandler,
+    Platform,
+} from 'react-native';
 // import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Video, ResizeMode } from 'expo-av';
-import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+
+function assertDefined(name, value) {
+    if (value === undefined || value === null) {
+        throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
+    }
+}
+
+assertDefined('Ionicons', Ionicons);
+assertDefined('Video', Video);
+assertDefined('ResizeMode', ResizeMode);
+assertDefined('YoutubeView', YoutubeView);
+assertDefined('useYouTubePlayer', useYouTubePlayer);
+assertDefined('useYouTubeEvent', useYouTubeEvent);
+assertDefined('SafeAreaView', SafeAreaView);
+assertDefined('TVEventHandler', TVEventHandler);
 
 export default function ChannelsScreen() {
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
