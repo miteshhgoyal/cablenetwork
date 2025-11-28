@@ -74,7 +74,7 @@ function MainLayout() {
 
         if (subscriptionStatus === 'ACTIVE') {
             if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
-                setTimeout(() => router.replace('/(tabs)'), 100);
+                setTimeout(() => router.replace('/(tabs)/index'), 100);
             }
             return;
         }
