@@ -34,7 +34,6 @@ assertDefined('ResizeMode', ResizeMode);
 assertDefined('YoutubeView', YoutubeView);
 assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
-assertDefined('SafeAreaView', SafeAreaView);
 assertDefined('TVEventHandler', TVEventHandler);
 
 export default function ChannelsScreen() {
