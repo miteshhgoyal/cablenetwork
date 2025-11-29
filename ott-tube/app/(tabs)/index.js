@@ -1,5 +1,5 @@
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput } from 'react-native';
+import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, ActivityIndicator, Alert, AppState, FlatList, TextInput, Image } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -18,7 +18,6 @@ export default function ChannelsScreen() {
     const [errorMessage, setErrorMessage] = useState('');
     const [isFullScreen, setIsFullScreen] = useState(false);
 
-    // Proxy toggle default on for non-YouTube streams
     const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState('');
@@ -91,17 +90,12 @@ export default function ChannelsScreen() {
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
         if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
-
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
         if (urlLower.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
-
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
-
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
         if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
-
         if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
-
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
@@ -534,29 +528,40 @@ export default function ChannelsScreen() {
     }, [sortedChannels, searchQuery]);
 
     const renderChannelItem = ({ item }) => {
-        const { type } = analyzeStreamUrl(item.url);
-
         return (
             <TouchableOpacity
-                className="flex-row items-center p-4 bg-gray-800 mb-2 rounded-lg active:bg-gray-700"
+                className="bg-gray-800 rounded-lg mb-3 overflow-hidden active:bg-gray-700"
                 onPress={() => handleChannelPress(item)}
             >
-                <View className="w-12 h-12 bg-orange-500 rounded-lg items-center justify-center mr-3">
-                    <Text className="text-white font-bold text-base">{item.lcn || '?'}</Text>
-                </View>
+                {/* Thumbnail Section */}
+                <View className="relative" style={{ height: 120 }}>
+                    {item.imageUrl ? (
+                        <Image
+                            source={{ uri: item.imageUrl }}
+                            style={{ width: '100%', height: '100%' }}
+                            resizeMode="cover"
+                        />
+                    ) : (
+                        <View className="w-full h-full bg-gradient-to-br from-orange-600 to-orange-800 items-center justify-center">
+                            <Ionicons name="tv" size={40} color="white" opacity={0.5} />
+                        </View>
+                    )}
 
-                <View className="flex-1">
-                    <Text className="text-white font-semibold text-base" numberOfLines={1}>
-                        {item.name}
-                    </Text>
-                    <View className="flex-col items-start">
-                        <Text className="text-gray-400 text-sm mt-0.5">
-                            {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
-                        </Text>
+                    {/* LCN Badge Overlay */}
+                    <View className="absolute top-2 left-2 bg-black/80 px-2.5 py-1 rounded-md">
+                        <Text className="text-white font-bold text-sm">{item.lcn || '?'}</Text>
                     </View>
                 </View>
 
-                <Ionicons name="chevron-forward" size={20} color="#9ca3af" />
+                {/* Channel Info Section */}
+                <View className="p-3">
+                    <Text className="text-white font-semibold text-base" numberOfLines={1}>
+                        {item.name}
+                    </Text>
+                    <Text className="text-gray-400 text-sm mt-1">
+                        {item.language?.name || 'Unknown'} • {item.genre?.name || 'General'}
+                    </Text>
+                </View>
             </TouchableOpacity>
         );
     };
@@ -701,9 +706,9 @@ export default function ChannelsScreen() {
 
                     </View>
 
-                    <ScrollView className="flex-1">
-                        {renderVideoPlayer()}
+                    {renderVideoPlayer()}
 
+                    <ScrollView className="flex-1">
                         <View className="p-4 bg-gray-900">
                             <View className="flex-row items-center mb-3">
                                 <View className="flex-1">
@@ -741,42 +746,70 @@ export default function ChannelsScreen() {
                             )}
                         </View>
 
+                        {/* VERTICAL Suggested Channels Section */}
                         {getRecommendedChannels().length > 0 && (
                             <View className="p-4 bg-black">
                                 <Text className="text-white text-lg font-bold mb-3">
                                     More {selectedChannel?.language?.name} Channels
                                 </Text>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                                    {getRecommendedChannels().map((channel) => (
-                                        <TouchableOpacity
-                                            key={channel._id}
-                                            className="bg-gray-800 rounded-lg p-3 mr-3 w-40"
-                                            onPress={() => {
-                                                setSelectedChannel(channel);
-                                                setVideoError(false);
-                                                setVideoLoading(true);
-                                                const { type } = analyzeStreamUrl(channel.url);
-                                                setUseProxy(!type.startsWith('youtube'));
-                                                setCurrentStreamUrl('');
-                                            }}
-                                        >
-                                            <View className="w-8 h-8 bg-orange-500 rounded items-center justify-center mb-2">
-                                                <Text className="text-white font-bold text-sm">{channel.lcn}</Text>
+
+                                {/* Changed from horizontal to vertical scroll */}
+                                {getRecommendedChannels().map((channel) => (
+                                    <TouchableOpacity
+                                        key={channel._id}
+                                        className="flex-row bg-gray-800 rounded-lg mb-3 overflow-hidden active:bg-gray-700"
+                                        onPress={() => {
+                                            setSelectedChannel(channel);
+                                            setVideoError(false);
+                                            setVideoLoading(true);
+                                            const { type } = analyzeStreamUrl(channel.url);
+                                            setUseProxy(!type.startsWith('youtube'));
+                                            setCurrentStreamUrl('');
+                                        }}
+                                    >
+                                        {/* Thumbnail */}
+                                        <View className="relative" style={{ width: 120, height: 90 }}>
+                                            {channel.imageUrl ? (
+                                                <Image
+                                                    source={{ uri: channel.imageUrl }}
+                                                    style={{ width: '100%', height: '100%' }}
+                                                    resizeMode="cover"
+                                                />
+                                            ) : (
+                                                <View className="w-full h-full bg-gradient-to-br from-orange-600 to-orange-800 items-center justify-center">
+                                                    <Ionicons name="tv" size={30} color="white" opacity={0.5} />
+                                                </View>
+                                            )}
+
+                                            {/* LCN Badge */}
+                                            <View className="absolute bottom-2 left-2 bg-black/80 px-2 py-0.5 rounded">
+                                                <Text className="text-white font-bold text-xs">{channel.lcn}</Text>
                                             </View>
-                                            <Text className="text-white font-semibold" numberOfLines={2}>
+                                        </View>
+
+                                        {/* Channel Info */}
+                                        <View className="flex-1 p-3 justify-center">
+                                            <Text className="text-white font-semibold text-base" numberOfLines={2}>
                                                 {channel.name}
                                             </Text>
-                                            <Text className="text-gray-400 text-xs mt-1">{channel.genre?.name}</Text>
-                                        </TouchableOpacity>
-                                    ))}
-                                </ScrollView>
+                                            <Text className="text-gray-400 text-xs mt-1">
+                                                {channel.genre?.name} • {channel.language?.name}
+                                            </Text>
+                                        </View>
+
+                                        {/* Arrow Icon */}
+                                        <View className="justify-center pr-3">
+                                            <Ionicons name="play-circle" size={24} color="#f97316" />
+                                        </View>
+                                    </TouchableOpacity>
+                                ))}
                             </View>
                         )}
                     </ScrollView>
                 </SafeAreaView>
             </Modal>
 
-            {/* User Info Modal */}
+            {/* User Info Modal - unchanged */}
             <Modal visible={showUserInfo} animationType="slide" transparent onRequestClose={() => setShowUserInfo(false)}>
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
