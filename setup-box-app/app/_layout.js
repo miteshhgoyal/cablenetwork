@@ -164,8 +164,8 @@ function MainLayout() {
                         {subscriptionStatus && (
                             <View className="mt-4 pt-4 border-t border-gray-800">
                                 <Text className={`text-center text-sm font-semibold ${subscriptionStatus === 'ACTIVE' ? 'text-green-500' :
-                                        subscriptionStatus === 'EXPIRED' ? 'text-red-500' :
-                                            'text-yellow-500'
+                                    subscriptionStatus === 'EXPIRED' ? 'text-red-500' :
+                                        'text-yellow-500'
                                     }`}>
                                     {subscriptionStatus === 'ACTIVE' && '✓ Active Subscription'}
                                     {subscriptionStatus === 'EXPIRED' && '✕ Subscription Expired'}
@@ -241,6 +241,17 @@ function MainLayout() {
         );
     }
 
+    // Catch unmatched/sitemap routes
+    useEffect(() => {
+        const currentRoute = segments.join('/');
+        if (currentRoute.includes('sitemap') || currentRoute.includes('+not-found') || currentRoute.includes('_sitemap')) {
+            if (isAuthenticated && subscriptionStatus === 'ACTIVE') {
+                router.replace('/(tabs)/index');
+            } else if (!isAuthenticated) {
+                router.replace('/(auth)/signin');
+            }
+        }
+    }, [segments]);
 
     // Render main app navigation
     return (
