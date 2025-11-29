@@ -14,7 +14,7 @@ function MainLayout() {
     const [showSplash, setShowSplash] = useState(true);
     const [statusChecked, setStatusChecked] = useState(false);
 
-    // ALL HOOKS MUST BE AT THE TOP - NEVER CONDITIONAL
+    // ALL HOOKS AT TOP - NEVER AFTER CONDITIONAL RETURNS
     useEffect(() => {
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     }, []);
@@ -42,22 +42,28 @@ function MainLayout() {
 
     useEffect(() => {
         if (loading || checking || showSplash) return;
+
         const inAuthGroup = segments[0] === '(auth)';
         const currentRoute = segments.join('/');
 
-        if (!isAuthenticated && !inAuthGroup) {
-            setTimeout(() => router.replace('/(auth)/signin'), 100);
+        if (!isAuthenticated) {
+            if (!inAuthGroup && currentRoute !== '(auth)/signin') {
+                setTimeout(() => router.replace('/(auth)/signin'), 100);
+            }
             return;
         }
 
-        if (subscriptionStatus === 'ACTIVE' && (inAuthGroup || currentRoute === '' || currentRoute === 'index')) {
-            setTimeout(() => router.replace('/(tabs)/index'), 100);
+        if (subscriptionStatus === 'ACTIVE') {
+            if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
+                setTimeout(() => router.replace('/(tabs)/index'), 100);
+            }
         }
     }, [isAuthenticated, loading, subscriptionStatus, checking, showSplash, segments]);
 
+    // Catch sitemap/not-found routes
     useEffect(() => {
         const currentRoute = segments.join('/');
-        if (currentRoute.includes('sitemap') || currentRoute.includes('+not-found')) {
+        if (currentRoute.includes('sitemap') || currentRoute.includes('+not-found') || currentRoute.includes('_sitemap')) {
             if (isAuthenticated && subscriptionStatus === 'ACTIVE') {
                 router.replace('/(tabs)/index');
             } else if (!isAuthenticated) {
