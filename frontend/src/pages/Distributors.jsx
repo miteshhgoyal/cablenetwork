@@ -12,10 +12,12 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Package as PackageIcon,
 } from "lucide-react";
 
 const Distributors = () => {
   const [distributors, setDistributors] = useState([]);
+  const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -32,6 +34,7 @@ const Distributors = () => {
     phone: "",
     status: "Active",
     balance: "",
+    packages: [],
   });
   const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -40,6 +43,7 @@ const Distributors = () => {
 
   useEffect(() => {
     fetchDistributors();
+    fetchPackages();
   }, [statusFilter]);
 
   const fetchDistributors = async () => {
@@ -57,6 +61,15 @@ const Distributors = () => {
     }
   };
 
+  const fetchPackages = async () => {
+    try {
+      const response = await api.get("/distributors/packages");
+      setPackages(response.data.data.packages);
+    } catch (error) {
+      console.error("Failed to fetch packages:", error);
+    }
+  };
+
   const handleOpenModal = (mode, distributor = null) => {
     setModalMode(mode);
     setBalanceError("");
@@ -69,6 +82,7 @@ const Distributors = () => {
         phone: distributor.phone,
         status: distributor.status,
         balance: distributor.balance || "",
+        packages: distributor.packages?.map((p) => p._id) || [],
       });
     } else {
       setFormData({
@@ -78,6 +92,7 @@ const Distributors = () => {
         phone: "",
         status: "Active",
         balance: "",
+        packages: [],
       });
     }
     setShowModal(true);
@@ -95,6 +110,7 @@ const Distributors = () => {
       phone: "",
       status: "Active",
       balance: "",
+      packages: [],
     });
   };
 
@@ -197,7 +213,7 @@ const Distributors = () => {
                   Distributors
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Manage distributor accounts and permissions
+                  Manage distributor accounts and packages
                 </p>
               </div>
             </div>
@@ -302,6 +318,9 @@ const Distributors = () => {
                       Balance
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      Packages
+                    </th>
+                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Status
                     </th>
                     <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
@@ -312,7 +331,7 @@ const Distributors = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredDistributors.length === 0 ? (
                     <tr>
-                      <td colSpan="9" className="px-6 py-12 text-center">
+                      <td colSpan="10" className="px-6 py-12 text-center">
                         <p className="text-gray-500">No distributors found</p>
                       </td>
                     </tr>
@@ -345,9 +364,19 @@ const Distributors = () => {
                           {distributor.phone}
                         </td>
                         <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                          ₹
-                          {distributor.balance?.toLocaleString("en-IN") ||
-                            "0"}
+                          ₹{distributor.balance?.toLocaleString("en-IN") || "0"}
+                        </td>
+                        <td className="px-6 py-4 text-sm text-gray-900">
+                          {distributor.packages?.length > 0 ? (
+                            <div className="flex items-center space-x-1">
+                              <PackageIcon className="w-4 h-4 text-blue-600" />
+                              <span className="font-medium">
+                                {distributor.packages.length}
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="text-gray-400">None</span>
+                          )}
                         </td>
                         <td className="px-6 py-4 text-sm">
                           <span
@@ -542,6 +571,37 @@ const Distributors = () => {
                       </span>
                     </div>
                   )}
+                </div>
+
+                {/* Packages */}
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Packages (Optional)
+                  </label>
+                  <select
+                    multiple
+                    value={formData.packages}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        packages: Array.from(
+                          e.target.selectedOptions,
+                          (option) => option.value
+                        ),
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    size="5"
+                  >
+                    {packages.map((pkg) => (
+                      <option key={pkg._id} value={pkg._id}>
+                        {pkg.name} - ₹{pkg.cost} ({pkg.duration} days)
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    Hold Ctrl/Cmd to select multiple packages
+                  </p>
                 </div>
               </div>
 

@@ -2,16 +2,14 @@
 import express from 'express';
 import { authenticateToken, authorize } from '../middlewares/auth.js';
 import User from '../models/User.js';
-
+import Package from '../models/Package.js';
 
 const router = express.Router();
-
 
 // Get all distributors (admin only)
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const currentUser = await User.findById(req.user.id);
-
 
         // Only admin can access distributors
         if (currentUser.role !== 'admin') {
@@ -21,10 +19,8 @@ router.get('/', authenticateToken, async (req, res) => {
             });
         }
 
-
         const { search, status } = req.query;
         let query = { role: 'distributor' };
-
 
         // Add search filter
         if (search) {
@@ -35,23 +31,20 @@ router.get('/', authenticateToken, async (req, res) => {
             ];
         }
 
-
         // Add status filter
         if (status) {
             query.status = status;
         }
 
-
         const distributors = await User.find(query)
+            .populate('packages', 'name cost duration')
             .select('-password')
             .sort({ createdAt: -1 });
-
 
         res.json({
             success: true,
             data: { distributors }
         });
-
 
     } catch (error) {
         console.error('Get distributors error:', error);
@@ -62,12 +55,31 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
+// Get packages for dropdown
+router.get('/packages', authenticateToken, async (req, res) => {
+    try {
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            data: { packages }
+        });
+
+    } catch (error) {
+        console.error('Get packages error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch packages'
+        });
+    }
+});
 
 // Get single distributor
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const currentUser = await User.findById(req.user.id);
-
 
         if (currentUser.role !== 'admin') {
             return res.status(403).json({
@@ -76,12 +88,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-
         const distributor = await User.findOne({
             _id: req.params.id,
             role: 'distributor'
-        }).select('-password');
-
+        })
+            .populate('packages', 'name cost duration')
+            .select('-password');
 
         if (!distributor) {
             return res.status(404).json({
@@ -90,12 +102,19 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // Get resellers count for this distributor
+        const resellersCount = await User.countDocuments({
+            role: 'reseller',
+            createdBy: req.params.id
+        });
 
         res.json({
             success: true,
-            data: { distributor }
+            data: {
+                distributor,
+                resellersCount
+            }
         });
-
 
     } catch (error) {
         console.error('Get distributor error:', error);
@@ -106,12 +125,10 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-
 // Create distributor
 router.post('/', authenticateToken, async (req, res) => {
     try {
         const currentUser = await User.findById(req.user.id);
-
 
         // Only admin can create distributors
         if (currentUser.role !== 'admin') {
@@ -121,9 +138,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-
-        const { name, email, password, phone, status, balance } = req.body;
-
+        const { name, email, password, phone, status, balance, packages } = req.body;
 
         // Validation - Required fields
         if (!name || !email || !password || !phone) {
@@ -133,7 +148,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-
         // Validation - Password length
         if (password.length < 6) {
             return res.status(400).json({
@@ -142,8 +156,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-
-        // Validation - Minimum balance (only on creation)
+        // Validation - Minimum balance
         const initialBalance = balance ? parseFloat(balance) : 0;
         if (isNaN(initialBalance) || initialBalance < 10000) {
             return res.status(400).json({
@@ -151,7 +164,6 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Minimum balance must be ₹10,000 or more'
             });
         }
-
 
         // Check if email already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -162,7 +174,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-
         // Create distributor
         const distributor = new User({
             name: name.trim(),
@@ -171,12 +182,14 @@ router.post('/', authenticateToken, async (req, res) => {
             phone: phone.trim(),
             role: 'distributor',
             status: status || 'Active',
-            balance: initialBalance
+            balance: initialBalance,
+            packages: packages || []
         });
-
 
         await distributor.save();
 
+        // Populate before sending
+        await distributor.populate('packages', 'name cost duration');
 
         res.status(201).json({
             success: true,
@@ -184,10 +197,8 @@ router.post('/', authenticateToken, async (req, res) => {
             data: { distributor: distributor.toJSON() }
         });
 
-
     } catch (error) {
         console.error('Create distributor error:', error);
-
 
         if (error.code === 11000) {
             return res.status(400).json({
@@ -196,7 +207,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-
         res.status(500).json({
             success: false,
             message: 'Failed to create distributor'
@@ -204,74 +214,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-
-// Delete distributor
-router.delete('/:id', authenticateToken, async (req, res) => {
-    try {
-        const currentUser = await User.findById(req.user.id);
-
-
-        if (currentUser.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to delete distributors'
-            });
-        }
-
-
-        const distributor = await User.findOne({
-            _id: req.params.id,
-            role: 'distributor'
-        });
-
-
-        if (!distributor) {
-            return res.status(404).json({
-                success: false,
-                message: 'Distributor not found'
-            });
-        }
-
-
-        // Check if distributor has resellers
-        const resellersCount = await User.countDocuments({
-            role: 'reseller',
-            createdBy: req.params.id
-        });
-
-
-        if (resellersCount > 0) {
-            return res.status(400).json({
-                success: false,
-                message: `Cannot delete distributor with ${resellersCount} active reseller(s)`
-            });
-        }
-
-
-        await distributor.deleteOne();
-
-
-        res.json({
-            success: true,
-            message: 'Distributor deleted successfully'
-        });
-
-
-    } catch (error) {
-        console.error('Delete distributor error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to delete distributor'
-        });
-    }
-});
-
-
 // Update distributor
 router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
     try {
-        const { name, email, password, phone, status, balance } = req.body;
-
+        const { name, email, password, phone, status, balance, packages } = req.body;
 
         // Validation - Required fields
         if (!name || !email || !phone) {
@@ -281,12 +227,10 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             });
         }
 
-
         const distributor = await User.findOne({
             _id: req.params.id,
             role: 'distributor'
         });
-
 
         if (!distributor) {
             return res.status(404).json({
@@ -295,14 +239,12 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             });
         }
 
-
         // Check if email already exists (excluding current distributor)
         if (email.toLowerCase() !== distributor.email) {
             const existingUser = await User.findOne({
                 email: email.toLowerCase(),
                 _id: { $ne: req.params.id }
             });
-
 
             if (existingUser) {
                 return res.status(400).json({
@@ -312,23 +254,27 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             }
         }
 
+        // Validate balance if provided
+        if (balance !== undefined && balance !== null && balance !== '') {
+            const numBalance = parseFloat(balance);
+            if (isNaN(numBalance) || numBalance < 10000) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Balance amount cannot be less than ₹10,000'
+                });
+            }
+            distributor.balance = numBalance;
+        }
 
         // Update fields
         distributor.name = name.trim();
         distributor.email = email.toLowerCase().trim();
         distributor.phone = phone.trim();
-
-
-        // Update balance if provided (no validation required on update)
-        if (balance !== undefined) {
-            distributor.balance = parseFloat(balance);
-        }
-
+        distributor.packages = packages || [];
 
         // Validate and update status
         if (status && ['Active', 'Inactive'].includes(status)) {
             distributor.status = status;
-
 
             // If changing to Inactive, cascade to all resellers
             if (status === 'Inactive') {
@@ -338,7 +284,6 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
                 );
             }
         }
-
 
         // Update password if provided
         if (password && password.length >= 6) {
@@ -350,16 +295,16 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             });
         }
 
-
         await distributor.save();
 
+        // Populate before sending
+        await distributor.populate('packages', 'name cost duration');
 
         res.json({
             success: true,
             message: 'Distributor updated successfully',
             data: { distributor: distributor.toJSON() }
         });
-
 
     } catch (error) {
         console.error('Update distributor error:', error);
@@ -370,5 +315,57 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
     }
 });
 
+// Delete distributor
+router.delete('/:id', authenticateToken, async (req, res) => {
+    try {
+        const currentUser = await User.findById(req.user.id);
+
+        if (currentUser.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'You do not have permission to delete distributors'
+            });
+        }
+
+        const distributor = await User.findOne({
+            _id: req.params.id,
+            role: 'distributor'
+        });
+
+        if (!distributor) {
+            return res.status(404).json({
+                success: false,
+                message: 'Distributor not found'
+            });
+        }
+
+        // Check if distributor has resellers
+        const resellersCount = await User.countDocuments({
+            role: 'reseller',
+            createdBy: req.params.id
+        });
+
+        if (resellersCount > 0) {
+            return res.status(400).json({
+                success: false,
+                message: `Cannot delete distributor with ${resellersCount} active reseller(s)`
+            });
+        }
+
+        await distributor.deleteOne();
+
+        res.json({
+            success: true,
+            message: 'Distributor deleted successfully'
+        });
+
+    } catch (error) {
+        console.error('Delete distributor error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to delete distributor'
+        });
+    }
+});
 
 export default router;
