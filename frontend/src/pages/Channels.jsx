@@ -80,6 +80,7 @@ const Channels = () => {
         imageUrl: channel.imageUrl || "",
       });
     } else {
+      setSelectedChannel(null);
       setFormData({
         name: "",
         lcn: "",
@@ -145,9 +146,7 @@ const Channels = () => {
 
     setUrlAccessToggling(channel._id);
     try {
-      const response = await api.patch(
-        `/channels/${channel._id}/toggle-urls-access`
-      );
+      await api.patch(`/channels/${channel._id}/toggle-urls-access`);
       fetchChannels();
     } catch (error) {
       console.error("Toggle URL access error:", error);
@@ -169,6 +168,11 @@ const Channels = () => {
     if (userRole === "admin") return true;
     if (userRole === "distributor") return true;
     return canAccessUrls;
+  };
+
+  // Only admin can edit LCN
+  const canEditLcn = () => {
+    return userRole === "admin";
   };
 
   // Group channels by language
@@ -429,9 +433,14 @@ const Channels = () => {
 
                 {/* LCN Number */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    LCN Number
-                  </label>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <label className="block text-sm font-semibold text-gray-700">
+                      LCN Number
+                    </label>
+                    {userRole !== "admin" && (
+                      <Lock className="w-4 h-4 text-gray-500" />
+                    )}
+                  </div>
                   <input
                     type="number"
                     value={formData.lcn}
@@ -439,9 +448,19 @@ const Channels = () => {
                       setFormData({ ...formData, lcn: e.target.value })
                     }
                     placeholder="Enter LCN"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canEditLcn()}
+                    className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      !canEditLcn()
+                        ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-gray-50 border-gray-200"
+                    }`}
                     required
                   />
+                  {userRole !== "admin" && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Only administrators can modify LCN numbers.
+                    </p>
+                  )}
                 </div>
 
                 {/* Language Dropdown */}
