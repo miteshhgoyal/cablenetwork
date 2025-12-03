@@ -41,15 +41,17 @@ const signin = () => {
     const handleSubmit = async (useCustomMac = false) => {
         setError('');
 
-        if (!partnerCode.trim()) {
-            setError('Partner code is required');
-            return;
-        }
 
-        if (useCustomMac && !customMac.trim()) {
-            setError('Please enter custom MAC address');
-            return;
-        }
+    if (!partnerCode.trim() && !useCustomMac) {
+        setError('Partner code is required');
+        return;
+    }
+
+    if (useCustomMac && !customMac.trim()) {
+        setError('Please enter custom MAC address');
+        return;
+    }
+
 
         setIsLoading(true);
         try {
@@ -205,7 +207,8 @@ const signin = () => {
 
                         {/* Info Cards */}
                         <View className="mt-10">
-                            <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                            <TouchableOpacity onPress={() => setShowCustomMacModal(true)} className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+
                                 <View className="flex-row items-center">
                                     <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
                                         <Ionicons name="swap-horizontal-outline" size={20} color="#f97316" />
@@ -215,7 +218,7 @@ const signin = () => {
                                         <Text className="text-gray-400 text-xs mt-0.5">Login with another device's active MAC</Text>
                                     </View>
                                 </View>
-                            </View>
+                            </TouchableOpacity>
                         </View>
 
                         {/* Footer */}
@@ -241,10 +244,12 @@ const signin = () => {
                 <Pressable
                     className="flex-1 bg-black/80 justify-end"
                     onPress={closeModal}
+                    pointerEvents="box-none"
                 >
                     <Pressable
                         className="bg-gray-900 rounded-t-3xl p-6 border-t-2 border-orange-500"
                         onPress={(e) => e.stopPropagation()}
+                        pointerEvents="auto"
                     >
                         {/* Header */}
                         <View className="items-center mb-6">
@@ -296,7 +301,7 @@ const signin = () => {
                         </View>
 
                         {/* Buttons */}
-                        <View className="">
+                        <View pointerEvents="auto">
                             <TouchableOpacity
                                 onPress={handleCustomMacLogin}
                                 disabled={isLoading || !customMac.trim()}
