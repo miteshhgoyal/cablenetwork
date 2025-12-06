@@ -2,7 +2,6 @@
   "expo": {
     "name": "Setup Box IPTV",
     "slug": "setup-box-iptv",
-    "owner": "prasanthofficial044",
     "version": "1.0.0",
     "orientation": "landscape",
     "icon": "./assets/icon.png",
