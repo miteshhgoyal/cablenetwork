@@ -25,11 +25,11 @@ function MainLayout() {
             if (!loading && isAuthenticated && !statusChecked) {
                 setChecking(true);
                 await checkSubscriptionStatus();
-                setChecking(false);
                 setStatusChecked(true);
+                setChecking(false);
             }
         };
-        run();
+        run();  
     }, [loading, isAuthenticated, statusChecked, checkSubscriptionStatus]);
 
     // 3) control splash visibility
@@ -45,26 +45,35 @@ function MainLayout() {
 
     // 4) navigation based on state
     useEffect(() => {
+console.log("navigation based on state");
         if (loading || checking || showSplash) return;
 
         const inAuthGroup = segments[0] === '(auth)';
         const currentRoute = segments.join('/');
 
         if (!isAuthenticated) {
-            if (!inAuthGroup || currentRoute !== '(auth)/signin') {
+            console.log("isAuthenticated1");
+
+            if (!inAuthGroup) {
+                console.log("isAuthenticated2");
+
                 router.replace('/(auth)/signin');
             }
             return;
         }
 
         if (subscriptionStatus === 'ACTIVE') {
+            console.log("subscriptionStatus1");
+
             if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
-                router.replace('/(tabs)/index');
+                console.log("subscriptionStatus2");
+
+                router.replace('(tabs)');
             }
             return;
         }
         // EXPIRED / INACTIVE are handled by UI below; no navigation
-    }, [loading, checking, showSplash, isAuthenticated, subscriptionStatus, segments, router]);
+    }, [loading, checking, showSplash, isAuthenticated, subscriptionStatus]);
 
     // 5) ignore sitemap / not-found internal routes
     useEffect(() => {
@@ -76,7 +85,7 @@ function MainLayout() {
                 router.replace('/(auth)/signin');
             }
         }
-    }, [segments, isAuthenticated, subscriptionStatus, router]);
+    }, [ isAuthenticated, subscriptionStatus]);
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';

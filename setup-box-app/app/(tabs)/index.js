@@ -36,7 +36,7 @@ assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
 assertDefined('TVEventHandler', TVEventHandler);
 
-export default function ChannelsScreen() {
+export default function Index() {
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
 
     const [selectedChannel, setSelectedChannel] = useState(null);

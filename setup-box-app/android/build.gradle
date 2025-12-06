@@ -1,11 +1,6 @@
+// Top-level build file where you can add configuration options common to all sub-projects/modules.
+
 buildscript {
-  ext {
-    buildToolsVersion = "35.0.0"
-    minSdkVersion = 28
-    compileSdkVersion = 35
-    targetSdkVersion = 34
-    ndkVersion = "27.0.12077973"  // CRITICAL: Updated to NDK 27
-  }
   repositories {
     google()
     mavenCentral()

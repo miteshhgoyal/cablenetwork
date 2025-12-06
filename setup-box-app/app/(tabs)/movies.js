@@ -17,28 +17,35 @@ import {
     TVEventHandler,
     Platform
 } from 'react-native';
+
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+import * as Device from "expo-device";
+console.log("Mobies");
+const isTV =
+  Device.deviceType === Device.DeviceType.TV ||
+  Device.modelName?.toLowerCase().includes("tv") ||
+  Device.deviceName?.toLowerCase().includes("tv") ||
+  Device.brand?.toLowerCase().includes("google");
 
-// ADD ASSERTIONS RIGHT AFTER IMPORTS
-function assertDefined(name, value) {
+if (isTV) {
+    function assertDefined(name, value) {
     if (value === undefined || value === null) {
-        throw new Error(`${name} is undefined at runtime in MoviesScreen`);
+        throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
     }
 }
-
 assertDefined('Ionicons', Ionicons);
 assertDefined('Video', Video);
 assertDefined('ResizeMode', ResizeMode);
 assertDefined('YoutubeView', YoutubeView);
 assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
-assertDefined('TVEventHandler', TVEventHandler);
-
+// assertDefined('TVEventHandler', TVEventHandler);
+}
 const { width } = Dimensions.get('window');
 
 export default function MoviesScreen() {

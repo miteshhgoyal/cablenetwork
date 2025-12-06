@@ -71,16 +71,7 @@ export const AuthProvider = ({ children }) => {
                     });
                 }
 
-                refreshChannels().then((result) => {
-                    if (result?.success) {
-
-                    } else {
-
-                    }
-                }).catch((error) => {
-
-                });
-
+                refreshChannels();
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
@@ -233,7 +224,7 @@ export const AuthProvider = ({ children }) => {
 
             const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
-                macAddress: deviceInfo.macAddress,
+                macAddress: deviceInfo.macAddress|| "cph2667_15.0.0.1300(ex01)",    
                 deviceName: deviceInfo.deviceName,
                 customMac: customDeviceInfo.customMac || null // ✅ Pass custom MAC
             });
@@ -261,6 +252,7 @@ export const AuthProvider = ({ children }) => {
             setUser(subscriber);
             setChannels(channels);
             setPackagesList(packagesList);
+            setServerInfo(serverInfo);
 
             return { success: true };
 

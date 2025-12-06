@@ -14,27 +14,36 @@ import {
     TVEventHandler,
     Platform,
 } from 'react-native';
+
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+import * as Device from 'expo-device';
 
-function assertDefined(name, value) {
+
+const isTV =
+  Device.deviceType === Device.DeviceType.TV ||
+  Device.modelName?.toLowerCase().includes("tv") ||
+  Device.deviceName?.toLowerCase().includes("tv") ||
+  Device.brand?.toLowerCase().includes("google");
+
+if (isTV) {
+    function assertDefined(name, value) {
     if (value === undefined || value === null) {
-        throw new Error(`${name} is undefined at runtime in SeriesScreen`);
+        throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
     }
 }
-
 assertDefined('Ionicons', Ionicons);
 assertDefined('Video', Video);
 assertDefined('ResizeMode', ResizeMode);
 assertDefined('YoutubeView', YoutubeView);
 assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
-assertDefined('TVEventHandler', TVEventHandler);
-
+// assertDefined('TVEventHandler', TVEventHandler);
+}
 export default function SeriesScreen() {
     const { isAuthenticated, serverInfo } = useAuth();
     const [series, setSeries] = useState([]);

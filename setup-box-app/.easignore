@@ -1,0 +1,51 @@
+# Ignore Android native folder (VERY IMPORTANT)
+android/
+
+# Ignore iOS folder (in case)
+ios/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+
+# Generated builds
+build/
+dist/
+out/
+web-build/
+
+# Android build outputs & gradle caches
+android/app/build/
+android/.gradle/
+android/local.properties
+android/.idea/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+
+# Binary files
+*.apk
+*.aab
+
+# Temporary files
+*.tmp
+*.temp

@@ -8,10 +8,14 @@ import * as Constants from 'expo-constants';
 import Loading from '../../components/Loading';
 import CustomKeyboardView from "../../components/CustomKeyboardView";
 import { useAuth } from '@/context/authContext';
+import { useRouter } from 'expo-router';
+
 import * as ScreenOrientation from 'expo-screen-orientation'; // import ScreenOrientation
 
-const signin = () => {
-    const { login } = useAuth();
+const Signin = () => {
+    const { login, checkSubscriptionStatus, isAuthenticated, subscriptionStatus } = useAuth();
+
+
     const [partnerCode, setPartnerCode] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
@@ -20,21 +24,23 @@ const signin = () => {
     const [showCustomMacModal, setShowCustomMacModal] = useState(false);
     const [customMac, setCustomMac] = useState('');
     const [inactiveMessage, setInactiveMessage] = useState('');
+    const router = useRouter();
+
+useEffect(() => {
+    if (!isAuthenticated) return;
+    // if (loading) return;
+    if (subscriptionStatus !== 'ACTIVE') return;
+
+    console.log("Redirect → user authenticated & ACTIVE");
+    // router.replace('/(tabs)/index');
+
+}, [ isAuthenticated, subscriptionStatus]);
 
     useEffect(() => {
-        // Lock screen orientation to landscape on mount
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-
-        // Optional: unlock on unmount if needed
-        return () => {
-            ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.DEFAULT);
-        };
-    }, []);
-
-    React.useEffect(() => {
         const getDeviceInfo = async () => {
             const info = {
                 macAddress: Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE',
+                // macAddress: Application.androidId || Device.osBuildId || 'UNKNOWN_DEVICE',
                 deviceName: Device.deviceName || 'Unknown Device',
                 modelName: Device.modelName || 'Unknown Model',
                 brand: Device.brand || 'Unknown',
@@ -50,11 +56,8 @@ const signin = () => {
 
     const handleSubmit = async (useCustomMac = false) => {
         setError('');
+        const finalCode = partnerCode.trim() || "1001";
 
-        if (!partnerCode.trim()) {
-            setError('Partner code is required');
-            return;
-        }
 
         if (useCustomMac && !customMac.trim()) {
             setError('Please enter custom MAC address');
@@ -63,17 +66,36 @@ const signin = () => {
 
         setIsLoading(true);
         try {
-            const result = await login(
-                partnerCode.trim(),
-                {
-                    ...deviceInfo,
-                    customMac: useCustomMac ? customMac.trim() : null
-                }
-            );
+            let mac = deviceInfo.macAddress;
+            if (!mac) {
+
+                mac = "cph2667_15.0.0.1300(ex01)";  // your hardcoded MAC
+
+            }
+            // setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
+
+
+            // const result = await login(
+            //     partnerCode.trim(),
+            //     {
+            //         ...deviceInfo,
+            //         macAddress: mac,
+            //         customMac: useCustomMac ? customMac.trim() : null
+            //     }
+            // );
+            const finalDeviceInfo = {...deviceInfo,
+                macAddress: useCustomMac ? customMac.trim() : mac,
+                customMac: useCustomMac ? customMac.trim() : null,
+            };
+            
+            const result = await login(finalCode.trim(), finalDeviceInfo);
 
             if (result.success) {
-                setShowCustomMacModal(false);
-                setCustomMac('');
+                
+                 setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
+                 setShowCustomMacModal(false);
+                 setCustomMac('');
+                 router.replace('/(tabs)/index'); 
             } else {
                 if (result.data?.canUseCustomMac && (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED')) {
                     setInactiveMessage(result.message);
@@ -213,6 +235,11 @@ const signin = () => {
                         </TouchableOpacity>
 
                         {/* Info Cards */}
+                        <TouchableOpacity
+                            onPress={() => setShowCustomMacModal(true)  }
+                             disabled={isLoading}
+                            style={{ elevation: 5 }}
+                        >
                         <View className="mt-10">
                             <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
                                 <View className="flex-row items-center">
@@ -226,6 +253,7 @@ const signin = () => {
                                 </View>
                             </View>
                         </View>
+                        </TouchableOpacity>
 
                         {/* Footer */}
                         <View className="mt-10 items-center">
@@ -331,4 +359,4 @@ const signin = () => {
     );
 };
 
-export default signin;
+export default Signin;

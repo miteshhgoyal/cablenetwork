@@ -4,3 +4,31 @@
 
 expo-env.d.ts
 # @end expo-cli
+# Dependencies
+node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+
+# Android Build
+android/.gradle/
+android/.cxx/
+android/app/build/
+android/build/
+
+# iOS Build
+ios/build/
+ios/Pods/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Bundles
+*.apk
+*.aab
+
+# Env files
+.env
+.env*
