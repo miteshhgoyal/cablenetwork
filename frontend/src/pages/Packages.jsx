@@ -36,7 +36,6 @@ const Packages = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  //   const canModify = user?.role !== "reseller";
   const canModify = user?.role == "admin";
 
   useEffect(() => {
@@ -158,16 +157,35 @@ const Packages = () => {
     return `${days} Day${days > 1 ? "s" : ""}`;
   };
 
+  // Updated toggleGenre function to auto-select matching channels
   const toggleGenre = (genreId) => {
     if (formData.genres.includes(genreId)) {
+      // Deselect genre and remove all channels of this genre
       setFormData({
         ...formData,
         genres: formData.genres.filter((id) => id !== genreId),
+        channels: formData.channels.filter((channelId) => {
+          const channel = channels.find((c) => c._id === channelId);
+          return !channel || channel.genre?._id !== genreId;
+        }),
       });
     } else {
+      // Select genre and add all channels of this genre
+      const matchingChannels = channels
+        .filter((channel) => channel.genre?._id === genreId)
+        .map((channel) => channel._id);
+
       setFormData({
         ...formData,
         genres: [...formData.genres, genreId],
+        channels: [
+          ...formData.channels.filter((channelId) => {
+            // Keep existing channels that don't belong to this genre
+            const channel = channels.find((c) => c._id === channelId);
+            return !channel || channel.genre?._id !== genreId;
+          }),
+          ...matchingChannels,
+        ],
       });
     }
   };
@@ -186,6 +204,7 @@ const Packages = () => {
     }
   };
 
+  // Rest of the component remains exactly the same...
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}

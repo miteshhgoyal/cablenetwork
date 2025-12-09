@@ -94,7 +94,7 @@ router.get('/options', authenticateToken, async (req, res) => {
 
         // For admin, show all options
         const genres = await Category.find({ type: 'Genre' }).sort({ name: 1 });
-        const channels = await Channel.find().sort({ lcn: 1 });
+        const channels = await Channel.find().populate('genre', 'name').sort({ lcn: 1 });
 
         res.json({
             success: true,
