@@ -36,7 +36,8 @@ const Packages = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const canModify = user?.role !== "reseller"; // admin and distributor can modify
+  //   const canModify = user?.role !== "reseller";
+  const canModify = user?.role == "admin";
 
   useEffect(() => {
     fetchPackages();

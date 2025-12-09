@@ -4,6 +4,7 @@ import { authenticateToken } from '../middlewares/auth.js';
 import Package from '../models/Package.js';
 import Category from '../models/Category.js';
 import Channel from '../models/Channel.js';
+import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -11,8 +12,21 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search } = req.query;
+        const { id: userId, role } = req.user;
 
         let query = {};
+
+        // For distributors and resellers, only show packages assigned to them
+        if (role === 'distributor' || role === 'reseller') {
+            const user = await User.findById(userId).select('packages');
+            if (!user || !user.packages || user.packages.length === 0) {
+                return res.json({
+                    success: true,
+                    data: { packages: [] }
+                });
+            }
+            query._id = { $in: user.packages };
+        }
 
         // Add search filter
         if (search) {
@@ -38,9 +52,47 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Get genres and channels for dropdowns
+// Get genres and channels for dropdowns - Filter by assigned packages
 router.get('/options', authenticateToken, async (req, res) => {
     try {
+        const { role, id: userId } = req.user;
+
+        // For distributors and resellers, only show options from their assigned packages
+        if (role === 'distributor' || role === 'reseller') {
+            const user = await User.findById(userId).populate({
+                path: 'packages',
+                populate: [
+                    { path: 'genres', select: 'name' },
+                    { path: 'channels', select: 'name lcn' }
+                ]
+            });
+
+            if (!user || !user.packages) {
+                return res.json({
+                    success: true,
+                    data: { genres: [], channels: [] }
+                });
+            }
+
+            // Extract unique genres and channels from assigned packages
+            const genresSet = new Set();
+            const channelsSet = new Set();
+
+            user.packages.forEach(pkg => {
+                pkg.genres?.forEach(genre => genresSet.add(JSON.stringify(genre)));
+                pkg.channels?.forEach(channel => channelsSet.add(JSON.stringify(channel)));
+            });
+
+            const genres = Array.from(genresSet).map(item => JSON.parse(item));
+            const channels = Array.from(channelsSet).map(item => JSON.parse(item));
+
+            return res.json({
+                success: true,
+                data: { genres, channels }
+            });
+        }
+
+        // For admin, show all options
         const genres = await Category.find({ type: 'Genre' }).sort({ name: 1 });
         const channels = await Channel.find().sort({ lcn: 1 });
 
