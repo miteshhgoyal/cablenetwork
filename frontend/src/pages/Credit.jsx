@@ -1,4 +1,3 @@
-// frontend/src/pages/credit/Credit.jsx
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import api from "../services/api.js";
@@ -12,6 +11,7 @@ import {
   TrendingUp,
   TrendingDown,
   X,
+  AlertCircle,
 } from "lucide-react";
 
 const Credit = () => {
@@ -29,6 +29,7 @@ const Credit = () => {
     user: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
 
   // Check if user can access this page
   const canAccess = user?.role !== "reseller";
@@ -58,7 +59,13 @@ const Credit = () => {
   const fetchUsers = async () => {
     try {
       const response = await api.get("/credit/users");
-      setUsers(response.data.data.users);
+      const usersWithSenderInfo = response.data.data.users.map((u) => ({
+        ...u,
+        senderBalance: user?.balance || 0,
+        senderRole: user?.role || "",
+        senderName: user?.name || "",
+      }));
+      setUsers(usersWithSenderInfo);
     } catch (error) {
       console.error("Failed to fetch users:", error);
     }
@@ -70,6 +77,7 @@ const Credit = () => {
       amount: "",
       user: "",
     });
+    setSelectedUser(null);
     setShowModal(true);
   };
 
@@ -80,6 +88,56 @@ const Credit = () => {
       amount: "",
       user: "",
     });
+    setSelectedUser(null);
+  };
+
+  const handleUserChange = (e) => {
+    const userId = e.target.value;
+    setFormData({ ...formData, user: userId });
+
+    if (userId) {
+      const selected = users.find((u) => u._id === userId);
+      setSelectedUser(selected);
+    } else {
+      setSelectedUser(null);
+    }
+  };
+
+  const canPerformTransaction = () => {
+    if (!formData.amount || !formData.user || !selectedUser) return false;
+
+    const amount = parseFloat(formData.amount);
+    if (isNaN(amount) || amount <= 0) return false;
+
+    if (formData.type === "Debit") {
+      return user?.balance >= amount;
+    } else {
+      return selectedUser.balance >= amount;
+    }
+  };
+
+  const getBalanceWarning = () => {
+    if (!formData.amount || !formData.user || !selectedUser) return null;
+
+    const amount = parseFloat(formData.amount);
+    if (isNaN(amount) || amount <= 0) return null;
+
+    if (formData.type === "Debit") {
+      if (user?.balance < amount) {
+        return `⚠️ Your balance (₹${user.balance?.toLocaleString(
+          "en-IN"
+        )}) is insufficient`;
+      }
+    } else {
+      if (selectedUser.balance < amount) {
+        return `⚠️ ${
+          selectedUser.name
+        }'s balance (₹${selectedUser.balance?.toLocaleString(
+          "en-IN"
+        )}) is insufficient`;
+      }
+    }
+    return null;
   };
 
   const handleSubmit = async (e) => {
@@ -87,9 +145,18 @@ const Credit = () => {
     setSubmitting(true);
 
     try {
-      await api.post("/credit", formData);
+      const response = await api.post("/credit", formData);
+
+      const { senderBalance, targetBalance, senderName, targetName } =
+        response.data.data;
+      alert(
+        `✅ ${formData.type} successful!\n` +
+          `💰 ${senderName}: ₹${senderBalance?.toLocaleString("en-IN")}\n` +
+          `🎯 ${targetName}: ₹${targetBalance?.toLocaleString("en-IN")}`
+      );
+
       fetchCredits();
-      fetchUsers(); // Refresh to get updated balances
+      fetchUsers();
       handleCloseModal();
     } catch (error) {
       console.error("Submit error:", error);
@@ -102,9 +169,9 @@ const Credit = () => {
   const filteredCredits = credits.filter((credit) => {
     const searchLower = searchTerm.toLowerCase();
     return (
-      credit.user?.name.toLowerCase().includes(searchLower) ||
-      credit.user?.email.toLowerCase().includes(searchLower) ||
-      credit.amount.toString().includes(searchLower)
+      credit.user?.name?.toLowerCase().includes(searchLower) ||
+      credit.user?.email?.toLowerCase().includes(searchLower) ||
+      credit.amount?.toString().includes(searchLower)
     );
   });
 
@@ -118,7 +185,6 @@ const Credit = () => {
     });
   };
 
-  // If reseller, show access denied
   if (!canAccess) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -149,10 +215,11 @@ const Credit = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  Credit Management
+                  Credit Management ({user?.role?.toUpperCase()})
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Manage user credits and transactions
+                  Your balance: <IndianRupee className="w-4 h-4 inline" />₹
+                  {user?.balance?.toLocaleString("en-IN") || 0}
                 </p>
               </div>
             </div>
@@ -209,7 +276,6 @@ const Credit = () => {
                   </select>
                 </div>
               </div>
-
               {typeFilter && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
@@ -283,7 +349,7 @@ const Credit = () => {
                       Type
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Debited From/To
+                      Processed By
                     </th>
                     <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                       Timestamp
@@ -367,10 +433,11 @@ const Credit = () => {
       {/* Add Credit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-xl font-bold text-gray-900">
-                Add Credit Transaction
+                {user?.role === "admin" ? "Admin" : "Distributor"} Credit
+                Transaction
               </h2>
               <button
                 onClick={handleCloseModal}
@@ -387,7 +454,7 @@ const Credit = () => {
                   Type *
                 </label>
                 <div className="flex space-x-4">
-                  <label className="flex items-center">
+                  <label className="flex items-center p-2 rounded-xl hover:bg-gray-50 cursor-pointer">
                     <input
                       type="radio"
                       value="Debit"
@@ -397,9 +464,11 @@ const Credit = () => {
                       }
                       className="w-4 h-4 text-blue-600"
                     />
-                    <span className="ml-2 text-sm text-gray-700">Debit</span>
+                    <span className="ml-2 text-sm font-medium text-green-700">
+                      Debit (+ to user)
+                    </span>
                   </label>
-                  <label className="flex items-center">
+                  <label className="flex items-center p-2 rounded-xl hover:bg-gray-50 cursor-pointer">
                     <input
                       type="radio"
                       value="Reverse Credit"
@@ -409,8 +478,8 @@ const Credit = () => {
                       }
                       className="w-4 h-4 text-blue-600"
                     />
-                    <span className="ml-2 text-sm text-gray-700">
-                      Reverse Credit
+                    <span className="ml-2 text-sm font-medium text-red-700">
+                      Reverse (- from user)
                     </span>
                   </label>
                 </div>
@@ -431,43 +500,103 @@ const Credit = () => {
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                   min="1"
+                  step="0.01"
                 />
               </div>
 
               {/* User */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  User *
+                  Target User * (
+                  {user?.role === "admin"
+                    ? "Distributor/Reseller"
+                    : "Your Resellers"}
+                  )
                 </label>
                 <select
                   value={formData.user}
-                  onChange={(e) =>
-                    setFormData({ ...formData, user: e.target.value })
-                  }
+                  onChange={handleUserChange}
                   className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   required
                 >
                   <option value="">Select User</option>
                   {users.map((u) => (
                     <option key={u._id} value={u._id}>
-                      {u.name} - ₹{u.balance} ({u.role})
+                      {u.name} - ₹{u.balance?.toLocaleString("en-IN")} ({u.role}
+                      )
                     </option>
                   ))}
                 </select>
               </div>
 
+              {/* Balance Warning */}
+              {getBalanceWarning() && (
+                <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-xl flex items-start space-x-2">
+                  <AlertCircle className="w-5 h-5 text-yellow-500 mt-0.5 flex-shrink-0" />
+                  <p className="text-sm text-yellow-800">
+                    {getBalanceWarning()}
+                  </p>
+                </div>
+              )}
+
+              {/* Current Balances Preview */}
+              {formData.amount && formData.user && selectedUser && (
+                <div className="grid grid-cols-2 gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                  <div>
+                    <p className="text-xs text-emerald-700 font-medium">
+                      {formData.type === "Debit"
+                        ? "After Transfer →"
+                        : "After Transfer ←"}
+                    </p>
+                    <p className="font-bold text-sm text-emerald-900">
+                      <IndianRupee className="w-4 h-4 inline mr-1" />₹
+                      {(formData.type === "Debit"
+                        ? user?.balance - parseFloat(formData.amount)
+                        : user?.balance + parseFloat(formData.amount)
+                      ).toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-emerald-700 font-medium">
+                      {selectedUser.name}
+                    </p>
+                    <p className="font-bold text-sm text-emerald-900">
+                      <IndianRupee className="w-4 h-4 inline mr-1" />₹
+                      {(formData.type === "Debit"
+                        ? selectedUser.balance + parseFloat(formData.amount)
+                        : selectedUser.balance - parseFloat(formData.amount)
+                      ).toLocaleString("en-IN")}
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center space-x-3 pt-4">
                 <button
                   type="submit"
-                  disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
+                  disabled={submitting || !canPerformTransaction()}
+                  className={`flex-1 px-4 py-3 rounded-xl transition-all font-semibold text-sm ${
+                    canPerformTransaction() && !submitting
+                      ? "bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg"
+                      : "bg-gray-400 text-gray-500 cursor-not-allowed"
+                  }`}
                 >
-                  {submitting ? "Creating..." : "Create"}
+                  {submitting ? (
+                    <>
+                      <Loader className="w-4 h-4 mr-2 animate-spin inline" />
+                      Creating...
+                    </>
+                  ) : formData.type === "Debit" ? (
+                    "Send Credit"
+                  ) : (
+                    "Reverse Credit"
+                  )}
                 </button>
                 <button
                   type="button"
                   onClick={handleCloseModal}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  disabled={submitting}
                 >
                   Cancel
                 </button>

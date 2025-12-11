@@ -1,4 +1,3 @@
-// frontend/src/pages/dashboard/Dashboard.jsx
 import React, { useState, useEffect } from "react";
 import { useAuth } from "../contexts/AuthContext.jsx";
 import { useNavigate } from "react-router-dom";
@@ -20,6 +19,7 @@ import {
   Film,
   Target,
   BarChart3,
+  Download, // NEW: Import Download icon
 } from "lucide-react";
 
 const Dashboard = () => {
@@ -28,6 +28,7 @@ const Dashboard = () => {
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [backupLoading, setBackupLoading] = useState(false); // NEW: Backup loading state
 
   useEffect(() => {
     fetchDashboardData();
@@ -43,6 +44,47 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
       setRefreshing(false);
+    }
+  };
+
+  // NEW: Handle database backup export
+  const handleBackupExport = async () => {
+    try {
+      setBackupLoading(true);
+      const response = await api.get("/dashboard/backup", {
+        responseType: "blob", // Important for file download
+      });
+
+      // Create download link
+      const url = window.URL.createObjectURL(new Blob([response.data]));
+      const link = document.createElement("a");
+      link.href = url;
+
+      // Filename is set in backend Content-Disposition header
+      // But fallback to generic name if not available
+      const contentDisposition = response.headers["content-disposition"];
+      let filename = "iptv_backup.json";
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch?.[1]) {
+          filename = filenameMatch[1];
+        }
+      }
+
+      link.setAttribute("download", filename);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      window.URL.revokeObjectURL(url);
+
+      // Show success feedback
+      alert(`✅ Backup exported successfully!\n📁 File: ${filename}`);
+    } catch (error) {
+      console.error("Backup export failed:", error);
+      alert("❌ Failed to export backup. Admin access required.");
+    } finally {
+      setBackupLoading(false);
     }
   };
 
@@ -193,13 +235,13 @@ const Dashboard = () => {
             title: "Subscriber Limit",
             value: stats.subscriberLimit,
             icon: Target,
-            link: null, // No navigation for this stat
+            link: null,
           },
           {
             title: "Available Slots",
             value: stats.availableSlots,
             icon: BarChart3,
-            link: null, // No navigation for this stat
+            link: null,
           },
         ];
 
@@ -229,7 +271,7 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Header Section - Simple & Clean like Navbar */}
+      {/* Header Section */}
       <div className="bg-gradient-to-r from-blue-800 via-blue-900 to-blue-950 text-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
@@ -241,7 +283,7 @@ const Dashboard = () => {
               <p className="text-blue-200 text-lg">Dashboard Overview</p>
             </div>
 
-            {/* Right Side - Balance & Refresh */}
+            {/* Right Side - Balance, Refresh & Backup (Admin Only) */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <div className="text-right">
                 <p className="text-blue-200 text-sm mb-1">Available amount</p>
@@ -254,6 +296,8 @@ const Dashboard = () => {
                   </span>
                 </div>
               </div>
+
+              {/* Existing Refresh Button */}
               <button
                 onClick={fetchDashboardData}
                 disabled={refreshing}
@@ -264,12 +308,27 @@ const Dashboard = () => {
                 />
                 <span className="text-sm">Refresh</span>
               </button>
+
+              {/* NEW: Backup Export Button - Admin Only */}
+              {user.role === "admin" && (
+                <button
+                  onClick={handleBackupExport}
+                  disabled={backupLoading}
+                  className="flex items-center space-x-2 px-4 py-2 bg-green-500/20 hover:bg-green-500/30 disabled:opacity-50 border border-green-400/50 rounded-xl transition-all text-green-100 hover:text-green-50"
+                  title="Export complete database backup (JSON)"
+                >
+                  <Download
+                    className={`w-4 h-4 ${backupLoading ? "animate-spin" : ""}`}
+                  />
+                  <span className="text-sm font-medium">Backup</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      {/* Stats Cards - Now Clickable */}
+      {/* Stats Cards */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, index) => {

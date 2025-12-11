@@ -202,4 +202,89 @@ router.get('/activities', authenticateToken, async (req, res) => {
     }
 });
 
+// Export complete database backup (ADMIN ONLY)
+router.get('/backup', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id);
+
+        // Only admins can export full database
+        if (user.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Admin access required for database export'
+            });
+        }
+
+        // Fetch ALL data with populated references
+        const [
+            users,
+            categories,
+            channels,
+            packages,
+            subscribers,
+            otts,
+            credits
+        ] = await Promise.all([
+            // Users without password
+            User.find().select('-password -resetPasswordToken -resetPasswordExpires'),
+            Category.find().lean(),
+            Channel.find().populate('language genre').lean(),
+            Package.find().populate('genres channels').lean(),
+            Subscriber.find().populate('resellerId packages primaryPackageId').lean(),
+            Ott.find().populate('genre language').lean(),
+            Credit.find().populate('user', 'name email').lean()
+        ]);
+
+        // Create backup object with metadata
+        const backupData = {
+            metadata: {
+                exportDate: new Date().toISOString(),
+                totalRecords: {
+                    users: users.length,
+                    categories: categories.length,
+                    channels: channels.length,
+                    packages: packages.length,
+                    subscribers: subscribers.length,
+                    otts: otts.length,
+                    credits: credits.length
+                },
+                adminUser: {
+                    id: user._id,
+                    name: user.name,
+                    email: user.email
+                }
+            },
+            data: {
+                users,
+                categories,
+                channels,
+                packages,
+                subscribers,
+                otts,
+                credits
+            }
+        };
+
+        // Generate filename with current date
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
+        const filename = `iptv_backup_${dateStr}_${timeStr}.json`;
+
+        // Set headers for JSON download
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('Content-Type', 'application/json');
+
+        // Send JSON response as download
+        res.json(backupData);
+
+    } catch (error) {
+        console.error('❌ Backup export failed:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to export database backup'
+        });
+    }
+});
+
 export default router;

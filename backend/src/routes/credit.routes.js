@@ -1,4 +1,3 @@
-// backend/src/routes/credit.js
 import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import Credit from '../models/Credit.js';
@@ -13,7 +12,6 @@ router.get('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Resellers cannot access this page
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
                 success: false,
@@ -23,13 +21,10 @@ router.get('/', authenticateToken, async (req, res) => {
 
         let userIds = [];
 
-        // Role-based filtering
         if (currentUser.role === 'admin') {
-            // Admin sees all transactions
             const allUsers = await User.find().select('_id');
             userIds = allUsers.map(u => u._id);
         } else if (currentUser.role === 'distributor') {
-            // Distributor sees only their resellers' transactions
             const resellers = await User.find({
                 role: 'reseller',
                 createdBy: userId
@@ -38,8 +33,6 @@ router.get('/', authenticateToken, async (req, res) => {
         }
 
         let query = { user: { $in: userIds } };
-
-        // Add type filter
         if (type) {
             query.type = type;
         }
@@ -48,7 +41,6 @@ router.get('/', authenticateToken, async (req, res) => {
             .populate('user', 'name email role balance')
             .sort({ createdAt: -1 });
 
-        // Apply search filter after population
         let filteredCredits = credits;
         if (search) {
             const searchLower = search.toLowerCase();
@@ -79,7 +71,6 @@ router.get('/users', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Resellers cannot access this
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
                 success: false,
@@ -90,17 +81,17 @@ router.get('/users', authenticateToken, async (req, res) => {
         let users = [];
 
         if (currentUser.role === 'admin') {
-            // Admin can see all users (distributors and resellers)
+            // ADMIN: Can see distributors AND resellers
             users = await User.find({ role: { $in: ['distributor', 'reseller'] } })
-                .select('name email role balance')
+                .select('name email role balance createdBy')
                 .sort({ name: 1 });
         } else if (currentUser.role === 'distributor') {
-            // Distributor sees only their resellers
+            // DISTRIBUTOR: Can see ONLY their resellers
             users = await User.find({
                 role: 'reseller',
                 createdBy: userId
             })
-                .select('name email role balance')
+                .select('name email role balance createdBy')
                 .sort({ name: 1 });
         }
 
@@ -118,17 +109,17 @@ router.get('/users', authenticateToken, async (req, res) => {
     }
 });
 
-// Create credit transaction
+// Create credit transaction with role-based permissions
 router.post('/', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Resellers cannot create transactions
+        // RESSELLER: Cannot create ANY transactions
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
                 success: false,
-                message: 'You do not have permission to create credit transactions'
+                message: 'Resellers cannot create credit transactions'
             });
         }
 
@@ -149,7 +140,8 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        if (amount <= 0) {
+        const amountNum = parseFloat(amount);
+        if (amountNum <= 0) {
             return res.status(400).json({
                 success: false,
                 message: 'Amount must be greater than 0'
@@ -160,54 +152,66 @@ router.post('/', authenticateToken, async (req, res) => {
         if (!targetUser) {
             return res.status(404).json({
                 success: false,
-                message: 'User not found'
+                message: 'Target user not found'
             });
         }
 
-        // Check access permissions for distributor
-        if (currentUser.role === 'distributor') {
-            if (targetUser.role !== 'reseller' ||
-                targetUser.createdBy.toString() !== userId) {
-                return res.status(403).json({
+        // Role-based permission checks
+        const canPerformAction = checkTransferPermission(currentUser, targetUser);
+        if (!canPerformAction) {
+            return res.status(403).json({
+                success: false,
+                message: getPermissionErrorMessage(currentUser.role, targetUser.role)
+            });
+        }
+
+        // Balance validation & transfer
+        if (type === 'Debit') {
+            // DEBIT: Current user → Target user
+            if (currentUser.balance < amountNum) {
+                return res.status(400).json({
                     success: false,
-                    message: 'You can only manage credit for your resellers'
+                    message: `Insufficient balance. Your balance: ₹${currentUser.balance.toLocaleString('en-IN')}`
                 });
             }
+            currentUser.balance -= amountNum;
+            targetUser.balance += amountNum;
+        } else {
+            // REVERSE CREDIT: Target user → Current user
+            if (targetUser.balance < amountNum) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Target user insufficient balance. Their balance: ₹${targetUser.balance.toLocaleString('en-IN')}`
+                });
+            }
+            targetUser.balance -= amountNum;
+            currentUser.balance += amountNum;
         }
 
-        // Check balance for Reverse Credit
-        if (type === 'Reverse Credit' && targetUser.balance < amount) {
-            return res.status(400).json({
-                success: false,
-                message: `Insufficient balance. Current balance: ₹${targetUser.balance}`
-            });
-        }
+        // Save both users atomically
+        await Promise.all([currentUser.save(), targetUser.save()]);
 
-        // Create credit transaction
+        // Create audit record for TARGET user
         const credit = new Credit({
             type,
-            amount,
+            amount: amountNum,
             user: targetUserId
         });
-
         await credit.save();
-
-        // Update user balance
-        if (type === 'Debit') {
-            targetUser.balance += amount;
-        } else if (type === 'Reverse Credit') {
-            targetUser.balance -= amount;
-        }
-
-        await targetUser.save();
-
-        // Populate before sending
         await credit.populate('user', 'name email role balance');
+
+        console.log(`💰 ${type} ₹${amountNum}: ${currentUser.role}(${currentUser.name}) ${type === 'Debit' ? '→' : '←'} ${targetUser.role}(${targetUser.name})`);
 
         res.status(201).json({
             success: true,
-            message: 'Credit transaction created successfully',
-            data: { credit }
+            message: `${type} transaction completed successfully`,
+            data: {
+                credit,
+                senderBalance: currentUser.balance,
+                targetBalance: targetUser.balance,
+                senderName: currentUser.name,
+                targetName: targetUser.name
+            }
         });
 
     } catch (error) {
@@ -219,12 +223,42 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Delete credit transaction (optional - for admin only)
+// Permission validation functions
+function checkTransferPermission(sender, target) {
+    const senderRole = sender.role;
+    const targetRole = target.role;
+
+    // ADMIN can transfer to/from DISTRIBUTOR or RESELLER
+    if (senderRole === 'admin') {
+        return targetRole === 'distributor' || targetRole === 'reseller';
+    }
+
+    // DISTRIBUTOR can ONLY transfer to/from THEIR OWN RESELLERS
+    if (senderRole === 'distributor') {
+        return targetRole === 'reseller' && target.createdBy?.toString() === sender._id.toString();
+    }
+
+    // RESSELLER cannot transfer to anyone
+    return false;
+}
+
+function getPermissionErrorMessage(senderRole, targetRole) {
+    if (senderRole === 'reseller') {
+        return 'Resellers cannot create credit transactions';
+    }
+
+    if (senderRole === 'distributor') {
+        return `Distributors can only manage their own resellers (not ${targetRole}s)`;
+    }
+
+    return `Cannot perform this action with ${targetRole}`;
+}
+
+// Delete credit transaction (admin only)
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const currentUser = await User.findById(req.user.id);
 
-        // Only admin can delete
         if (currentUser.role !== 'admin') {
             return res.status(403).json({
                 success: false,
@@ -241,7 +275,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Reverse the balance change
         const targetUser = credit.user;
         if (credit.type === 'Debit') {
             targetUser.balance -= credit.amount;
