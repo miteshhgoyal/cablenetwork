@@ -14,37 +14,44 @@ import {
     Alert,
     TextInput,
     Linking,
-    TVEventHandler,
     Platform
 } from 'react-native';
 
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
-import { Video, ResizeMode } from 'expo-av';
+import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as Device from "expo-device";
 console.log("Mobies");
+let TVEventHandler = null;
+try {
+    TVEventHandler = require('react-native').TVEventHandler;
+} catch (e) {
+    TVEventHandler = null;
+}
 const isTV =
-  Device.deviceType === Device.DeviceType.TV ||
-  Device.modelName?.toLowerCase().includes("tv") ||
-  Device.deviceName?.toLowerCase().includes("tv") ||
-  Device.brand?.toLowerCase().includes("google");
+    Device.deviceType === Device.DeviceType.TV ||
+    Device.modelName?.toLowerCase().includes("tv") ||
+    Device.deviceName?.toLowerCase().includes("tv") ||
+    Device.brand?.toLowerCase().includes("google");
 
 if (isTV) {
     function assertDefined(name, value) {
-    if (value === undefined || value === null) {
-        throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
+        if (value === undefined || value === null) {
+            throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
+        }
     }
-}
-assertDefined('Ionicons', Ionicons);
-assertDefined('Video', Video);
-assertDefined('ResizeMode', ResizeMode);
-assertDefined('YoutubeView', YoutubeView);
-assertDefined('useYouTubePlayer', useYouTubePlayer);
-assertDefined('useYouTubeEvent', useYouTubeEvent);
-// assertDefined('TVEventHandler', TVEventHandler);
+    assertDefined('Ionicons', Ionicons);
+    assertDefined('Video', Video);
+    assertDefined('ResizeMode', ResizeMode);
+    assertDefined('YoutubeView', YoutubeView);
+    assertDefined('useYouTubePlayer', useYouTubePlayer);
+    assertDefined('useYouTubeEvent', useYouTubeEvent);
+    if (Platform.isTV && TVEventHandler) {
+        assertDefined('TVEventHandler', TVEventHandler);
+    }
 }
 const { width } = Dimensions.get('window');
 
@@ -529,126 +536,141 @@ export default function MoviesScreen() {
             );
         }
 
-        return (
-            <View className="w-full h-full bg-black relative">
-                {renderStreamTypeBadge(type)}
+        // expo-av for all non-YouTube streams
+        if (
+            type !== 'youtube-video' &&
+            type !== 'youtube-live' &&
+            type !== 'youtube-playlist' &&
+            type !== 'youtube-channel'
+        ) {
+            return (
+                <View className="w-full h-full bg-black relative">
+                    {renderStreamTypeBadge(type)}
 
-                {videoLoading && (
-                    <View className="absolute inset-0 bg-black items-center justify-center z-20">
-                        <ActivityIndicator size="large" color="#f97316" />
-                        <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
-                        <Text className="text-gray-400 mt-1 text-xs">
-                            {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
-                        </Text>
-                    </View>
-                )}
-
-                {videoError && (
-                    <View className="absolute inset-0 bg-black/90 items-center justify-center z-30 px-8">
-                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Stream Unavailable
-                        </Text>
-                        <Text className="text-gray-400 text-center mt-2 text-sm">
-                            {errorMessage}
-                        </Text>
-                        {bothAttemptsFailed && (
-                            <Text className="text-orange-500 text-center mt-4 text-base font-semibold">
-                                Use remote control to switch movies
+                    {videoLoading && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-20">
+                            <ActivityIndicator size="large" color="#f97316" />
+                            <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                            <Text className="text-gray-400 mt-1 text-xs">
+                                {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
                             </Text>
-                        )}
-                        {!bothAttemptsFailed && (
-                            <TouchableOpacity
-                                className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">Retry</Text>
-                            </TouchableOpacity>
-                        )}
-                        {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
-                            <TouchableOpacity
-                                className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setUseProxy(!useProxy);
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                    setProxyAttempted(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">
-                                    {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
+                        </View>
+                    )}
+
+                    {videoError && (
+                        <View className="absolute inset-0 bg-black/90 items-center justify-center z-30 px-8">
+                            <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                            <Text className="text-white text-center mt-4 text-lg font-semibold">
+                                Stream Unavailable
+                            </Text>
+                            <Text className="text-gray-400 text-center mt-2 text-sm">
+                                {errorMessage}
+                            </Text>
+                            {bothAttemptsFailed && (
+                                <Text className="text-orange-500 text-center mt-4 text-base font-semibold">
+                                    Use remote control to switch movies
                                 </Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                )}
+                            )}
+                            {!bothAttemptsFailed && (
+                                <TouchableOpacity
+                                    className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
+                                    onPress={() => {
+                                        setVideoError(false);
+                                        setVideoLoading(true);
+                                    }}
+                                >
+                                    <Text className="text-white font-semibold">Retry</Text>
+                                </TouchableOpacity>
+                            )}
+                            {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
+                                <TouchableOpacity
+                                    className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
+                                    onPress={() => {
+                                        setUseProxy(!useProxy);
+                                        setVideoError(false);
+                                        setVideoLoading(true);
+                                        setProxyAttempted(true);
+                                    }}
+                                >
+                                    <Text className="text-white font-semibold">
+                                        {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    )}
 
-                <Video
-                    key={currentStreamUrl}
-                    ref={videoRef}
-                    source={currentUrl}
-                    rate={1.0}
-                    volume={1.0}
-                    isMuted={false}
-                    resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={true}
-                    isLooping={false}
-                    useNativeControls={false}
-                    style={{ width: '100%', height: '100%' }}
-                    onLoad={() => {
-                        setVideoLoading(false);
-                        setVideoError(false);
-                        setBothAttemptsFailed(false);
-                    }}
-                    onError={(error) => {
-                        handleStreamError();
-                    }}
-                    onLoadStart={() => {
-                        setVideoLoading(true);
-                        setVideoError(false);
-                    }}
-                />
+                    <Video
+                        ref={videoRef}
+                        source={{ uri: currentUrl.uri, headers: currentUrl.headers }}
+                        style={{ width: '100%', height: '100%', backgroundColor: 'black' }}
+                        useNativeControls
+                        resizeMode="contain"
+                        shouldPlay
+                        onLoadStart={() => setVideoLoading(true)}
+                        onReadyForDisplay={() => setVideoLoading(false)}
+                        onError={e => {
+                            setVideoError(true);
+                            setVideoLoading(false);
+                            setErrorMessage(
+                                'Video Error: ' + (e?.nativeEvent?.error || 'Playback failed')
+                            );
+                        }}
+                        onPlaybackStatusUpdate={status => {
+                            if (status.isLoaded) {
+                                if (status.isPlaying) {
+                                    setVideoLoading(false);
+                                    setVideoError(false);
+                                    setBothAttemptsFailed(false);
+                                }
+                            } else if (status.error) {
+                                setVideoError(true);
+                                setVideoLoading(false);
+                                setErrorMessage(
+                                    'Video Error: ' + (status.error || 'Playback failed')
+                                );
+                            }
+                        }}
+                    />
 
-                {/* Movie Info Overlay */}
-                <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
-                    <View className="flex-row items-start">
-                        <Image
-                            source={{ uri: selectedMovie.verticalUrl }}
-                            className="w-24 h-36 rounded-lg bg-gray-800 mr-4"
-                            resizeMode="cover"
-                        />
-                        <View className="flex-1">
-                            <Text className="text-white text-2xl font-bold mb-2" numberOfLines={2}>
-                                {selectedMovie.title}
-                            </Text>
-                            <View className="flex-row items-center flex-wrap">
-                                <View className="bg-orange-500 px-3 py-1 rounded-full mr-2 mb-2">
-                                    <Text className="text-white font-bold text-xs">{selectedMovie.genre?.name}</Text>
-                                </View>
-                                <View className="bg-gray-700 px-3 py-1 rounded-full mr-2 mb-2">
-                                    <Text className="text-gray-200 font-semibold text-xs">{selectedMovie.language?.name}</Text>
-                                </View>
-                                <View className="bg-gray-700 px-3 py-1 rounded-full mb-2 flex-row items-center">
-                                    <Ionicons name="star" size={12} color="#f59e0b" />
-                                    <Text className="text-gray-200 font-semibold text-xs ml-1">HD</Text>
+                    {/* Movie Info Overlay */}
+                    <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
+                        <View className="flex-row items-start">
+                            <Image
+                                source={{ uri: selectedMovie.verticalUrl }}
+                                className="w-24 h-36 rounded-lg bg-gray-800 mr-4"
+                                resizeMode="cover"
+                            />
+                            <View className="flex-1">
+                                <Text className="text-white text-2xl font-bold mb-2" numberOfLines={2}>
+                                    {selectedMovie.title}
+                                </Text>
+                                <View className="flex-row items-center flex-wrap">
+                                    <View className="bg-orange-500 px-3 py-1 rounded-full mr-2 mb-2">
+                                        <Text className="text-white font-bold text-xs">{selectedMovie.genre?.name}</Text>
+                                    </View>
+                                    <View className="bg-gray-700 px-3 py-1 rounded-full mr-2 mb-2">
+                                        <Text className="text-gray-200 font-semibold text-xs">{selectedMovie.language?.name}</Text>
+                                    </View>
+                                    <View className="bg-gray-700 px-3 py-1 rounded-full mb-2 flex-row items-center">
+                                        <Ionicons name="star" size={12} color="#f59e0b" />
+                                        <Text className="text-gray-200 font-semibold text-xs ml-1">HD</Text>
+                                    </View>
                                 </View>
                             </View>
-                        </View>
 
-                        {/* Menu Button */}
-                        <TouchableOpacity
-                            onPress={() => setShowUserMenu(true)}
-                            className="bg-gray-800/80 p-3 rounded-full ml-2"
-                        >
-                            <Ionicons name="menu" size={24} color="#f97316" />
-                        </TouchableOpacity>
+                            {/* Menu Button */}
+                            <TouchableOpacity
+                                onPress={() => setShowUserMenu(true)}
+                                className="bg-gray-800/80 p-3 rounded-full ml-2"
+                            >
+                                <Ionicons name="menu" size={24} color="#f97316" />
+                            </TouchableOpacity>
+                        </View>
                     </View>
                 </View>
-            </View>
-        );
+            );
+        }
     };
 
     const handleMovieChange = (movie) => {
@@ -730,10 +752,10 @@ export default function MoviesScreen() {
                                         <TouchableOpacity
                                             key={movie._id}
                                             className={`mr-4 rounded-lg overflow-hidden ${isPlaying
-                                                    ? 'border-2 border-orange-500'
-                                                    : isFocused
-                                                        ? 'border-2 border-orange-500 opacity-80'
-                                                        : ''
+                                                ? 'border-2 border-orange-500'
+                                                : isFocused
+                                                    ? 'border-2 border-orange-500 opacity-80'
+                                                    : ''
                                                 }`}
                                             style={{ width: 120 }}
                                             onPress={() => handleMovieChange(movie)}

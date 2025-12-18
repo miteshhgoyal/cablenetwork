@@ -1,10 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { Stack, useSegments, useRouter } from 'expo-router';
 import { StatusBar, View, ActivityIndicator, Text } from 'react-native';
-import { AuthProvider, useAuth } from '@/context/authContext';
+import { AuthProvider, useAuth } from '../context/authContext';
 import { Calendar, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import './globals.css';
 
 function MainLayout() {
     const { isAuthenticated, loading, subscriptionStatus, checkSubscriptionStatus, user } = useAuth();
@@ -13,6 +12,11 @@ function MainLayout() {
     const [checking, setChecking] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
     const [statusChecked, setStatusChecked] = useState(false);
+
+    // Debug logging
+    useEffect(() => {
+        console.log('Auth state:', { loading, isAuthenticated, subscriptionStatus, statusChecked, checking, showSplash, user });
+    }, [loading, isAuthenticated, subscriptionStatus, statusChecked, checking, showSplash, user]);
 
     // 1) lock orientation
     useEffect(() => {
@@ -80,7 +84,7 @@ console.log("navigation based on state");
         const currentRoute = segments.join('/');
         if (currentRoute.includes('sitemap') || currentRoute.includes('+not-found') || currentRoute.includes('_sitemap')) {
             if (isAuthenticated && subscriptionStatus === 'ACTIVE') {
-                router.replace('/(tabs)/index');
+                router.replace('/(tabs)');
             } else if (!isAuthenticated) {
                 router.replace('/(auth)/signin');
             }

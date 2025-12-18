@@ -2,6 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
     View,
     Text,
+    Image,
     TouchableOpacity,
     Modal,
     ScrollView,
@@ -12,15 +13,24 @@ import {
     AppState,
     FlatList,
     TextInput,
-    TVEventHandler,
     Platform,
+    Dimensions,
 } from 'react-native';
 // import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Video, ResizeMode } from 'expo-av';
+import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
+import debounce from 'lodash.debounce';
+
+
+let TVEventHandler = null;
+try {
+    TVEventHandler = require('react-native').TVEventHandler;
+} catch (e) {
+    TVEventHandler = null;
+}
 
 function assertDefined(name, value) {
     if (value === undefined || value === null) {
@@ -28,15 +38,49 @@ function assertDefined(name, value) {
     }
 }
 
+function startLiveTranscode(channel, inputUrl) {
+    const channelDir = path.join(LIVE_HLS_DIR, channel);
+    if (!fs.existsSync(channelDir)) fs.mkdirSync(channelDir, { recursive: true });
+
+    // Prevent multiple FFmpeg processes for the same channel
+    const lockFile = path.join(channelDir, 'ffmpeg.lock');
+    if (fs.existsSync(lockFile)) return;
+
+    fs.writeFileSync(lockFile, 'running');
+
+    const ffmpeg = spawn('ffmpeg', [
+        '-i', inputUrl,                // <-- your live stream URL here
+        '-c:v', 'libx264',
+        '-c:a', 'aac',
+        '-f', 'hls',
+        '-hls_time', '6',
+        '-hls_list_size', '6',
+        '-hls_flags', 'delete_segments',
+        '-hls_segment_filename', `${channelDir}/segment_%03d.ts`,
+        `${channelDir}/output.m3u8`
+    ]);
+
+    ffmpeg.stderr.on('data', data => console.log(`[FFmpeg ${channel}]: ${data}`));
+    ffmpeg.on('close', code => {
+        console.log(`[FFmpeg ${channel}] exited with code ${code}`);
+        fs.unlinkSync(lockFile);
+    });
+}
+
 assertDefined('Ionicons', Ionicons);
-assertDefined('Video', Video);
-assertDefined('ResizeMode', ResizeMode);
 assertDefined('YoutubeView', YoutubeView);
 assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
-assertDefined('TVEventHandler', TVEventHandler);
+if (Platform.isTV && TVEventHandler) {
+    assertDefined('TVEventHandler', TVEventHandler);
+}
+
+// Player height scales to 65% of the window height so it fits large TV screens
+const windowHeight = Dimensions.get('window').height;
+const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65)); // min fallback
 
 export default function Index() {
+    console.log('Platform.isTV:', Platform.isTV);
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
 
     const [selectedChannel, setSelectedChannel] = useState(null);
@@ -50,6 +94,9 @@ export default function Index() {
     const [currentStreamUrl, setCurrentStreamUrl] = useState('');
     const [focusedCategory, setFocusedCategory] = useState(0);
     const [focusedChannelIndex, setFocusedChannelIndex] = useState(0);
+    const [isCategoryFocused, setIsCategoryFocused] = useState(true);
+    const [channelNumberInput, setChannelNumberInput] = useState('');
+    const channelNumberTimeout = useRef(null);
 
     const videoRef = useRef(null);
     const tvEventHandler = useRef(null);
@@ -87,15 +134,31 @@ export default function Index() {
 
     // TV Remote Control Handler
     useEffect(() => {
-        if (Platform.isTV) {
+        if (TVEventHandler && typeof TVEventHandler === 'function') {
             tvEventHandler.current = new TVEventHandler();
             tvEventHandler.current.enable(null, (component, evt) => {
+                console.log('TVEventHandler event:', evt);
+                // Handle number key input
+                if (evt && evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /^[0-9]$/.test(evt.eventKey)) {
+                    handleChannelNumberInput(evt.eventKey);
+                    return;
+                }
                 if (evt && evt.eventType === 'select') {
-                    const currentCategory = channelsByLanguage[focusedCategory];
-                    if (currentCategory) {
-                        const channel = currentCategory.channels[focusedChannelIndex];
-                        if (channel) {
-                            handleChannelChange(channel);
+                    if (isCategoryFocused) {
+                        setIsCategoryFocused(false);
+                        setFocusedChannelIndex(0);
+                        // Optionally: auto-play first channel in category
+                        const currentCategory = channelsByLanguage[focusedCategory];
+                        if (currentCategory && currentCategory.channels[0]) {
+                            debouncedHandleChannelChange(currentCategory.channels[0]);
+                        }
+                    } else {
+                        const currentCategory = channelsByLanguage[focusedCategory];
+                        if (currentCategory) {
+                            const channel = currentCategory.channels[focusedChannelIndex];
+                            if (channel) {
+                                handleChannelChange(channel);
+                            }
                         }
                     }
                 } else if (evt && evt.eventType === 'right') {
@@ -108,6 +171,9 @@ export default function Index() {
                     handleNavigateDown();
                 } else if (evt && evt.eventType === 'menu') {
                     setShowUserInfo(true);
+                } else if (evt && evt.eventType === 'back') {
+                    // Go back to category focus
+                    if (!isCategoryFocused) setIsCategoryFocused(true);
                 }
             });
 
@@ -117,32 +183,75 @@ export default function Index() {
                 }
             };
         }
-    }, [focusedCategory, focusedChannelIndex, channelsByLanguage]);
+    }, [isCategoryFocused, focusedCategory, focusedChannelIndex, channelsByLanguage]);
 
     const handleNavigateRight = () => {
-        const currentCategory = channelsByLanguage[focusedCategory];
-        if (currentCategory && focusedChannelIndex < currentCategory.channels.length - 1) {
-            setFocusedChannelIndex(focusedChannelIndex + 1);
+    const currentCategory = channelsByLanguage[focusedCategory];
+    if (currentCategory && focusedChannelIndex < currentCategory.channels.length - 1) {
+        const nextIndex = focusedChannelIndex + 1;
+        setFocusedChannelIndex(nextIndex);
+        const nextChannel = currentCategory.channels[nextIndex];
+        if (nextChannel) {
+            debouncedHandleChannelChange(nextChannel);
         }
-    };
+    }
+};
 
     const handleNavigateLeft = () => {
-        if (focusedChannelIndex > 0) {
-            setFocusedChannelIndex(focusedChannelIndex - 1);
+    const currentCategory = channelsByLanguage[focusedCategory];
+    if (currentCategory && focusedChannelIndex > 0) {
+        const prevIndex = focusedChannelIndex - 1;
+        setFocusedChannelIndex(prevIndex);
+        const prevChannel = currentCategory.channels[prevIndex];
+        if (prevChannel) {
+            debouncedHandleChannelChange(prevChannel);
         }
-    };
+    }
+};
 
+    // const handleNavigateDown = () => {
+    //     if (focusedCategory < channelsByLanguage.length - 1) {
+    //         setFocusedCategory(focusedCategory + 1);
+    //         setFocusedChannelIndex(0);
+    //     }
+    // };
     const handleNavigateDown = () => {
+    if (isCategoryFocused) {
+        if (focusedCategory < channelsByLanguage.length - 1) {
+            setFocusedCategory(focusedCategory + 1);
+        }
+    } else {
+        // setFocusedCategory(focusedCategory + 1);
+        //     setFocusedChannelIndex(0);
+        // Move to next category and focus its first channel
         if (focusedCategory < channelsByLanguage.length - 1) {
             setFocusedCategory(focusedCategory + 1);
             setFocusedChannelIndex(0);
+            // Optionally: auto-play first channel in new category
+            const nextCategory = channelsByLanguage[focusedCategory + 1];
+            if (nextCategory && nextCategory.channels[0]) {
+                debouncedHandleChannelChange(nextCategory.channels[0]);
+            }
         }
-    };
+    }
+};
 
-    const handleNavigateUp = () => {
-        if (focusedCategory > 0) {
-            setFocusedCategory(focusedCategory - 1);
-            setFocusedChannelIndex(0);
+        const handleNavigateUp = () => {
+        if (isCategoryFocused) {
+            if (focusedCategory > 0) {
+                setFocusedCategory(focusedCategory - 1);
+            }
+        } else {
+            // Move to previous category and focus its first channel
+            if (focusedCategory > 0) {
+                setFocusedCategory(focusedCategory - 1);
+                setFocusedChannelIndex(0);
+                // Optionally: auto-play first channel in new category
+                const prevCategory = channelsByLanguage[focusedCategory - 1];
+                if (prevCategory && prevCategory.channels[0]) {
+                    debouncedHandleChannelChange(prevCategory.channels[0]);
+                }
+            }
         }
     };
 
@@ -240,6 +349,13 @@ export default function Index() {
             ? selectedChannel.proxyUrl
             : selectedChannel.url;
 
+        console.log('[Stream Load]', {
+            channelName: selectedChannel.name,
+            streamType: type,
+            isProxy: useProxy && !!selectedChannel.proxyUrl,
+            finalUrl: baseUrl.substring(0, 100),
+        });
+
         return {
             uri: baseUrl,
             headers: {
@@ -267,7 +383,12 @@ export default function Index() {
 
                 if (videoRef.current) {
                     videoRef.current.unloadAsync().then(() => {
-                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true });
+                        console.log('[Video] Loading stream:', selectedChannel.name, 'URL:', newUrl?.uri?.substring(0, 60));
+                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true }).catch((err) => {
+                            console.error('[Video Load Error]', err.message || err);
+                        });
+                    }).catch((err) => {
+                        console.error('[Unload Error]', err);
                     });
                 } else if (currentStreamUrl) {
                     setCurrentStreamUrl(newUrlString);
@@ -279,11 +400,11 @@ export default function Index() {
     useEffect(() => {
         return () => {
             // Cleanup on component unmount
-            if (videoRef.current) {
-                videoRef.current.unloadAsync().catch(() => {
-                    console.log('Error unloading video on unmount');
-                });
-            }
+            // if (videoRef.current) {
+            //     videoRef.current.unloadAsync().catch(() => {
+            //         console.log('Error unloading video on unmount');
+            //     });
+            // }
 
             // Also reset state
             setSelectedChannel(null);
@@ -329,8 +450,21 @@ export default function Index() {
         });
 
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                    <Image
+                        source={{ uri: selectedChannel.imageUrl }}
+                        style={{
+                        position: 'absolute',
+                        bottom: 16,
+                        right: 16,
+                        width: 60, // adjust size as needed
+                        height: 60,
+                        opacity: 0.7, // optional: make watermark semi-transparent
+                        zIndex: 10,
+                        }}
+                        resizeMode="contain"
+                />
             </View>
         );
     };
@@ -358,7 +492,7 @@ export default function Index() {
         });
 
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
                     <Text className="text-white text-xs font-bold">LIVE</Text>
@@ -367,6 +501,38 @@ export default function Index() {
             </View>
         );
     };
+
+
+        const handleChannelNumberInput = (digit) => {
+            setChannelNumberInput(prev => {
+                const newInput = prev + digit;
+                // Reset timer
+                if (channelNumberTimeout.current) clearTimeout(channelNumberTimeout.current);
+                channelNumberTimeout.current = setTimeout(() => {
+                    playChannelByNumber(newInput);
+                    setChannelNumberInput('');
+                }, 1000); 
+                return newInput;
+            });
+        };
+
+        const playChannelByNumber = (numberStr) => {
+            const lcn = parseInt(numberStr, 10);
+            if (isNaN(lcn)) return;
+            for (let catIdx = 0; catIdx < channelsByLanguage.length; catIdx++) {
+                const category = channelsByLanguage[catIdx];
+                const chIdx = category.channels.findIndex(ch => ch.lcn === lcn);
+                if (chIdx !== -1) {
+                    setFocusedCategory(catIdx);
+                    setFocusedChannelIndex(chIdx);
+                    setIsCategoryFocused(false);
+                    debouncedHandleChannelChange(category.channels[chIdx]);
+                    return;
+                }
+            }
+            setErrorMessage(`Channel ${lcn} not found`);
+        };
+
 
     const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
@@ -394,7 +560,7 @@ export default function Index() {
         });
 
         return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
                 <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
                     <Text className="text-white text-xs font-bold">PLAYLIST</Text>
@@ -404,7 +570,7 @@ export default function Index() {
     };
 
     const YouTubeChannelPlayer = ({ url }) => (
-        <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+        <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
             <Ionicons name="logo-youtube" size={80} color="#ff0000" />
             <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
                 YouTube Channel Detected
@@ -458,7 +624,7 @@ export default function Index() {
 
         if (!isValid) {
             return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                     <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                     <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid stream URL</Text>
                     <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
@@ -472,7 +638,7 @@ export default function Index() {
             const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
                 return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                         <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
                     </View>
@@ -490,7 +656,7 @@ export default function Index() {
             const videoId = extractVideoId(selectedChannel.url);
             if (!videoId) {
                 return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                         <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
                     </View>
@@ -509,7 +675,7 @@ export default function Index() {
             const playlistId = extractPlaylistId(selectedChannel.url);
             if (!videoId || !playlistId) {
                 return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                         <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
                         <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
                     </View>
@@ -532,91 +698,120 @@ export default function Index() {
             );
         }
 
-        return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
-                {renderStreamTypeBadge(type)}
+        // expo-av Player for all non-YouTube streams
+        if (
+            type !== 'youtube-video' &&
+            type !== 'youtube-live' &&
+            type !== 'youtube-playlist' &&
+            type !== 'youtube-channel'
+        ) {
+            return (
+                <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
+                    {renderStreamTypeBadge(type)}
 
-                {videoLoading && (
-                    <View className="absolute inset-0 bg-black items-center justify-center z-20">
-                        <ActivityIndicator size="large" color="#f97316" />
-                        <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
-                        <Text className="text-gray-400 mt-1 text-xs">
-                            {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
-                        </Text>
-                    </View>
-                )}
-
-                {videoError && (
-                    <View className="absolute inset-0 bg-black items-center justify-center z-30">
-                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">
-                            Stream Error
-                        </Text>
-                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
-                            {errorMessage || 'Unable to load the stream'}
-                        </Text>
-                        {bothAttemptsFailed && (
-                            <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
-                                Use remote control to switch channels
+                    {videoLoading && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-20">
+                            <ActivityIndicator size="large" color="#f97316" />
+                            <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                            <Text className="text-gray-400 mt-1 text-xs">
+                                {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
                             </Text>
-                        )}
-                        {!bothAttemptsFailed && (
-                            <TouchableOpacity
-                                className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">Retry</Text>
-                            </TouchableOpacity>
-                        )}
-                        {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
-                            <TouchableOpacity
-                                className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
-                                onPress={() => {
-                                    setUseProxy(!useProxy);
-                                    setVideoError(false);
-                                    setVideoLoading(true);
-                                    setProxyAttempted(true);
-                                }}
-                            >
-                                <Text className="text-white font-semibold">
-                                    {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
-                                </Text>
-                            </TouchableOpacity>
-                        )}
-                    </View>
-                )}
+                        </View>
+                    )}
 
-                <Video
-                    key={currentStreamUrl}
-                    ref={videoRef}
-                    source={currentUrl}
-                    rate={1.0}
-                    volume={1.0}
-                    isMuted={false}
-                    resizeMode={ResizeMode.CONTAIN}
-                    shouldPlay={true}
-                    isLooping={false}
-                    useNativeControls
-                    style={{ width: '100%', height: 260 }}
-                    onLoad={() => {
-                        setVideoLoading(false);
-                        setVideoError(false);
-                        setBothAttemptsFailed(false);
-                    }}
-                    onError={(error) => {
-                        handleStreamError();
-                    }}
-                    onLoadStart={() => {
-                        setVideoLoading(true);
-                        setVideoError(false);
-                    }}
-                />
-            </View>
-        );
-    };
+                    {videoError && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                            <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                            <Text className="text-white text-center mt-4 text-lg font-semibold">
+                                Stream Error
+                            </Text>
+                            <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
+                                {errorMessage || 'Unable to load the stream'}
+                            </Text>
+                            {bothAttemptsFailed && (
+                                <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
+                                    Use remote control to switch channels
+                                </Text>
+                            )}
+                            {!bothAttemptsFailed && (
+                                <TouchableOpacity
+                                    className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
+                                    onPress={() => {
+                                        setVideoError(false);
+                                        setVideoLoading(true);
+                                    }}
+                                >
+                                    <Text className="text-white font-semibold">Retry</Text>
+                                </TouchableOpacity>
+                            )}
+                            {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
+                                <TouchableOpacity
+                                    className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
+                                    onPress={() => {
+                                        setUseProxy(!useProxy);
+                                        setVideoError(false);
+                                        setVideoLoading(true);
+                                        setProxyAttempted(true);
+                                    }}
+                                >
+                                    <Text className="text-white font-semibold">
+                                        {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
+                                    </Text>
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    )}
+
+                    <Video
+                        ref={videoRef}
+                        source={{ uri: currentUrl.uri, headers: currentUrl.headers }}
+                        style={{ width: '100%', height: '100%' }}
+                        useNativeControls
+                        resizeMode="contain"
+                        shouldPlay
+                        onLoadStart={() => setVideoLoading(true)}
+                        onReadyForDisplay={() => setVideoLoading(false)}
+                        onError={e => {
+                            setVideoError(true);
+                            setVideoLoading(false);
+                            setErrorMessage(
+                                'Video Error: ' + (e?.nativeEvent?.error || 'Playback failed')
+                            );
+                        }}
+                        onPlaybackStatusUpdate={status => {
+                            if (status.isLoaded) {
+                                if (status.isPlaying) {
+                                    setVideoLoading(false);
+                                    setVideoError(false);
+                                    setBothAttemptsFailed(false);
+                                }
+                            } else if (status.error) {
+                                setVideoError(true);
+                                setVideoLoading(false);
+                                setErrorMessage(
+                                    'Video Error: ' + (status.error || 'Playback failed')
+                                );
+                            }
+                        }}
+                    />
+
+                    <Image
+                        source={{ uri: selectedChannel.imageUrl }}
+                        style={{
+                            position: 'absolute',
+                            bottom: 16,
+                            right: 16,
+                            width: 60,
+                            height: 60,
+                            opacity: 0.7,
+                            zIndex: 10,
+                        }}
+                        resizeMode="contain"
+                    />
+                </View>
+            );
+        }
+    } // <-- Add this closing brace to end renderVideoPlayer
 
     const handleChannelChange = (channel) => {
         setSelectedChannel(channel);
@@ -628,10 +823,15 @@ export default function Index() {
         const { type } = analyzeStreamUrl(channel.url);
         setUseProxy(!type.startsWith('youtube'));
 
-        if (videoRef.current) {
-            videoRef.current.unloadAsync().catch(() => { });
-        }
+        // if (videoRef.current) {
+        //     videoRef.current.unloadAsync().catch(() => { });
+        // }
     };
+
+    const debouncedHandleChannelChange = useMemo(
+    () => debounce(handleChannelChange, 200),
+    []
+);
 
     const handleLogout = () => {
         Alert.alert(
@@ -681,8 +881,56 @@ export default function Index() {
         <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" hidden />
 
+            {/* Channel Number Input Overlay - render at root level */}
+            {channelNumberInput !== '' && (
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: 60,
+                        left: 0,
+                        right: 0,
+                        alignItems: 'center',
+                        zIndex: 100,
+                    }}
+                    pointerEvents="none"
+                >
+                    <View
+                        style={{
+                            backgroundColor: 'rgba(0,0,0,0.85)',
+                            borderRadius: 16,
+                            paddingHorizontal: 32,
+                            paddingVertical: 18,
+                            borderWidth: 2,
+                            borderColor: '#f97316',
+                        }}
+                    >
+                        <Text
+                            style={{
+                                color: '#fff',
+                                fontSize: 48,
+                                fontWeight: 'bold',
+                                letterSpacing: 4,
+                                textAlign: 'center',
+                            }}
+                        >
+                            {channelNumberInput}
+                        </Text>
+                        <Text
+                            style={{
+                                color: '#f97316',
+                                fontSize: 16,
+                                textAlign: 'center',
+                                marginTop: 4,
+                            }}
+                        >
+                            Enter Channel Number
+                        </Text>
+                    </View>
+                </View>
+            )}
+
             {/* Video Player - Full Width Top Section (65%) */}
-            <View style={{ height: '65%', width: '100%' }}>
+            <View style={{ height: PLAYER_HEIGHT, width: '100%' }}>
                 {renderVideoPlayer()}
 
                 {/* Channel Info Overlay */}
@@ -710,6 +958,20 @@ export default function Index() {
                             >
                                 <Ionicons name="person-circle" size={28} color="#f97316" />
                             </TouchableOpacity>
+                            {/*Water Mark channel logo */}
+                            <Image
+                                source={{ uri: selectedChannel.imageUrl }}
+                                style={{
+                                position: 'absolute',
+                                bottom: 16,
+                                right: 16,
+                                width: 60, // adjust size as needed
+                                height: 60,
+                                opacity: 0.7, // optional: make watermark semi-transparent
+                                zIndex: 10,
+                                }}
+                                resizeMode="contain"
+                            />
                         </View>
                     </View>
                 )}
@@ -724,19 +986,22 @@ export default function Index() {
                     {channelsByLanguage.map((category, categoryIndex) => (
                         <View key={category.language} className="mb-4">
                             <View className="flex-row items-center justify-between px-6 mb-3">
-                                <Text className="text-white text-lg font-bold">
-                                    {category.language}
-                                </Text>
+                                <Text
+  className={`text-white text-lg font-bold ${isCategoryFocused && focusedCategory === categoryIndex ? 'bg-orange-500 px-2 rounded' : ''}`}
+>
+  {category.language}
+</Text>
                                 <Text className="text-gray-500 text-sm">
                                     {category.channels.length} channels
                                 </Text>
                             </View>
-                            <ScrollView
+                            <FlatList
+                                data={category.channels}
+                                keyExtractor={item => item._id}
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
                                 contentContainerStyle={{ paddingHorizontal: 24 }}
-                            >
-                                {category.channels.map((channel, channelIndex) => {
+                                renderItem={({ item: channel, index: channelIndex }) => {
                                     const isFocused = focusedCategory === categoryIndex && focusedChannelIndex === channelIndex;
                                     const isPlaying = selectedChannel?._id === channel._id;
 
@@ -750,9 +1015,41 @@ export default function Index() {
                                                     : 'bg-gray-800'
                                                 }`}
                                             style={{ width: 140 }}
-                                            onPress={() => handleChannelChange(channel)}
+                                            onPress={() => debouncedHandleChannelChange(channel)}
                                             hasTVPreferredFocus={categoryIndex === 0 && channelIndex === 0}
                                         >
+                                        {(() => {
+                                            const thumb = channel.imageUrl || channel.logo || channel.image || channel.thumbnail || channel.poster || channel.thumb || null;
+
+                                            return thumb ? (
+                                                <Image
+                                                    source={{ uri: thumb }}
+                                                    style={{
+                                                        width: '100%',
+                                                        height: 84,
+                                                        borderRadius: 8,
+                                                        marginBottom: 8,
+                                                        backgroundColor: '#111',
+                                                    }}
+                                                    resizeMode="cover"
+                                                />
+                                            ) : (
+                                                <View
+                                                    style={{
+                                                        width: '100%',
+                                                        height: 84,
+                                                        borderRadius: 8,
+                                                        backgroundColor: '#111',
+                                                        alignItems: 'center',
+                                                        justifyContent: 'center',
+                                                        marginBottom: 8,
+                                                    }}
+                                                >
+                                                    <Ionicons name="tv-outline" size={36} color="#6b7280" />
+                                                </View>
+                                            );
+                                        })()}
+
                                             <View className="flex-row items-center justify-between mb-2">
                                                 <View className={`px-2 py-1 rounded ${isPlaying ? 'bg-white/20' : 'bg-gray-700'}`}>
                                                     <Text className={`text-xs font-bold ${isPlaying ? 'text-white' : 'text-gray-300'}`}>
@@ -775,8 +1072,11 @@ export default function Index() {
                                             </Text>
                                         </TouchableOpacity>
                                     );
-                                })}
-                            </ScrollView>
+                                }}
+                                initialNumToRender={6}
+                                windowSize={3}
+                                 removeClippedSubviews={true}
+                            />
                         </View>
                     ))}
                 </ScrollView>
@@ -929,6 +1229,7 @@ export default function Index() {
                                 </TouchableOpacity>
                             )}
 
+                            {/*  Key Action*/}
                             {serverInfo?.customButtonLink && serverInfo?.customButtonText && (
                                 <TouchableOpacity
                                     className="bg-blue-600 py-4 rounded-xl items-center mb-3"

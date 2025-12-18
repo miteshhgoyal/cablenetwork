@@ -1,12 +1,10 @@
 import { ActivityIndicator, View } from "react-native";
-import { useEffect } from "react";
-import * as ScreenOrientation from 'expo-screen-orientation';
 
+/**
+ * Placeholder splash/loading screen.
+ * Navigation and orientation are handled in _layout.js.
+ */
 function Index() {
-    useEffect(() => {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-    }, []);
-
     return (
         <View className="flex-1 bg-black justify-center items-center">
             <ActivityIndicator size="large" color="#f97316" />

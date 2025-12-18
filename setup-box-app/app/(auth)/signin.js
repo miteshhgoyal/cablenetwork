@@ -27,12 +27,31 @@ const Signin = () => {
     const router = useRouter();
 
 useEffect(() => {
+  const check = async () => {
+    try {
+      const r1 = await fetch('https://google.com');
+      console.log('FETCH google ok', r1.status);
+    } catch (e) {
+      console.log('FETCH google error', e?.message || e);
+    }
+    try {
+      const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
+      const text = await r2.text();
+      console.log('FETCH health', r2.status, text);
+    } catch (e) {
+      console.log('FETCH health error', e?.message || e);
+    }
+  };
+  check();
+}, []);
+
+useEffect(() => {
     if (!isAuthenticated) return;
     // if (loading) return;
     if (subscriptionStatus !== 'ACTIVE') return;
 
     console.log("Redirect → user authenticated & ACTIVE");
-    // router.replace('/(tabs)/index');
+    router.replace('/(tabs)');
 
 }, [ isAuthenticated, subscriptionStatus]);
 
@@ -56,7 +75,7 @@ useEffect(() => {
 
     const handleSubmit = async (useCustomMac = false) => {
         setError('');
-        const finalCode = partnerCode.trim() || "1001";
+        const finalCode = partnerCode.trim() || "2001";
 
 
         if (useCustomMac && !customMac.trim()) {
@@ -87,15 +106,15 @@ useEffect(() => {
                 macAddress: useCustomMac ? customMac.trim() : mac,
                 customMac: useCustomMac ? customMac.trim() : null,
             };
-            
+            console.log(finalDeviceInfo+"→ "+finalCode);
             const result = await login(finalCode.trim(), finalDeviceInfo);
-
+            console.log(result);
             if (result.success) {
                 
                  setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
                  setShowCustomMacModal(false);
                  setCustomMac('');
-                 router.replace('/(tabs)/index'); 
+                 router.replace('/(tabs)'); 
             } else {
                 if (result.data?.canUseCustomMac && (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED')) {
                     setInactiveMessage(result.message);

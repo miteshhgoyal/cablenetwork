@@ -2,9 +2,7 @@ pluginManagement {
   def reactNativeGradlePlugin = new File(
     providers.exec {
       workingDir(rootDir)
-      // commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
-    commandLine("node", "--print", "try{console.log(require.resolve('@react-native/gradle-plugin/package.json',{paths:[require.resolve('react-native/package.json')]}));}catch(e){console.log('');}")
-
+      commandLine("node", "--print", "require.resolve('@react-native/gradle-plugin/package.json', { paths: [require.resolve('react-native/package.json')] })")
     }.standardOutput.asText.get().trim()
   ).getParentFile().absolutePath
   includeBuild(reactNativeGradlePlugin)
