@@ -91,7 +91,7 @@ router.get('/users', authenticateToken, async (req, res) => {
 
         if (currentUser.role === 'admin') {
             // Admin can see all users (distributors and resellers)
-            users = await User.find({ role: { $in: ['distributor', 'reseller'] } })
+            users = await User.find({ role: { $in: ['admin','distributor', 'reseller'] } })
                 .select('name email role balance')
                 .sort({ name: 1 });
         } else if (currentUser.role === 'distributor') {
@@ -134,8 +134,8 @@ router.post('/', authenticateToken, async (req, res) => {
 
         const { type, amount, user: targetUserId } = req.body;
 
-        // Validation
-        if (!type || !amount || !targetUserId) {
+        // Basic presence validation
+        if (!type || amount == null || !targetUserId) {
             return res.status(400).json({
                 success: false,
                 message: 'Type, amount, and user are required'
@@ -149,10 +149,12 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        if (amount <= 0) {
+        // Coerce amount to number and validate
+        const amt = Number(amount);
+        if (Number.isNaN(amt) || amt <= 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Amount must be greater than 0'
+                message: 'Amount must be a positive number'
             });
         }
 
@@ -183,20 +185,23 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Create credit transaction
+        // Create credit transaction (store numeric amount)
         const credit = new Credit({
             type,
-            amount,
+            amount: amt,
             user: targetUserId
         });
 
         await credit.save();
 
-        // Update user balance
+        // Ensure numeric balance and apply change
+        const beforeBalance = Number(targetUser.balance || 0);
+        console.log(`Updating balance for user ${targetUser._id}: before=${beforeBalance}, amt=${amt}, type=${type}`);
         if (type === 'Debit') {
-            targetUser.balance += amount;
+            targetUser.balance = beforeBalance + amt;
         } else if (type === 'Reverse Credit') {
-            targetUser.balance -= amount;
+            // Prevent negative balance (secondary guard)
+            targetUser.balance = beforeBalance - amt;
         }
 
         await targetUser.save();
@@ -241,14 +246,19 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Reverse the balance change
+        // Reverse the balance change (use numeric arithmetic)
         const targetUser = credit.user;
-        if (credit.type === 'Debit') {
-            targetUser.balance -= credit.amount;
-        } else if (credit.type === 'Reverse Credit') {
-            targetUser.balance += credit.amount;
-        }
+        const amt = Number(credit.amount) || 0;
+        const before = Number(targetUser.balance || 0);
+        console.log(`Reversing credit ${credit._id} for user ${targetUser._id}: before=${before}, amt=${amt}, type=${credit.type}`);
 
+        if (credit.type === 'Debit') {
+            targetUser.balance = before - amt;
+        } else if (credit.type === 'Reverse Credit') {
+            targetUser.balance = before + amt;
+        }  
+
+        // Persist changes and remove the credit record
         await targetUser.save();
         await credit.deleteOne();
 

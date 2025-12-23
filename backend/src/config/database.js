@@ -3,17 +3,26 @@ import mongoose from 'mongoose';
 
 const connectDB = async () => {
     try {
-        const conn = await mongoose.connect(process.env.MONGODB_URI, {
+        const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URL || 'mongodb://127.0.0.1:27017/cablenetwork';
+
+        if (!process.env.MONGODB_URI && !process.env.MONGO_URL) {
+            console.warn('Warning: MONGODB_URI / MONGO_URL not set — falling back to local MongoDB at', mongoUri);
+            console.warn('Tip: create a .env in backend/ with MONGODB_URI="mongodb://user:pass@host:port/dbname"');
+        }
+
+        const conn = await mongoose.connect(mongoUri, {
             useNewUrlParser: true,
             useUnifiedTopology: true,
         });
+
         console.log(`MongoDB Connected: ${conn.connection.host}`);
 
         // Seed admin user after successful connection
         await seedAdminUser();
 
     } catch (error) {
-        console.error('Database connection error:', error);
+        console.error('Database connection error:', error.message || error);
+        console.error('Ensure MONGODB_URI is set in backend/.env or that a local MongoDB is running.');
         process.exit(1);
     }
 };

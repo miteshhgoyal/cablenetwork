@@ -22,6 +22,7 @@ router.get('/', authenticateToken, async (req, res) => {
         const packages = await Package.find(query)
             .populate('genres', 'name')
             .populate('channels', 'name lcn')
+            .populate('defaultChannelId', 'name lcn')
             .sort({ createdAt: -1 });
 
         res.json({
@@ -61,9 +62,11 @@ router.get('/options', authenticateToken, async (req, res) => {
 // Get single package
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
+
         const packaze = await Package.findById(req.params.id)
             .populate('genres', 'name')
-            .populate('channels', 'name lcn');
+            .populate('channels', 'name lcn')
+            .populate('defaultChannelId', 'name lcn');
 
         if (!packaze) {
             return res.status(404).json({
@@ -99,7 +102,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        const { name, cost, genres, channels, duration } = req.body;
+        const { name, cost, genres, channels, duration, defaultChannelId } = req.body;
 
         // Validation
         if (!name || !cost || !duration) {
@@ -129,12 +132,22 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
+        // Validate defaultChannelId is in channels
+        if (defaultChannelId && (!channels || !channels.includes(defaultChannelId))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Default channel must be one of the selected channels.'
+            });
+        }
+
         const packaze = new Package({
             name: name.trim(),
             cost,
             genres: genres || [],
             channels: channels || [],
-            duration
+            duration,
+            defaultChannelId: defaultChannelId || null
         });
 
         await packaze.save();
@@ -142,6 +155,7 @@ router.post('/', authenticateToken, async (req, res) => {
         // Populate before sending response
         await packaze.populate('genres', 'name');
         await packaze.populate('channels', 'name lcn');
+        await packaze.populate('defaultChannelId', 'name lcn');
 
         res.status(201).json({
             success: true,
@@ -171,7 +185,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        const { name, cost, genres, channels, duration } = req.body;
+        const { name, cost, genres, channels, duration, defaultChannelId } = req.body;
 
         // Validation
         if (!name || !cost || !duration) {
@@ -211,17 +225,28 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
+        // Validate defaultChannelId is in channels
+        if (defaultChannelId && (!channels || !channels.includes(defaultChannelId))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Default channel must be one of the selected channels.'
+            });
+        }
+
         packaze.name = name.trim();
         packaze.cost = cost;
         packaze.genres = genres || [];
         packaze.channels = channels || [];
         packaze.duration = duration;
+        packaze.defaultChannelId = defaultChannelId || null;
 
         await packaze.save();
 
         // Populate before sending response
         await packaze.populate('genres', 'name');
         await packaze.populate('channels', 'name lcn');
+        await packaze.populate('defaultChannelId', 'name lcn');
 
         res.json({
             success: true,
