@@ -13,9 +13,26 @@ import {
   Lock,
   Unlock,
   AlertCircle,
+  ShieldOff,
 } from "lucide-react";
 
+
+
 const Channels = () => {
+  const [allUrlsEnabled, setAllUrlsEnabled] = useState(null);
+
+  const handleToggleAllUrls = async (enable) => {
+    if (userRole !== "admin") return;
+    setAllUrlsEnabled(enable);
+    try {
+      await api.patch("/channels/toggle-all-urls-access", { enable });
+      fetchChannels();
+    } catch (error) {
+      alert(error.response?.data?.message || "Failed to toggle all URLs");
+    } finally {
+      setAllUrlsEnabled(null);
+    }
+  };
   const [channels, setChannels] = useState([]);
   const [languages, setLanguages] = useState([]);
   const [genres, setGenres] = useState([]);
@@ -80,6 +97,7 @@ const Channels = () => {
         imageUrl: channel.imageUrl || "",
       });
     } else {
+      setSelectedChannel(null);
       setFormData({
         name: "",
         lcn: "",
@@ -145,9 +163,7 @@ const Channels = () => {
 
     setUrlAccessToggling(channel._id);
     try {
-      const response = await api.patch(
-        `/channels/${channel._id}/toggle-urls-access`
-      );
+      await api.patch(`/channels/${channel._id}/toggle-urls-access`);
       fetchChannels();
     } catch (error) {
       console.error("Toggle URL access error:", error);
@@ -169,6 +185,11 @@ const Channels = () => {
     if (userRole === "admin") return true;
     if (userRole === "distributor") return true;
     return canAccessUrls;
+  };
+
+  // Only admin can edit LCN
+  const canEditLcn = () => {
+    return userRole === "admin";
   };
 
   // Group channels by language
@@ -215,13 +236,27 @@ const Channels = () => {
               </div>
             </div>
             {userRole === "admin" && (
-              <button
-                onClick={() => handleOpenModal("create")}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Channel</span>
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleOpenModal("create")}
+                  className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Channel</span>
+                </button>
+                <button
+                  onClick={() => {
+                    const allDisabled = channels.every(c => !c.urlsAccessible);
+                    handleToggleAllUrls(allDisabled);
+                  }}
+                  disabled={allUrlsEnabled !== null}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all disabled:opacity-50 ${channels.every(c => !c.urlsAccessible) ? 'bg-green-600 text-white hover:bg-green-700' : 'bg-red-600 text-white hover:bg-red-700'}`}
+                  title={channels.every(c => !c.urlsAccessible) ? 'Enable URL editing for all channels' : 'Disable URL editing for all channels'}
+                >
+                  {channels.every(c => !c.urlsAccessible) ? <Unlock className="w-4 h-4" /> : <ShieldOff className="w-4 h-4" />}
+                  <span>{channels.every(c => !c.urlsAccessible) ? 'Enable All URLs' : 'Disable All URLs'}</span>
+                </button>
+              </div>
             )}
           </div>
         </div>
@@ -429,9 +464,14 @@ const Channels = () => {
 
                 {/* LCN Number */}
                 <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    LCN Number
-                  </label>
+                  <div className="flex items-center space-x-2 mb-2">
+                    <label className="block text-sm font-semibold text-gray-700">
+                      LCN Number
+                    </label>
+                    {userRole !== "admin" && (
+                      <Lock className="w-4 h-4 text-gray-500" />
+                    )}
+                  </div>
                   <input
                     type="number"
                     value={formData.lcn}
@@ -439,9 +479,19 @@ const Channels = () => {
                       setFormData({ ...formData, lcn: e.target.value })
                     }
                     placeholder="Enter LCN"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    disabled={!canEditLcn()}
+                    className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                      !canEditLcn()
+                        ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                        : "bg-gray-50 border-gray-200"
+                    }`}
                     required
                   />
+                  {userRole !== "admin" && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      Only administrators can modify LCN numbers.
+                    </p>
+                  )}
                 </div>
 
                 {/* Language Dropdown */}
@@ -636,6 +686,6 @@ const Channels = () => {
       )}
     </div>
   );
-};
-
+// (removed stray brace)
+};  
 export default Channels;

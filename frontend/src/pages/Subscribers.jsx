@@ -25,22 +25,24 @@ const Subscribers = () => {
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [resellerFilter, setResellerFilter] = useState("");
+  const [filterOption, setFilterOption] = useState("");
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showActivateModal, setShowActivateModal] = useState(false);
+  const [showRenewModal, setShowRenewModal] = useState(false);
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [renewExpiryDate, setRenewExpiryDate] = useState("");
 
-  // ✅ UPDATED: packages array instead of single package
   const [formData, setFormData] = useState({
     subscriberName: "",
     macAddress: "",
     serialNumber: "",
     status: "Active",
     expiryDate: "",
-    packages: [], // ✅ Changed from 'package' to 'packages'
+    packages: [],
   });
 
   useEffect(() => {
@@ -49,7 +51,7 @@ const Subscribers = () => {
     if (user.role !== "reseller") {
       fetchResellers();
     }
-  }, [statusFilter, resellerFilter]);
+  }, [statusFilter, resellerFilter, filterOption]);
 
   const fetchSubscribers = async () => {
     try {
@@ -90,7 +92,6 @@ const Subscribers = () => {
     setShowViewModal(true);
   };
 
-  // ✅ UPDATED: Handle multiple packages
   const handleEdit = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setFormData({
@@ -99,7 +100,7 @@ const Subscribers = () => {
       serialNumber: subscriber.serialNumber,
       status: subscriber.status,
       expiryDate: new Date(subscriber.expiryDate).toISOString().split("T")[0],
-      packages: subscriber.packages?.map((pkg) => pkg._id) || [], // ✅ Array of package IDs
+      packages: subscriber.packages?.map((pkg) => pkg._id) || [],
     });
     setShowEditModal(true);
   };
@@ -112,6 +113,14 @@ const Subscribers = () => {
   const handleActivateClick = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setShowActivateModal(true);
+  };
+
+  const handleRenewClick = (subscriber) => {
+    setSelectedSubscriber(subscriber);
+    setRenewExpiryDate(
+      new Date(subscriber.expiryDate).toISOString().split("T")[0]
+    );
+    setShowRenewModal(true);
   };
 
   const handleActivate = async () => {
@@ -131,10 +140,26 @@ const Subscribers = () => {
     }
   };
 
+  const handleRenew = async () => {
+    setSubmitting(true);
+    try {
+      await api.patch(`/subscribers/${selectedSubscriber._id}/renew`, {
+        expiryDate: renewExpiryDate,
+      });
+      fetchSubscribers();
+      setShowRenewModal(false);
+      setSelectedSubscriber(null);
+    } catch (error) {
+      console.error("Renew error:", error);
+      alert(error.response?.data?.message || "Renew failed");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleUpdate = async (e) => {
     e.preventDefault();
     setSubmitting(true);
-
     try {
       await api.put(`/subscribers/${selectedSubscriber._id}`, formData);
       fetchSubscribers();
@@ -165,12 +190,27 @@ const Subscribers = () => {
 
   const filteredSubscribers = subscribers.filter((subscriber) => {
     const searchLower = searchTerm.toLowerCase();
-    return (
+    const matchesSearch =
       subscriber.subscriberName.toLowerCase().includes(searchLower) ||
       subscriber.macAddress.toLowerCase().includes(searchLower) ||
       subscriber.serialNumber?.toLowerCase().includes(searchLower) ||
-      subscriber.resellerId?.name.toLowerCase().includes(searchLower)
-    );
+      subscriber.resellerId?.name.toLowerCase().includes(searchLower);
+
+    if (!filterOption) return matchesSearch;
+
+    const now = new Date();
+    const expiry = new Date(subscriber.expiryDate);
+
+    switch (filterOption) {
+      case "active":
+        return matchesSearch && expiry > now;
+      case "expired":
+        return matchesSearch && expiry < now;
+      case "fresh":
+        return matchesSearch && subscriber.status === "Fresh";
+      default:
+        return matchesSearch;
+    }
   });
 
   const getStatusColor = (status) => {
@@ -252,7 +292,7 @@ const Subscribers = () => {
 
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Status
@@ -266,6 +306,22 @@ const Subscribers = () => {
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                     <option value="Fresh">Fresh</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Filter
+                  </label>
+                  <select
+                    value={filterOption}
+                    onChange={(e) => setFilterOption(e.target.value)}
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  >
+                    <option value="">All</option>
+                    <option value="active">Active</option>
+                    <option value="expired">Expired</option>
+                    <option value="fresh">Fresh</option>
                   </select>
                 </div>
 
@@ -290,12 +346,13 @@ const Subscribers = () => {
                 )}
               </div>
 
-              {(statusFilter || resellerFilter) && (
+              {(statusFilter || resellerFilter || filterOption) && (
                 <div className="mt-4 pt-4 border-t border-gray-200">
                   <button
                     onClick={() => {
                       setStatusFilter("");
                       setResellerFilter("");
+                      setFilterOption("");
                     }}
                     className="text-sm text-blue-600 hover:text-blue-700 font-medium"
                   >
@@ -505,6 +562,13 @@ const Subscribers = () => {
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
+                            <button
+                              onClick={() => handleRenewClick(subscriber)}
+                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                              title="Renew Package"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -517,7 +581,7 @@ const Subscribers = () => {
         )}
       </div>
 
-      {/* VIEW MODAL - Unchanged, shows packages array */}
+      {/* VIEW MODAL */}
       {showViewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -612,7 +676,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* ✅ EDIT MODAL - WITH PACKAGE CHECKBOXES */}
+      {/* EDIT MODAL */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -715,7 +779,6 @@ const Subscribers = () => {
                 </div>
               </div>
 
-              {/* ✅ PACKAGE CHECKBOXES */}
               <div className="col-span-2">
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Packages (Select Multiple) *
@@ -801,7 +864,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* DELETE MODAL - Unchanged */}
+      {/* DELETE MODAL */}
       {showDeleteModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -842,7 +905,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* ACTIVATE MODAL - Unchanged */}
+      {/* ACTIVATE MODAL */}
       {showActivateModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
@@ -872,6 +935,55 @@ const Subscribers = () => {
                 <button
                   onClick={() => {
                     setShowActivateModal(false);
+                    setSelectedSubscriber(null);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RENEW MODAL */}
+      {showRenewModal && selectedSubscriber && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
+                Renew Package
+              </h2>
+              <p className="text-gray-600 text-center mb-4">
+                Renew package for{" "}
+                <span className="font-semibold">
+                  {selectedSubscriber.subscriberName}
+                </span>
+              </p>
+              <div className="mb-4">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Expiry Date
+                </label>
+                <input
+                  type="date"
+                  value={renewExpiryDate}
+                  onChange={(e) => setRenewExpiryDate(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleRenew}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
+                >
+                  {submitting ? "Renewing..." : "Renew"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowRenewModal(false);
                     setSelectedSubscriber(null);
                   }}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"

@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   AlertCircle,
+  Check,
 } from "lucide-react";
 
 const Resellers = () => {
@@ -508,10 +509,14 @@ const Resellers = () => {
                   <input
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) =>
-                      setFormData({ ...formData, phone: e.target.value })
-                    }
-                    placeholder="Enter phone"
+                    onChange={(e) => {
+                      const value = e.target.value.replace(/\D/g, ""); // keep digits only
+                      if (value.length <= 10) {
+                        setFormData({ ...formData, phone: value });
+                      }
+                    }}
+                    maxLength={10}
+                    placeholder="Enter 10-digit phone"
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     required
                   />
@@ -601,30 +606,56 @@ const Resellers = () => {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Packages (Optional)
                   </label>
-                  <select
-                    multiple
-                    value={formData.packages}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        packages: Array.from(
-                          e.target.selectedOptions,
-                          (option) => option.value
-                        ),
-                      })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    size="5"
-                  >
-                    {packages.map((pkg) => (
-                      <option key={pkg._id} value={pkg._id}>
-                        {pkg.name} - ₹{pkg.cost}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-xs text-gray-500 mt-1">
-                    Hold Ctrl/Cmd to select multiple
-                  </p>
+                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                    {packages.length === 0 ? (
+                      <p className="text-gray-500 text-sm">
+                        No packages available
+                      </p>
+                    ) : (
+                      <div className="space-y-2">
+                        {packages.map((pkg) => (
+                          <label
+                            key={pkg._id}
+                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                          >
+                            <div className="relative">
+                              <input
+                                type="checkbox"
+                                checked={formData.packages.includes(pkg._id)}
+                                onChange={() => {
+                                  const newPackages =
+                                    formData.packages.includes(pkg._id)
+                                      ? formData.packages.filter(
+                                          (id) => id !== pkg._id
+                                        )
+                                      : [...formData.packages, pkg._id];
+                                  setFormData({
+                                    ...formData,
+                                    packages: newPackages,
+                                  });
+                                }}
+                                className="sr-only"
+                              />
+                              <div
+                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                  formData.packages.includes(pkg._id)
+                                    ? "bg-blue-600 border-blue-600"
+                                    : "border-gray-300 hover:border-blue-400"
+                                }`}
+                              >
+                                {formData.packages.includes(pkg._id) && (
+                                  <Check className="w-4 h-4 text-white" />
+                                )}
+                              </div>
+                            </div>
+                            <span className="text-sm text-gray-900 font-medium">
+                              {pkg.name} - ₹{pkg.cost}
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 

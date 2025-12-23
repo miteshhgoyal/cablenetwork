@@ -33,10 +33,11 @@ const Packages = () => {
     genres: [],
     channels: [],
     duration: "",
+    defaultChannelId: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const canModify = user?.role !== "reseller"; // admin and distributor can modify
+  const canModify = user?.role == "admin";
 
   useEffect(() => {
     fetchPackages();
@@ -77,6 +78,7 @@ const Packages = () => {
         genres: pkg.genres?.map((g) => g._id) || [],
         channels: pkg.channels?.map((c) => c._id) || [],
         duration: pkg.duration,
+        defaultChannelId: pkg.defaultChannelId?._id || "",
       });
     } else {
       setFormData({
@@ -85,6 +87,7 @@ const Packages = () => {
         genres: [],
         channels: [],
         duration: "",
+        defaultChannelId: "",
       });
     }
     setShowModal(true);
@@ -157,16 +160,35 @@ const Packages = () => {
     return `${days} Day${days > 1 ? "s" : ""}`;
   };
 
+  // Updated toggleGenre function to auto-select matching channels
   const toggleGenre = (genreId) => {
     if (formData.genres.includes(genreId)) {
+      // Deselect genre and remove all channels of this genre
       setFormData({
         ...formData,
         genres: formData.genres.filter((id) => id !== genreId),
+        channels: formData.channels.filter((channelId) => {
+          const channel = channels.find((c) => c._id === channelId);
+          return !channel || channel.genre?._id !== genreId;
+        }),
       });
     } else {
+      // Select genre and add all channels of this genre
+      const matchingChannels = channels
+        .filter((channel) => channel.genre?._id === genreId)
+        .map((channel) => channel._id);
+
       setFormData({
         ...formData,
         genres: [...formData.genres, genreId],
+        channels: [
+          ...formData.channels.filter((channelId) => {
+            // Keep existing channels that don't belong to this genre
+            const channel = channels.find((c) => c._id === channelId);
+            return !channel || channel.genre?._id !== genreId;
+          }),
+          ...matchingChannels,
+        ],
       });
     }
   };
@@ -185,6 +207,7 @@ const Packages = () => {
     }
   };
 
+  // Rest of the component remains exactly the same...
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -495,6 +518,29 @@ const Packages = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Default Channel Dropdown (Admin only) */}
+                {user?.role === "admin" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Default Channel (Required)
+                    </label>
+                    <select
+                      value={formData.defaultChannelId}
+                      onChange={e => setFormData({ ...formData, defaultChannelId: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required={formData.channels.length > 0}
+                      disabled={formData.channels.length === 0}
+                    >
+                      <option value="">{formData.channels.length === 0 ? "Select channels first" : "Select default channel"}</option>
+                      {channels.filter(c => formData.channels.includes(c._id)).map(channel => (
+                        <option key={channel._id} value={channel._id}>
+                          {channel.lcn} - {channel.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
