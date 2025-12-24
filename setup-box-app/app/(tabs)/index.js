@@ -1008,7 +1008,7 @@ export default function Index() {
                                     return (
                                         <TouchableOpacity
                                             key={channel._id}
-                                            className={`mr-4 rounded-lg p-3 ${isPlaying
+                                            className={`mr-4 rounded-lg p-3 hover:bg-yellow-500 ${isPlaying
                                                 ? 'bg-orange-500'
                                                 : isFocused
                                                     ? 'bg-gray-700 border-2 border-orange-500'
