@@ -11,4 +11,13 @@
 -keep class com.swmansion.reanimated.** { *; }
 -keep class com.facebook.react.turbomodule.** { *; }
 
+# expo-av / ExoPlayer keep rules
+-keep class com.google.android.exoplayer2.** { *; }
+-keep class expo.modules.av.** { *; }
+-keep class expo.modules.** { *; }
+-keep class org.apache.commons.codec.** { *; }
+-dontwarn com.google.android.exoplayer2.**
+-dontwarn expo.modules.av.**
+-dontwarn expo.modules.**
+
 # Add any project specific keep options here:

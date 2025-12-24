@@ -1,10 +1,13 @@
+import 'react-native-css-interop/dist/runtime';
+import './globals.css';
 import React, { useEffect, useState } from 'react';
 import { Stack, useSegments, useRouter } from 'expo-router';
 import { StatusBar, View, ActivityIndicator, Text } from 'react-native';
-import { AuthProvider, useAuth } from '@/context/authContext';
+import { AuthProvider, useAuth } from '../context/authContext';
 import { Calendar, CheckCircle2, AlertCircle } from 'lucide-react-native';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import './globals.css';
+
+
 
 function MainLayout() {
     const { isAuthenticated, loading, subscriptionStatus, checkSubscriptionStatus, user } = useAuth();
@@ -13,6 +16,11 @@ function MainLayout() {
     const [checking, setChecking] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
     const [statusChecked, setStatusChecked] = useState(false);
+
+    // Debug logging
+    useEffect(() => {
+        console.log('Auth state:', { loading, isAuthenticated, subscriptionStatus, statusChecked, checking, showSplash, user });
+    }, [loading, isAuthenticated, subscriptionStatus, statusChecked, checking, showSplash, user]);
 
     // 1) lock orientation
     useEffect(() => {
@@ -25,11 +33,11 @@ function MainLayout() {
             if (!loading && isAuthenticated && !statusChecked) {
                 setChecking(true);
                 await checkSubscriptionStatus();
-                setChecking(false);
                 setStatusChecked(true);
+                setChecking(false);
             }
         };
-        run();
+        run();  
     }, [loading, isAuthenticated, statusChecked, checkSubscriptionStatus]);
 
     // 3) control splash visibility
@@ -45,38 +53,47 @@ function MainLayout() {
 
     // 4) navigation based on state
     useEffect(() => {
+console.log("navigation based on state");
         if (loading || checking || showSplash) return;
 
         const inAuthGroup = segments[0] === '(auth)';
         const currentRoute = segments.join('/');
 
         if (!isAuthenticated) {
-            if (!inAuthGroup || currentRoute !== '(auth)/signin') {
+            console.log("isAuthenticated1");
+
+            if (!inAuthGroup) {
+                console.log("isAuthenticated2");
+
                 router.replace('/(auth)/signin');
             }
             return;
         }
 
         if (subscriptionStatus === 'ACTIVE') {
+            console.log("subscriptionStatus1");
+
             if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
-                router.replace('/(tabs)/index');
+                console.log("subscriptionStatus2");
+
+                router.replace('(tabs)');
             }
             return;
         }
         // EXPIRED / INACTIVE are handled by UI below; no navigation
-    }, [loading, checking, showSplash, isAuthenticated, subscriptionStatus, segments, router]);
+    }, [loading, checking, showSplash, isAuthenticated, subscriptionStatus]);
 
     // 5) ignore sitemap / not-found internal routes
     useEffect(() => {
         const currentRoute = segments.join('/');
         if (currentRoute.includes('sitemap') || currentRoute.includes('+not-found') || currentRoute.includes('_sitemap')) {
             if (isAuthenticated && subscriptionStatus === 'ACTIVE') {
-                router.replace('/(tabs)/index');
+                router.replace('/(tabs)');
             } else if (!isAuthenticated) {
                 router.replace('/(auth)/signin');
             }
         }
-    }, [segments, isAuthenticated, subscriptionStatus, router]);
+    }, [ isAuthenticated, subscriptionStatus]);
 
     const formatDate = (dateString) => {
         if (!dateString) return 'N/A';

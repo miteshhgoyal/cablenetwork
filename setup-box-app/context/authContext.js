@@ -71,16 +71,7 @@ export const AuthProvider = ({ children }) => {
                     });
                 }
 
-                refreshChannels().then((result) => {
-                    if (result?.success) {
-
-                    } else {
-
-                    }
-                }).catch((error) => {
-
-                });
-
+                refreshChannels();
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
@@ -233,7 +224,7 @@ export const AuthProvider = ({ children }) => {
 
             const response = await api.post('/customer/login', {
                 partnerCode: partnerCode.trim(),
-                macAddress: deviceInfo.macAddress,
+                macAddress: deviceInfo.macAddress|| "cph2667_15.0.0.1300(ex01)",    
                 deviceName: deviceInfo.deviceName,
                 customMac: customDeviceInfo.customMac || null // ✅ Pass custom MAC
             });
@@ -261,8 +252,27 @@ export const AuthProvider = ({ children }) => {
             setUser(subscriber);
             setChannels(channels);
             setPackagesList(packagesList);
+            setServerInfo(serverInfo);
 
-            return { success: true };
+            // Immediately navigate to app tabs after login
+            try {
+                router.replace('(tabs)');
+            } catch (e) {
+                console.log('Navigation after login failed:', e);
+            }
+            
+            // Trigger subscription check in background (non-blocking)
+            checkSubscriptionStatus()
+                .then(res => {
+                    if (res?.valid) {
+                        console.log('Background subscription check: ACTIVE');
+                    } else {
+                        console.log('Background subscription check:', res?.code || res);
+                    }
+                })
+                .catch(err => console.log('Background subscription check error:', err));
+             
+             return { success: true };
 
         } catch (error) {
             console.error('Login error:', error);

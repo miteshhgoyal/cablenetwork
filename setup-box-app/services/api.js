@@ -2,8 +2,10 @@
 import axios from 'axios';
 import { tokenService } from './tokenService.js';
 
-// const API_BASE_URL = 'http://192.168.1.66:8000/api';
-const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
+// const API_BASE_URL = 'http://localhost:8000/api';
+// const API_BASE_URL = 'https://cablenetwork.onrender.com/api';
+const API_BASE_URL = 'https://api.onlineiptvhub.com/api';
+// const API_BASE_URL = global?.__DEV_API_URL__ || 'https://api.onlineiptvhub.com/api';
 
 const api = axios.create({
     baseURL: API_BASE_URL,
