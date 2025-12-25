@@ -958,7 +958,7 @@ const Subscribers = () => {
       {/* RENEW MODAL - FIXED */}
       {showRenewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
             <div className="p-6">
               <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-4">
                 <CheckCircle className="w-6 h-6 text-green-600" />
