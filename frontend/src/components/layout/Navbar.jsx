@@ -148,6 +148,13 @@ const Navbar = () => {
               icon: User2,
             },
           ],
+          singleEnd: [
+            {
+              name: "Credit",
+              href: "/reseller/credit",
+              icon: CircleDollarSign,
+            },
+          ],
         };
 
       case "admin":

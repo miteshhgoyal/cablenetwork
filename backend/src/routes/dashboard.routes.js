@@ -214,27 +214,28 @@ router.get('/backup', authenticateToken, async (req, res) => {
     try {
         console.log('[BACKUP] Route hit');
         const userId = req.user.id;
-        console.log(`[BACKUP] User ID: ${userId}`);
+        console.log(`[BACKUP] User ID: ${userId} (type: ${typeof userId})`);
         const user = await User.findById(userId);
-        console.log(`[BACKUP] User lookup result:`, user ? `role=${user.role}` : 'not found');
-        if (!user || user.role !== 'admin') {
-            console.log(`[BACKUP] Permission denied for user ${userId}`);
+        if (!user) {
+            console.log(`[BACKUP] User not found for ID: ${userId}`);
+            return res.status(404).json({ success: false, message: `User not found ## ${userId}` });
+        }
+        console.log(`[BACKUP] User lookup result:`, user ? `role=${user.role}, id=${user._id}` : 'not found');
+        if (String(user.role).trim().toLowerCase() !== 'admin') {
+            console.log(`[BACKUP] Permission denied for user ${userId}, role value: ${user.role}`);
             return res.status(403).json({ success: false, message: `Admin access required ## ${userId}` });
         }
-
         // MongoDB URI from environment or config
         const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/iptv';
         const backupDir = path.join(process.cwd(), 'backup', `mongodump_${Date.now()}`);
         const dumpCmd = `mongodump --uri="${mongoUri}" --out "${backupDir}"`;
         console.log(`[BACKUP] Running mongodump: ${dumpCmd}`);
-
         exec(dumpCmd, async (err, stdout, stderr) => {
             if (err) {
                 console.error('[BACKUP] mongodump error:', err, stderr);
                 return res.status(500).json({ success: false, message: 'Failed to export backup' });
             }
             console.log('[BACKUP] mongodump completed');
-
             // Zip the backup directory
             const zipFile = `${backupDir}.zip`;
             const zipCmd = `powershell Compress-Archive -Path \"${backupDir}\\*\" -DestinationPath \"${zipFile}\"`;
@@ -245,7 +246,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
                     return res.status(500).json({ success: false, message: 'Failed to zip backup' });
                 }
                 console.log('[BACKUP] zip completed');
-
                 // Check if zip file exists before sending
                 fs.access(zipFile, fs.constants.F_OK, (accessErr) => {
                     if (accessErr) {
@@ -254,7 +254,7 @@ router.get('/backup', authenticateToken, async (req, res) => {
                     }
                     console.log('[BACKUP] Streaming zip file:', zipFile);
                     res.setHeader('Content-Type', 'application/zip');
-                    res.setHeader('Content-Disposition', `attachment; filename="mongodump_backup_${Date.now()}.zip"`);
+                    res.setHeader('Content-Disposition', `attachment; filename=\"mongodump_backup_${Date.now()}.zip\"`);
                     const stream = fs.createReadStream(zipFile);
                     stream.on('error', (streamErr) => {
                         console.error('[BACKUP] Stream error:', streamErr);

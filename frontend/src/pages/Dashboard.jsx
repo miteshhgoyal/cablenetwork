@@ -24,6 +24,7 @@ import {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  // user.id is available if set in AuthContext, else fallback to dashboardData?.user?.id
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +53,8 @@ const Dashboard = () => {
     try {
       setBackupLoading(true);
       const response = await api.get("/dashboard/backup", {
-        responseType: "blob", // Important for file download
+        responseType: "blob",
+         // Important for file download
       });
 
       // Create download link

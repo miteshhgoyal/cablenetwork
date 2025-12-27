@@ -30,9 +30,10 @@ const Credit = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  
 
-  // Check if user can access this page
-  const canAccess = user?.role !== "reseller";
+  // Allow all logged-in users (including resellers) to access
+  const canAccess = !!user;
 
   useEffect(() => {
     if (canAccess) {
@@ -104,16 +105,20 @@ const Credit = () => {
   };
 
   const canPerformTransaction = () => {
-    if( selectedUser && selectedUser.role === 'admin') return true;
+    // if( selectedUser && selectedUser.role === 'admin') return true;
     if (!formData.amount || !formData.user || !selectedUser) return false;
 
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return false;
 
+    // Sender must have positive balance to perform any transaction
+    if (!user || user.balance === undefined || user.balance <= 0) return false;
+
+    // Target user must also have positive balance for Reverse Credit
     if (formData.type === "Debit") {
-      return user?.balance >= amount;
+      return user.balance >= amount;
     } else {
-      return selectedUser.balance >= amount;
+      return selectedUser.balance > 0 && selectedUser.balance >= amount;
     }
   };
 
@@ -123,13 +128,21 @@ const Credit = () => {
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return null;
 
+    // Sender must have positive balance
+    if (user?.balance <= 0) {
+      return `⚠️ Your account balance is zero or negative. You cannot perform any credit or debit transaction.`;
+    }
+
     if (formData.type === "Debit") {
-      if (user?.balance < amount) {
+      if (user.balance < amount) {
         return `⚠️ Your balance (₹${user.balance?.toLocaleString(
           "en-IN"
         )}) is insufficient`;
       }
     } else {
+      if (selectedUser.balance <= 0) {
+        return `⚠️ ${selectedUser.name}'s account balance is zero or negative. Cannot perform Reverse Credit.`;
+      }
       if (selectedUser.balance < amount) {
         return `⚠️ ${
           selectedUser.name

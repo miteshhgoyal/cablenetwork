@@ -171,4 +171,76 @@ router.get('/health', (req, res) => {
     });
 });
 
+// Proxy remote images (SVG/PNG/JPEG/etc.) and stream back to client
+router.get('/image', async (req, res) => {
+    try {
+        const { url } = req.query;
+        if (!url) {
+            return res.status(400).json({ success: false, message: 'URL parameter required' });
+        }
+
+        const targetUrl = decodeURIComponent(url);
+
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': '*/*',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Connection': 'keep-alive'
+        };
+
+        try { headers['Referer'] = new URL(targetUrl).origin; } catch (e) {}
+
+        // Try to fetch the image and stream it
+        let response = await axios({
+            method: 'GET',
+            url: targetUrl,
+            responseType: 'stream',
+            headers,
+            timeout: 20000,
+            maxRedirects: 5,
+            validateStatus: status => status < 500
+        });
+
+        // If remote responded with 403, attempt a public proxy fallback
+        if (response.status === 403) {
+            try {
+                const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(targetUrl)}`;
+                response = await axios({ method: 'GET', url: proxyUrl, responseType: 'stream', timeout: 20000 });
+            } catch (px) {
+                console.warn('Image proxy fallback failed', px.message || px);
+            }
+        }
+
+        if (!response || response.status >= 400) {
+            return res.status(response?.status || 502).json({ success: false, message: 'Failed to fetch image' });
+        }
+
+        // Set permissive CORS for client consumption
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', 'Origin, Accept, Authorization');
+
+        const contentType = response.headers['content-type'] || 'application/octet-stream';
+        res.setHeader('Content-Type', contentType);
+        if (response.headers['content-length']) {
+            res.setHeader('Content-Length', response.headers['content-length']);
+        }
+        // Cache images for short period
+        res.setHeader('Cache-Control', 'public, max-age=300');
+
+        // Pipe image stream
+        response.data.pipe(res);
+        response.data.on('error', (err) => {
+            console.error('Image stream error', err.message || err);
+            if (!res.headersSent) res.status(500).end();
+        });
+
+    } catch (err) {
+        console.error('Image proxy error', err.message || err);
+        if (!res.headersSent) {
+            res.status(500).json({ success: false, message: 'Image proxy failed' });
+        }
+    }
+});
+
 export default router;

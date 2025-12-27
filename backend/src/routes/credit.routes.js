@@ -3,6 +3,7 @@ import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import Credit from '../models/Credit.js';
 import User from '../models/User.js';
+import Subscriber from '../models/Subscriber.js';
 
 const router = express.Router();
 
@@ -12,43 +13,31 @@ router.get('/', authenticateToken, async (req, res) => {
         const { search, type } = req.query;
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
-
-        // Resellers cannot access this page
-        if (currentUser.role === 'reseller') {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to view credit transactions'
-            });
-        }
-
         let userIds = [];
-
+        let subscribersList = [];
         // Role-based filtering
         if (currentUser.role === 'admin') {
-            // Admin sees all transactions
             const allUsers = await User.find().select('_id');
             userIds = allUsers.map(u => u._id);
         } else if (currentUser.role === 'distributor') {
-            // Distributor sees only their resellers' transactions
             const resellers = await User.find({
                 role: 'reseller',
                 createdBy: userId
             }).select('_id');
             userIds = resellers.map(r => r._id);
+        } else if (currentUser.role === 'reseller') {
+            userIds = [currentUser._id];
+            subscribersList = await Subscriber.find({ resellerId: currentUser._id }).lean();
+            subscribersList = subscribersList.map(formatSubscriber);
+            console.log('Found subscribers:', subscribersList);
         }
-
         let query = { user: { $in: userIds } };
-
-        // Add type filter
         if (type) {
             query.type = type;
         }
-
         const credits = await Credit.find(query)
             .populate('user', 'name email role balance')
             .sort({ createdAt: -1 });
-
-        // Apply search filter after population
         let filteredCredits = credits;
         if (search) {
             const searchLower = search.toLowerCase();
@@ -58,12 +47,13 @@ router.get('/', authenticateToken, async (req, res) => {
                 credit.amount.toString().includes(searchLower)
             );
         }
-
+        const formattedCredits = Array.isArray(filteredCredits)
+            ? filteredCredits.map(c => formatCredit(c, subscribersList, currentUser.role === 'reseller'))
+            : [];
         res.json({
             success: true,
-            data: { credits: filteredCredits }
+            data: { credits: formattedCredits }
         });
-
     } catch (error) {
         console.error('Get credits error:', error);
         res.status(500).json({
@@ -79,13 +69,7 @@ router.get('/users', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Resellers cannot access this
-        if (currentUser.role === 'reseller') {
-            return res.status(403).json({
-                success: false,
-                message: 'You do not have permission to view users'
-            });
-        }
+        // Allow resellers to access this endpoint
 
         let users = [];
 
@@ -117,6 +101,43 @@ router.get('/users', authenticateToken, async (req, res) => {
         });
     }
 });
+
+function formatSubscriber(sub) {
+  return {
+    _id: sub._id?.toString?.() || sub._id,
+    resellerId: sub.resellerId?.toString?.() || sub.resellerId,
+    subscriberName: sub.subscriberName,
+    serialNumber: sub.serialNumber,
+    macAddress: sub.macAddress,
+    status: sub.status,
+    lastLocation: sub.lastLocation
+      ? {
+          address: sub.lastLocation.address,
+          timestamp: sub.lastLocation.timestamp
+            ? new Date(sub.lastLocation.timestamp).toISOString()
+            : null,
+        }
+      : null,
+  };
+}
+
+function formatCredit(credit, subscribersList, isReseller) {
+  return {
+    _id: credit._id?.toString?.() || credit._id,
+    type: credit.type,
+    amount: credit.amount,
+    user: credit.user ? {
+      _id: credit.user._id?.toString?.() || credit.user._id,
+      name: credit.user.name,
+      email: credit.user.email,
+      role: credit.user.role,
+      balance: credit.user.balance
+    } : undefined,
+    createdAt: credit.createdAt ? new Date(credit.createdAt).toISOString() : null,
+    updatedAt: credit.updatedAt ? new Date(credit.updatedAt).toISOString() : null,
+    ...(isReseller ? { subscribers: subscribersList || [] } : {})
+  };
+}
 
 // Create credit transaction
 router.post('/', authenticateToken, async (req, res) => {

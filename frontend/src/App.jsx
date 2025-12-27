@@ -211,6 +211,14 @@ const App = () => {
                 </ProtectedRoute>
               }
             />
+             <Route
+              path="/reseller/credit"
+              element={
+                <ProtectedRoute allowedRoles={["reseller"]}>
+                  <Credit />
+                </ProtectedRoute>
+              }
+            />
 
             {/* Admin Routes */}
             <Route
