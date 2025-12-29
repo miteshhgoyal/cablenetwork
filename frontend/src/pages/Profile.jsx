@@ -184,7 +184,7 @@ const Profile = () => {
             <div className="bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl p-6 text-white shadow-lg">
               <div className="flex items-center space-x-2 mb-2">
                 <IndianRupee className="w-5 h-5" />
-                <p className="text-blue-100 text-sm">Available Balance</p>
+                <p className="text-blue-100 text-sm">Credit</p>
               </div>
               <p className="text-4xl font-bold">
                 {(profile?.balance || 0).toLocaleString("en-IN")}

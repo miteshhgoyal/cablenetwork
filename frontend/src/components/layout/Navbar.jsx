@@ -147,6 +147,11 @@ const Navbar = () => {
               href: "/reseller/profile",
               icon: User2,
             },
+            {
+              name: "Credit",
+              href: "/reseller/credit",
+              icon: CircleDollarSign,
+            },
           ],
         };
 

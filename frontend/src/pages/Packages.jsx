@@ -33,6 +33,7 @@ const Packages = () => {
     genres: [],
     channels: [],
     duration: "",
+    defaultChannelId: "",
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -77,6 +78,7 @@ const Packages = () => {
         genres: pkg.genres?.map((g) => g._id) || [],
         channels: pkg.channels?.map((c) => c._id) || [],
         duration: pkg.duration,
+        defaultChannelId: pkg.defaultChannelId?._id || "",
       });
     } else {
       setFormData({
@@ -85,6 +87,7 @@ const Packages = () => {
         genres: [],
         channels: [],
         duration: "",
+        defaultChannelId: "",
       });
     }
     setShowModal(true);
@@ -515,6 +518,29 @@ const Packages = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Default Channel Dropdown (Admin only) */}
+                {user?.role === "admin" && (
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Default Channel (Required)
+                    </label>
+                    <select
+                      value={formData.defaultChannelId}
+                      onChange={e => setFormData({ ...formData, defaultChannelId: e.target.value })}
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required={formData.channels.length > 0}
+                      disabled={formData.channels.length === 0}
+                    >
+                      <option value="">{formData.channels.length === 0 ? "Select channels first" : "Select default channel"}</option>
+                      {channels.filter(c => formData.channels.includes(c._id)).map(channel => (
+                        <option key={channel._id} value={channel._id}>
+                          {channel.lcn} - {channel.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">

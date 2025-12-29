@@ -34,7 +34,7 @@ const Subscribers = () => {
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [renewDuration, setRenewDuration] = useState("30");
+  const [renewExpiryDate, setRenewExpiryDate] = useState("");
 
   const [formData, setFormData] = useState({
     subscriberName: "",
@@ -117,7 +117,9 @@ const Subscribers = () => {
 
   const handleRenewClick = (subscriber) => {
     setSelectedSubscriber(subscriber);
-    setRenewDuration("30"); // Default to 30 days
+    setRenewExpiryDate(
+      new Date(subscriber.expiryDate).toISOString().split("T")[0]
+    );
     setShowRenewModal(true);
   };
 
@@ -141,22 +143,12 @@ const Subscribers = () => {
   const handleRenew = async () => {
     setSubmitting(true);
     try {
-      const durationDays = parseInt(renewDuration, 10);
-
-      if (!durationDays || durationDays <= 0) {
-        alert("Please enter a valid duration");
-        setSubmitting(false);
-        return;
-      }
-
       await api.patch(`/subscribers/${selectedSubscriber._id}/renew`, {
-        duration: durationDays, // Send duration in days
+        expiryDate: renewExpiryDate,
       });
-
       fetchSubscribers();
       setShowRenewModal(false);
       setSelectedSubscriber(null);
-      setRenewDuration("30");
     } catch (error) {
       console.error("Renew error:", error);
       alert(error.response?.data?.message || "Renew failed");
@@ -955,122 +947,44 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* RENEW MODAL - FIXED */}
+      {/* RENEW MODAL */}
       {showRenewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-4">
-                <CheckCircle className="w-6 h-6 text-green-600" />
-              </div>
-
               <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
                 Renew Package
               </h2>
-
               <p className="text-gray-600 text-center mb-4">
                 Renew package for{" "}
                 <span className="font-semibold">
                   {selectedSubscriber.subscriberName}
                 </span>
               </p>
-
-              {/* Package Information */}
-              <div className="mb-4 bg-blue-50 rounded-xl p-4">
-                <p className="text-sm text-gray-600 mb-2">Packages to Renew:</p>
-                <div className="space-y-1">
-                  {selectedSubscriber.packages?.map((pkg, idx) => (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="font-medium text-gray-900">
-                        {pkg.name}
-                      </span>
-                      <span className="text-gray-600">₹{pkg.cost}</span>
-                    </div>
-                  ))}
-                </div>
-                <div className="mt-2 pt-2 border-t border-blue-200">
-                  <div className="flex items-center justify-between font-semibold">
-                    <span className="text-gray-900">Total Cost per Day:</span>
-                    <span className="text-blue-600">
-                      ₹
-                      {selectedSubscriber.packages?.reduce(
-                        (sum, pkg) => sum + pkg.cost,
-                        0
-                      )}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Expiry */}
-              <div className="mb-4 bg-gray-50 rounded-xl p-4">
-                <p className="text-sm text-gray-600 mb-1">Current Expiry:</p>
-                <p className="text-lg font-semibold text-gray-900">
-                  {formatDate(selectedSubscriber.expiryDate)}
-                </p>
-              </div>
-
-              {/* Duration Input */}
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Renewal Duration (Days){" "}
-                  <span className="text-red-500">*</span>
+                  Expiry Date
                 </label>
                 <input
-                  type="number"
-                  min="1"
-                  value={renewDuration}
-                  onChange={(e) => setRenewDuration(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
-                  placeholder="Enter number of days"
+                  type="date"
+                  value={renewExpiryDate}
+                  onChange={(e) => setRenewExpiryDate(e.target.value)}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   required
                 />
-                <p className="text-xs text-gray-500 mt-1">
-                  Enter the number of days to extend the subscription
-                </p>
               </div>
-
-              {/* Calculated Total */}
-              {renewDuration && parseInt(renewDuration) > 0 && (
-                <div className="mb-4 bg-green-50 rounded-xl p-4 border border-green-200">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm text-gray-700">Duration:</span>
-                    <span className="font-semibold text-gray-900">
-                      {renewDuration} days
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-700">Total Amount:</span>
-                    <span className="text-lg font-bold text-green-600">
-                      ₹
-                      {selectedSubscriber.packages?.reduce(
-                        (sum, pkg) => sum + pkg.cost,
-                        0
-                      ) * parseInt(renewDuration || 0)}
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              {/* Action Buttons */}
               <div className="flex items-center space-x-3">
                 <button
                   onClick={handleRenew}
-                  disabled={
-                    submitting || !renewDuration || parseInt(renewDuration) <= 0
-                  }
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
                 >
-                  {submitting ? "Renewing..." : "Renew Package"}
+                  {submitting ? "Renewing..." : "Renew"}
                 </button>
                 <button
                   onClick={() => {
                     setShowRenewModal(false);
                     setSelectedSubscriber(null);
-                    setRenewDuration("30");
                   }}
                   className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
                 >

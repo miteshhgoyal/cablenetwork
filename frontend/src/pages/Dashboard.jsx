@@ -24,6 +24,7 @@ import {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  // user.id is available if set in AuthContext, else fallback to dashboardData?.user?.id
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +53,8 @@ const Dashboard = () => {
     try {
       setBackupLoading(true);
       const response = await api.get("/dashboard/backup", {
-        responseType: "blob", // Important for file download
+        responseType: "blob",
+         // Important for file download
       });
 
       // Create download link
@@ -63,7 +65,7 @@ const Dashboard = () => {
       // Filename is set in backend Content-Disposition header
       // But fallback to generic name if not available
       const contentDisposition = response.headers["content-disposition"];
-      let filename = "iptv_backup.json";
+      let filename = "iptv_backup.zip";
       if (contentDisposition) {
         const filenameMatch = contentDisposition.match(/filename="(.+)"/);
         if (filenameMatch?.[1]) {
@@ -286,7 +288,7 @@ const Dashboard = () => {
             {/* Right Side - Balance, Refresh & Backup (Admin Only) */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <div className="text-right">
-                <p className="text-blue-200 text-sm mb-1">Available amount</p>
+                <p className="text-blue-200 text-sm mb-1">Credit</p>
                 <div className="flex items-center space-x-2">
                   <IndianRupee className="w-8 h-8" />
                   <span className="text-4xl sm:text-5xl font-bold">
@@ -315,7 +317,7 @@ const Dashboard = () => {
                   onClick={handleBackupExport}
                   disabled={backupLoading}
                   className="flex items-center space-x-2 px-4 py-2 bg-green-500/20 hover:bg-green-500/30 disabled:opacity-50 border border-green-400/50 rounded-xl transition-all text-green-100 hover:text-green-50"
-                  title="Export complete database backup (JSON)"
+                  title="Export complete database backup (ZIP)"
                 >
                   <Download
                     className={`w-4 h-4 ${backupLoading ? "animate-spin" : ""}`}
