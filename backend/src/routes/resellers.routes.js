@@ -39,10 +39,12 @@ router.get('/', authenticateToken, async (req, res) => {
             ];
         }
 
+
         // Add status filter
         if (status) {
             query.status = status;
         }
+
 
         const resellers = await User.find(query)
             .populate('packages', 'name cost duration')
@@ -50,10 +52,12 @@ router.get('/', authenticateToken, async (req, res) => {
             .select('-password')
             .sort({ createdAt: -1 });
 
+
         res.json({
             success: true,
             data: { resellers }
         });
+
 
     } catch (error) {
         console.error('Get resellers error:', error);
@@ -64,39 +68,19 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Get packages for dropdown - FILTERED BY USER ACCESS
+// Get packages for dropdown
 router.get('/packages', authenticateToken, async (req, res) => {
     try {
-        const { role, id: userId } = req.user;
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
 
-        let packages;
-
-        // For distributors and resellers, only show packages assigned to them
-        if (role === 'distributor' || role === 'reseller') {
-            const user = await User.findById(userId).select('packages');
-
-            if (!user || !user.packages || user.packages.length === 0) {
-                return res.json({
-                    success: true,
-                    data: { packages: [] }
-                });
-            }
-
-            // Only fetch packages that the user has access to
-            packages = await Package.find({ _id: { $in: user.packages } })
-                .select('name cost duration')
-                .sort({ name: 1 });
-        } else {
-            // Admin sees all packages
-            packages = await Package.find()
-                .select('name cost duration')
-                .sort({ name: 1 });
-        }
 
         res.json({
             success: true,
             data: { packages }
         });
+
 
     } catch (error) {
         console.error('Get packages error:', error);
@@ -113,6 +97,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
+
         const reseller = await User.findOne({
             _id: req.params.id,
             role: 'reseller'
@@ -121,12 +106,14 @@ router.get('/:id', authenticateToken, async (req, res) => {
             .populate('createdBy', 'name email status')
             .select('-password');
 
+
         if (!reseller) {
             return res.status(404).json({
                 success: false,
                 message: 'Reseller not found'
             });
         }
+
 
         // Check access permissions
         if (currentUser.role === 'distributor' &&
@@ -137,10 +124,12 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
         res.json({
             success: true,
             data: { reseller }
         });
+
 
     } catch (error) {
         console.error('Get reseller error:', error);
@@ -157,6 +146,7 @@ router.post('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
+
         // Only admin and distributor can create resellers
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
@@ -165,6 +155,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
         // Check if distributor is Active (if current user is distributor)
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
             return res.status(403).json({
@@ -172,6 +163,7 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Your account is inactive. Cannot create resellers.'
             });
         }
+
 
         const {
             name,
@@ -185,6 +177,7 @@ router.post('/', authenticateToken, async (req, res) => {
             balance
         } = req.body;
 
+
         // Validation
         if (!name || !email || !password || !phone) {
             return res.status(400).json({
@@ -193,12 +186,14 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
         if (password.length < 6) {
             return res.status(400).json({
                 success: false,
                 message: 'Password must be at least 6 characters'
             });
         }
+
 
         // Check if email already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
@@ -209,6 +204,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
         // Validate balance - Minimum ₹1,000
         if (!balance) {
             return res.status(400).json({
@@ -216,6 +212,7 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Balance amount is required'
             });
         }
+
 
         const initialBalance = parseFloat(balance);
         if (isNaN(initialBalance) || initialBalance < 1000) {
@@ -225,23 +222,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // VALIDATE PACKAGES - Ensure user can only assign packages they have access to
-        if (packages && packages.length > 0) {
-            if (currentUser.role === 'distributor') {
-                // Check if all selected packages are in distributor's allowed packages
-                const invalidPackages = packages.filter(
-                    pkgId => !currentUser.packages.some(allowedPkg => allowedPkg.toString() === pkgId)
-                );
-
-                if (invalidPackages.length > 0) {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'You can only assign packages that are assigned to you'
-                    });
-                }
-            }
-            // Admin can assign any packages (no restriction)
-        }
 
         // Create reseller
         const reseller = new User({
@@ -258,11 +238,14 @@ router.post('/', authenticateToken, async (req, res) => {
             balance: initialBalance
         });
 
+
         await reseller.save();
+
 
         // Populate before sending
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
+
 
         res.status(201).json({
             success: true,
@@ -270,8 +253,10 @@ router.post('/', authenticateToken, async (req, res) => {
             data: { reseller: reseller.toJSON() }
         });
 
+
     } catch (error) {
         console.error('Create reseller error:', error);
+
 
         if (error.code === 11000) {
             return res.status(400).json({
@@ -279,6 +264,7 @@ router.post('/', authenticateToken, async (req, res) => {
                 message: 'Email already exists'
             });
         }
+
 
         res.status(500).json({
             success: false,
@@ -331,7 +317,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             partnerCode,
             packages,
             status,
-            balance
+            balance 
         } = req.body;
 
         // Validation
@@ -366,25 +352,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
                     message: 'Balance amount cannot be less than ₹1,000'
                 });
             }
-            reseller.balance = numBalance;
-        }
-
-        // VALIDATE PACKAGES - Ensure user can only assign packages they have access to
-        if (packages && packages.length > 0) {
-            if (currentUser.role === 'distributor') {
-                // Check if all selected packages are in distributor's allowed packages
-                const invalidPackages = packages.filter(
-                    pkgId => !currentUser.packages.some(allowedPkg => allowedPkg.toString() === pkgId)
-                );
-
-                if (invalidPackages.length > 0) {
-                    return res.status(403).json({
-                        success: false,
-                        message: 'You can only assign packages that are assigned to you'
-                    });
-                }
-            }
-            // Admin can assign any packages (no restriction)
+            reseller.balance = numBalance; 
         }
 
         // Update fields
@@ -449,6 +417,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
         // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
@@ -457,6 +426,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
                 message: 'You do not have permission to delete this reseller'
             });
         }
+
 
         // Check if distributor is Active (if current user is distributor)
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
@@ -472,6 +442,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             success: true,
             message: 'Reseller deleted successfully'
         });
+
 
     } catch (error) {
         console.error('Delete reseller error:', error);

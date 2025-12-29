@@ -1,3 +1,4 @@
+
 // backend/src/routes/channels.js
 import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
@@ -298,6 +299,40 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete channel'
+        });
+    }
+});
+
+// Admin: Toggle all channels' URL accessibility
+router.patch('/toggle-all-urls-access', authenticateToken, async (req, res) => {
+    try {
+        const userRole = req.user.role || 'user';
+        const { enable } = req.body;
+
+        if (userRole !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can toggle all URLs access'
+            });
+        }
+        if (typeof enable !== 'boolean') {
+            return res.status(400).json({
+                success: false,
+                message: 'Missing or invalid enable value'
+            });
+        }
+
+        const result = await Channel.updateMany({}, { urlsAccessible: enable });
+        res.json({
+            success: true,
+            message: `All channel URLs have been ${enable ? 'enabled' : 'disabled'}`,
+            modifiedCount: result.modifiedCount
+        });
+    } catch (error) {
+        console.error('Toggle all URLs access error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to toggle all URLs access'
         });
     }
 });

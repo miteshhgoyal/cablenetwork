@@ -9,6 +9,11 @@ import Subscriber from '../models/Subscriber.js';
 import Ott from '../models/Ott.js';
 import Credit from '../models/Credit.js';
 
+// For backup
+import fs from 'fs';
+import path from 'path';
+import { exec } from 'child_process';
+
 const router = express.Router();
 
 // Get Dashboard Overview with Role-Based Stats
@@ -202,89 +207,65 @@ router.get('/activities', authenticateToken, async (req, res) => {
     }
 });
 
-// Export complete database backup (ADMIN ONLY)
+export default router;
+
+// Database Backup Route (Admin Only)
 router.get('/backup', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id);
-
-        // Only admins can export full database
-        if (user.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'Admin access required for database export'
-            });
+        console.log('[BACKUP] Route hit');
+        const userId = req.user.id;
+        console.log(`[BACKUP] User ID: ${userId} (type: ${typeof userId})`);
+        const user = await User.findById(userId);
+        if (!user) {
+            console.log(`[BACKUP] User not found for ID: ${userId}`);
+            return res.status(404).json({ success: false, message: `User not found ## ${userId}` });
         }
-
-        // Fetch ALL data with populated references
-        const [
-            users,
-            categories,
-            channels,
-            packages,
-            subscribers,
-            otts,
-            credits
-        ] = await Promise.all([
-            // Users without password
-            User.find().select('-password -resetPasswordToken -resetPasswordExpires'),
-            Category.find().lean(),
-            Channel.find().populate('language genre').lean(),
-            Package.find().populate('genres channels').lean(),
-            Subscriber.find().populate('resellerId packages primaryPackageId').lean(),
-            Ott.find().populate('genre language').lean(),
-            Credit.find().populate('user', 'name email').lean()
-        ]);
-
-        // Create backup object with metadata
-        const backupData = {
-            metadata: {
-                exportDate: new Date().toISOString(),
-                totalRecords: {
-                    users: users.length,
-                    categories: categories.length,
-                    channels: channels.length,
-                    packages: packages.length,
-                    subscribers: subscribers.length,
-                    otts: otts.length,
-                    credits: credits.length
-                },
-                adminUser: {
-                    id: user._id,
-                    name: user.name,
-                    email: user.email
-                }
-            },
-            data: {
-                users,
-                categories,
-                channels,
-                packages,
-                subscribers,
-                otts,
-                credits
+        console.log(`[BACKUP] User lookup result:`, user ? `role=${user.role}, id=${user._id}` : 'not found');
+        if (String(user.role).trim().toLowerCase() !== 'admin') {
+            console.log(`[BACKUP] Permission denied for user ${userId}, role value: ${user.role}`);
+            return res.status(403).json({ success: false, message: `Admin access required ## ${userId}` });
+        }
+        // MongoDB URI from environment or config
+        const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/iptv';
+        const backupDir = path.join(process.cwd(), 'backup', `mongodump_${Date.now()}`);
+        const dumpCmd = `mongodump --uri="${mongoUri}" --out "${backupDir}"`;
+        console.log(`[BACKUP] Running mongodump: ${dumpCmd}`);
+        exec(dumpCmd, async (err, stdout, stderr) => {
+            if (err) {
+                console.error('[BACKUP] mongodump error:', err, stderr);
+                return res.status(500).json({ success: false, message: 'Failed to export backup' });
             }
-        };
-
-        // Generate filename with current date
-        const now = new Date();
-        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const timeStr = now.toTimeString().slice(0, 8).replace(/:/g, '');
-        const filename = `iptv_backup_${dateStr}_${timeStr}.json`;
-
-        // Set headers for JSON download
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('Content-Type', 'application/json');
-
-        // Send JSON response as download
-        res.json(backupData);
-
-    } catch (error) {
-        console.error('❌ Backup export failed:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to export database backup'
+            console.log('[BACKUP] mongodump completed');
+            // Zip the backup directory
+            const zipFile = `${backupDir}.zip`;
+            const zipCmd = `powershell Compress-Archive -Path \"${backupDir}\\*\" -DestinationPath \"${zipFile}\"`;
+            console.log(`[BACKUP] Running zip: ${zipCmd}`);
+            exec(zipCmd, (zipErr, zipStdout, zipStderr) => {
+                if (zipErr) {
+                    console.error('[BACKUP] zip error:', zipErr, zipStderr);
+                    return res.status(500).json({ success: false, message: 'Failed to zip backup' });
+                }
+                console.log('[BACKUP] zip completed');
+                // Check if zip file exists before sending
+                fs.access(zipFile, fs.constants.F_OK, (accessErr) => {
+                    if (accessErr) {
+                        console.error('[BACKUP] Zip file not found:', zipFile);
+                        return res.status(500).json({ success: false, message: 'Backup zip file not found' });
+                    }
+                    console.log('[BACKUP] Streaming zip file:', zipFile);
+                    res.setHeader('Content-Type', 'application/zip');
+                    res.setHeader('Content-Disposition', `attachment; filename=\"mongodump_backup_${Date.now()}.zip\"`);
+                    const stream = fs.createReadStream(zipFile);
+                    stream.on('error', (streamErr) => {
+                        console.error('[BACKUP] Stream error:', streamErr);
+                        res.status(500).json({ success: false, message: 'Failed to stream backup file' });
+                    });
+                    stream.pipe(res);
+                });
+            });
         });
+    } catch (error) {
+        console.error('[BACKUP] Backup export error:', error);
+        res.status(500).json({ success: false, message: 'Failed to export backup' });
     }
 });
-
-export default router;

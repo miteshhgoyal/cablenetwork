@@ -22,6 +22,21 @@ const packageSchema = new mongoose.Schema({
     duration: {
         type: Number,
         required: true,
+    },
+    defaultChannelId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Channel',
+        default: null,
+        validate: {
+            validator: function(value) {
+                // Only validate if set
+                if (!value || !this.channels) return true;
+                return this.channels.some(
+                    (ch) => ch.toString() === value.toString()
+                );
+            },
+            message: 'Default channel must be one of the package channels.'
+        }
     }
 }, {
     timestamps: true

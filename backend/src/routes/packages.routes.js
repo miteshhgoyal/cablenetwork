@@ -4,7 +4,6 @@ import { authenticateToken } from '../middlewares/auth.js';
 import Package from '../models/Package.js';
 import Category from '../models/Category.js';
 import Channel from '../models/Channel.js';
-import User from '../models/User.js';
 
 const router = express.Router();
 
@@ -12,21 +11,8 @@ const router = express.Router();
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const { search } = req.query;
-        const { id: userId, role } = req.user;
 
         let query = {};
-
-        // For distributors and resellers, only show packages assigned to them
-        if (role === 'distributor' || role === 'reseller') {
-            const user = await User.findById(userId).select('packages');
-            if (!user || !user.packages || user.packages.length === 0) {
-                return res.json({
-                    success: true,
-                    data: { packages: [] }
-                });
-            }
-            query._id = { $in: user.packages };
-        }
 
         // Add search filter
         if (search) {
@@ -36,6 +22,7 @@ router.get('/', authenticateToken, async (req, res) => {
         const packages = await Package.find(query)
             .populate('genres', 'name')
             .populate('channels', 'name lcn')
+            .populate('defaultChannelId', 'name lcn')
             .sort({ createdAt: -1 });
 
         res.json({
@@ -52,49 +39,11 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Get genres and channels for dropdowns - Filter by assigned packages
+// Get genres and channels for dropdowns
 router.get('/options', authenticateToken, async (req, res) => {
     try {
-        const { role, id: userId } = req.user;
-
-        // For distributors and resellers, only show options from their assigned packages
-        if (role === 'distributor' || role === 'reseller') {
-            const user = await User.findById(userId).populate({
-                path: 'packages',
-                populate: [
-                    { path: 'genres', select: 'name' },
-                    { path: 'channels', select: 'name lcn' }
-                ]
-            });
-
-            if (!user || !user.packages) {
-                return res.json({
-                    success: true,
-                    data: { genres: [], channels: [] }
-                });
-            }
-
-            // Extract unique genres and channels from assigned packages
-            const genresSet = new Set();
-            const channelsSet = new Set();
-
-            user.packages.forEach(pkg => {
-                pkg.genres?.forEach(genre => genresSet.add(JSON.stringify(genre)));
-                pkg.channels?.forEach(channel => channelsSet.add(JSON.stringify(channel)));
-            });
-
-            const genres = Array.from(genresSet).map(item => JSON.parse(item));
-            const channels = Array.from(channelsSet).map(item => JSON.parse(item));
-
-            return res.json({
-                success: true,
-                data: { genres, channels }
-            });
-        }
-
-        // For admin, show all options
         const genres = await Category.find({ type: 'Genre' }).sort({ name: 1 });
-        const channels = await Channel.find().populate('genre', 'name').sort({ lcn: 1 });
+        const channels = await Channel.find().sort({ lcn: 1 });
 
         res.json({
             success: true,
@@ -113,9 +62,11 @@ router.get('/options', authenticateToken, async (req, res) => {
 // Get single package
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
+
         const packaze = await Package.findById(req.params.id)
             .populate('genres', 'name')
-            .populate('channels', 'name lcn');
+            .populate('channels', 'name lcn')
+            .populate('defaultChannelId', 'name lcn');
 
         if (!packaze) {
             return res.status(404).json({
@@ -151,7 +102,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        const { name, cost, genres, channels, duration } = req.body;
+        const { name, cost, genres, channels, duration, defaultChannelId } = req.body;
 
         // Validation
         if (!name || !cost || !duration) {
@@ -181,12 +132,22 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+
+        // Validate defaultChannelId is in channels
+        if (defaultChannelId && (!channels || !channels.includes(defaultChannelId))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Default channel must be one of the selected channels.'
+            });
+        }
+
         const packaze = new Package({
             name: name.trim(),
             cost,
             genres: genres || [],
             channels: channels || [],
-            duration
+            duration,
+            defaultChannelId: defaultChannelId || null
         });
 
         await packaze.save();
@@ -194,6 +155,7 @@ router.post('/', authenticateToken, async (req, res) => {
         // Populate before sending response
         await packaze.populate('genres', 'name');
         await packaze.populate('channels', 'name lcn');
+        await packaze.populate('defaultChannelId', 'name lcn');
 
         res.status(201).json({
             success: true,
@@ -223,7 +185,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        const { name, cost, genres, channels, duration } = req.body;
+        const { name, cost, genres, channels, duration, defaultChannelId } = req.body;
 
         // Validation
         if (!name || !cost || !duration) {
@@ -263,17 +225,28 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+
+        // Validate defaultChannelId is in channels
+        if (defaultChannelId && (!channels || !channels.includes(defaultChannelId))) {
+            return res.status(400).json({
+                success: false,
+                message: 'Default channel must be one of the selected channels.'
+            });
+        }
+
         packaze.name = name.trim();
         packaze.cost = cost;
         packaze.genres = genres || [];
         packaze.channels = channels || [];
         packaze.duration = duration;
+        packaze.defaultChannelId = defaultChannelId || null;
 
         await packaze.save();
 
         // Populate before sending response
         await packaze.populate('genres', 'name');
         await packaze.populate('channels', 'name lcn');
+        await packaze.populate('defaultChannelId', 'name lcn');
 
         res.json({
             success: true,

@@ -602,11 +602,28 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-        await subscriber.deleteOne();
+
+        // If admin, allow true deletion
+        if (user.role === 'admin') {
+            await subscriber.deleteOne();
+            return res.json({
+                success: true,
+                message: 'Subscriber deleted successfully'
+            });
+        }
+
+        // Dealer/Reseller: Release MAC instead of deleting
+        subscriber.status = 'Fresh';
+        subscriber.resellerId = null;
+        subscriber.expiryDate = null;
+        // Optionally clear packages, primaryPackageId, etc.
+        subscriber.packages = [];
+        subscriber.primaryPackageId = null;
+        await subscriber.save();
 
         res.json({
             success: true,
-            message: 'Subscriber deleted successfully'
+            message: 'MAC released and returned to Admin. It is now unassigned and reusable.'
         });
 
     } catch (error) {
