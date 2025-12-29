@@ -18,7 +18,7 @@ import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
 // Remove expo-video imports
 // import { VideoView, useVideoPlayer } from 'expo-video';
-import { Video, ResizeMode  } from 'expo-av';
+import { Video } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as Device from 'expo-device';

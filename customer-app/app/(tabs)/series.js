@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
-import { Video, ResizeMode } from 'expo-av';
+import { Video } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
@@ -296,7 +296,7 @@ export default function SeriesScreen() {
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
-                    resizeMode={ResizeMode.CONTAIN}
+                    resizeMode="contain"
                     shouldPlay={isPlaying}
                     isLooping={false}
                     useNativeControls

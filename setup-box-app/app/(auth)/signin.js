@@ -26,43 +26,25 @@ const Signin = () => {
     const [inactiveMessage, setInactiveMessage] = useState('');
     const router = useRouter();
 
-// useEffect(() => {
-//   const check = async () => {
-//     try {
-//       const r1 = await fetch('https://google.com');
-//       console.log('FETCH google ok', r1.status);
-//     } catch (e) {
-//       console.log('FETCH google error', e?.message || e);
-//     }
-//     try {
-//       const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
-//       const text = await r2.text();
-//       console.log('FETCH health', r2.status, text);
-//     } catch (e) {
-//       console.log('FETCH health error', e?.message || e);
-//     }
-//   };
-//   check();
-// }, []);
-
 useEffect(() => {
-    const check = async () => {
-        try {
-            const r1 = await fetch('https://google.com');
-            console.log('FETCH google ok', r1.status);
-        } catch (e) {
-            console.log('FETCH google error', e?.message || e);
-        }
-        try {
-            const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
-            const text = await r2.text();
-            console.log('FETCH health', r2.status, text);
-        } catch (e) {
-            console.log('FETCH health error', e?.message || e);
-        }
-    };
-    check();
+  const check = async () => {
+    try {
+      const r1 = await fetch('https://google.com');
+      console.log('FETCH google ok', r1.status);
+    } catch (e) {
+      console.log('FETCH google error', e?.message || e);
+    }
+    try {
+      const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
+      const text = await r2.text();
+      console.log('FETCH health', r2.status, text);
+    } catch (e) {
+      console.log('FETCH health error', e?.message || e);
+    }
+  };
+  check();
 }, []);
+
 useEffect(() => {
     if (!isAuthenticated) return;
     // if (loading) return;

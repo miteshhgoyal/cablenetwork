@@ -19,7 +19,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '@/context/authContext';
 import api from '@/services/api';
-import { Video, ResizeMode } from 'expo-av';
+import { Video } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
@@ -333,6 +333,12 @@ export default function MoviesScreen() {
         </View>
     );
 
+    const forceJpg = (url) =>
+  `https://images.weserv.nl/?output=jpg&url=${encodeURIComponent(
+    url.replace(/^https?:\/\//, '')
+  )}`;
+
+
     const renderVideoPlayer = () => {
         if (!selectedMovie) return null;
 
@@ -467,7 +473,7 @@ export default function MoviesScreen() {
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
-                    resizeMode={ResizeMode.CONTAIN}
+                    resizeMode="contain"
                     shouldPlay={isPlaying}
                     isLooping={false}
                     useNativeControls
@@ -524,7 +530,7 @@ export default function MoviesScreen() {
         >
             <View className="relative">
                 <Image
-                    source={{ uri: item.verticalUrl }}
+                    source={{ uri: forceJpg(item.logo) }}
                     className="w-full h-52 rounded-xl bg-gray-800"
                     resizeMode="cover"
                 />
@@ -738,7 +744,7 @@ export default function MoviesScreen() {
                                     </View>
                                 </View>
                                 <Image
-                                    source={{ uri: selectedMovie.horizontalUrl }}
+                                    source={{ uri: forceJpg(item.logo) }}
                                     className="w-full h-48 rounded-xl mb-6 bg-gray-800"
                                     resizeMode="cover"
                                 />
@@ -762,7 +768,7 @@ export default function MoviesScreen() {
                                                 }}
                                             >
                                                 <Image
-                                                    source={{ uri: movie.verticalUrl }}
+                                                    source={{ uri: forceJpg(item.logo) }}
                                                     className="w-16 h-24 rounded-lg bg-gray-700 mr-3"
                                                     resizeMode="cover"
                                                 />

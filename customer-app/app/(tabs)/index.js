@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, Modal, ScrollView, StatusBar, Linking, Ac
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useAuth } from '../../context/authContext';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { Video, ResizeMode } from 'expo-av';
+import { Video } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
@@ -158,32 +158,33 @@ export default function ChannelsScreen() {
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Cache-Control': 'no-cache',
                 'Pragma': 'no-cache',
-                'Accept-Encoding': 'identity',
                 'Connection': 'keep-alive'
             }
         };
     };
 
     useEffect(() => {
-        if (selectedChannel && showPlayer) {
-            const newUrl = getCurrentStreamUrl();
-            const newUrlString = JSON.stringify(newUrl);
+    if (!selectedChannel || !showPlayer) return;
 
-            if (newUrlString !== currentStreamUrl && currentStreamUrl !== '') {
-                setCurrentStreamUrl(newUrlString);
-                setVideoLoading(true);
-                setVideoError(false);
+    const newUrl = getCurrentStreamUrl();
+    const newUrlString = JSON.stringify(newUrl);
 
-                if (videoRef.current) {
-                    videoRef.current.unloadAsync().then(() => {
-                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true });
-                    });
-                }
-            } else if (currentStreamUrl === '') {
-                setCurrentStreamUrl(newUrlString);
-            }
-        }
-    }, [useProxy, selectedChannel]);
+    if (newUrlString === currentStreamUrl) return;
+
+    setCurrentStreamUrl(newUrlString);
+    setVideoLoading(true);
+    setVideoError(false);
+
+    if (videoRef.current) {
+        videoRef.current
+            .unloadAsync()
+            .catch(() => {})
+            .finally(() => {
+                videoRef.current?.loadAsync(newUrl, { shouldPlay: true }).catch(() => {});
+            });
+    }
+}, [useProxy, selectedChannel]);
+
 
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
@@ -458,7 +459,7 @@ export default function ChannelsScreen() {
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
-                    resizeMode={ResizeMode.CONTAIN}
+                    resizeMode="contain"
                     shouldPlay={true}
                     isLooping={false}
                     useNativeControls
@@ -468,6 +469,14 @@ export default function ChannelsScreen() {
                         setVideoError(false);
                     }}
                     onError={(error) => {
+                         if (!proxyAttempted && serverInfo?.proxyEnabled) {
+                            setProxyAttempted(true);
+                            setUseProxy(prev => !prev);
+                            setVideoLoading(true);
+                            setVideoError(false);
+                            return;
+                        }
+
                         setVideoError(true);
                         setVideoLoading(false);
 
@@ -648,6 +657,8 @@ export default function ChannelsScreen() {
                 visible={showPlayer}
                 animationType="slide"
                 onRequestClose={() => {
+                    videoRef.current?.unloadAsync().catch(() => {});
+                    setCurrentStreamUrl('');
                     setShowPlayer(false);
                     setSelectedChannel(null);
                 }}

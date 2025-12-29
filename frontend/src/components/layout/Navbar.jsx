@@ -147,8 +147,6 @@ const Navbar = () => {
               href: "/reseller/profile",
               icon: User2,
             },
-          ],
-          singleEnd: [
             {
               name: "Credit",
               href: "/reseller/credit",

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+  <!--
+    Permit cleartext (HTTP) for specific hosts used by streams.
+    Replace or extend the <domain> entries with your stream hostnames or IPs.
+    If you prefer to enable cleartext globally, set a <base-config cleartextTrafficPermitted="true"/> instead.
+  -->
+  <!-- Allow cleartext traffic globally for in-app streaming and image hosts.
+       If you want to be more restrictive, replace this with specific
+       <domain-config> entries for known hosts instead. -->
+  <base-config cleartextTrafficPermitted="true" />
+</network-security-config>
