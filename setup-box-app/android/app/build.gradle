@@ -90,7 +90,7 @@ android {
     namespace 'com.iptv.setupbox'
     defaultConfig {
         applicationId 'com.iptv.setupbox'
-        minSdkVersion 26
+        minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
         versionName "1.0.0"
@@ -114,8 +114,8 @@ android {
             // see https://reactnative.dev/docs/signed-apk-android.
             signingConfig signingConfigs.debug
             def enableShrinkResources = findProperty('android.enableShrinkResourcesInReleaseBuilds') ?: 'false'
-            shrinkResources enableShrinkResources.toBoolean()
-            minifyEnabled enableMinifyInReleaseBuilds
+            shrinkResources false
+            minifyEnabled false
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
