@@ -195,7 +195,7 @@ const Profile = () => {
                     <View style={{ backgroundColor: '#2563eb', borderRadius: 16, paddingHorizontal: 20, paddingVertical: 24, marginBottom: 20, shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 5 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
                             <IndianRupee size={18} color="#dbeafe" style={{ marginRight: 8 }} />
-                            <Text style={{ fontSize: 13, color: '#dbeafe' }}>Available Balance</Text>
+                            <Text style={{ fontSize: 13, color: '#dbeafe' }}>Available Credit</Text>
                         </View>
                         <Text style={{ fontSize: 36, fontWeight: 'bold', color: '#ffffff' }}>
                             {(profile?.balance || 0).toLocaleString('en-IN')}
