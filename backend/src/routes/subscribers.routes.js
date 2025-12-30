@@ -192,7 +192,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
 router.patch('/:id/activate', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const user = await User.findById(userId);
         const { expiryDate } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id);
@@ -205,29 +204,15 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
         }
 
         // Check permissions
-        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized access'
             });
         }
 
-        if (user.role === 'distributor') {
-            const distributorResellers = await User.find({
-                role: 'reseller',
-                createdBy: userId
-            });
-            const resellerIds = distributorResellers.map(r => r._id.toString());
-
-            if (!resellerIds.includes(subscriber.resellerId.toString())) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Unauthorized access'
-                });
-            }
-        }
-
-        // Activate the subscriber
+        // Always set status to Active when activating
         subscriber.status = 'Active';
 
         // Set expiry date if provided, otherwise default to 30 days
@@ -262,7 +247,6 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
 router.patch('/:id/renew', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const user = await User.findById(userId);
         const { duration } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
@@ -277,26 +261,12 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         }
 
         // Check permissions
-        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized access'
             });
-        }
-
-        if (user.role === 'distributor') {
-            const distributorResellers = await User.find({
-                role: 'reseller',
-                createdBy: userId
-            });
-            const resellerIds = distributorResellers.map(r => r._id.toString());
-
-            if (!resellerIds.includes(subscriber.resellerId.toString())) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Unauthorized access'
-                });
-            }
         }
 
         // Validate duration
@@ -307,43 +277,56 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             });
         }
 
+        // Ensure subscriber has packages
+        if (!subscriber.packages || subscriber.packages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No packages assigned to subscriber'
+            });
+        }
+
         // Calculate renewal cost based on all packages
         const totalPackageCost = subscriber.packages.reduce((sum, pkg) => sum + pkg.cost, 0);
 
-        // Check reseller balance
-        const reseller = await User.findById(subscriber.resellerId);
-        if (!reseller) {
-            return res.status(404).json({
-                success: false,
-                message: 'Reseller not found'
-            });
+        // Check reseller balance (skip for admin)
+        if (subscriber.resellerId && totalPackageCost > 0) {
+            const reseller = await User.findById(subscriber.resellerId);
+            if (!reseller) {
+                return res.status(404).json({
+                    success: false,
+                    message: 'Reseller not found'
+                });
+            }
+
+            if (reseller.balance < totalPackageCost) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Insufficient balance. Required: Rs.${totalPackageCost}, Available: Rs.${reseller.balance}`
+                });
+            }
+
+            // Atomically deduct balance
+            const updatedReseller = await User.findOneAndUpdate(
+                {
+                    _id: subscriber.resellerId,
+                    balance: { $gte: totalPackageCost }
+                },
+                {
+                    $inc: { balance: -totalPackageCost }
+                },
+                { new: true }
+            );
+
+            if (!updatedReseller) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Failed to deduct balance. Insufficient funds.'
+                });
+            }
         }
 
-        if (reseller.balance < totalPackageCost) {
-            return res.status(400).json({
-                success: false,
-                message: `Insufficient balance. Required: Rs.${totalPackageCost}, Available: Rs.${reseller.balance}`
-            });
-        }
-
-        // Atomically deduct balance
-        const updatedReseller = await User.findOneAndUpdate(
-            {
-                _id: subscriber.resellerId,
-                balance: { $gte: totalPackageCost }
-            },
-            {
-                $inc: { balance: -totalPackageCost }
-            },
-            { new: true }
-        );
-
-        if (!updatedReseller) {
-            return res.status(400).json({
-                success: false,
-                message: 'Failed to deduct balance. Insufficient funds.'
-            });
-        }
+        // Always set status to Active when renewing
+        subscriber.status = 'Active';
 
         // Calculate new expiry date
         const currentExpiry = subscriber.expiryDate ? new Date(subscriber.expiryDate) : new Date();
@@ -353,7 +336,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         const newExpiryDate = new Date(baseDate.getTime() + duration * 24 * 60 * 60 * 1000);
 
         subscriber.expiryDate = newExpiryDate;
-        subscriber.status = 'Active';
 
         await subscriber.save();
 
@@ -361,12 +343,14 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
 
+        const deductedAmount = subscriber.resellerId ? totalPackageCost : 0;
+
         res.json({
             success: true,
-            message: `Package renewed successfully. Rs.${totalPackageCost} deducted from balance.`,
+            message: `Package renewed successfully.${deductedAmount > 0 ? ` Rs.${deductedAmount} deducted from balance.` : ''}`,
             data: {
                 subscriber,
-                deductedAmount: totalPackageCost,
+                deductedAmount,
                 newExpiryDate: newExpiryDate
             }
         });
@@ -384,11 +368,11 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const user = await User.findById(userId);
         const { subscriberName, macAddress, serialNumber, status, expiryDate, packages } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration');
+            .populate('packages', 'name cost duration')
+            .populate('resellerId');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -398,26 +382,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
         }
 
         // Check permissions
-        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized access'
             });
-        }
-
-        if (user.role === 'distributor') {
-            const distributorResellers = await User.find({
-                role: 'reseller',
-                createdBy: userId
-            });
-            const resellerIds = distributorResellers.map(r => r._id.toString());
-
-            if (!resellerIds.includes(subscriber.resellerId.toString())) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Unauthorized access'
-                });
-            }
         }
 
         // Validation
@@ -481,8 +451,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
             costDifference = addedCost - removedCost;
         }
 
-        // Deduct balance if cost increased
-        if (costDifference > 0) {
+        // Deduct balance if cost increased (skip for admin)
+        if (costDifference > 0 && subscriber.resellerId) {
             const reseller = await User.findById(subscriber.resellerId);
 
             if (!reseller) {
@@ -523,12 +493,16 @@ router.put('/:id', authenticateToken, async (req, res) => {
         subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
 
-        // Auto-activate if packages are assigned and status is Fresh/Inactive
-        if (packages && packages.length > 0 && (subscriber.status === 'Fresh' || subscriber.status === 'Inactive')) {
+        // Set status logic:
+        // 1. If packages assigned -> Active
+        // 2. If explicitly set -> use provided status
+        // 3. Default to Fresh
+        if (packages && packages.length > 0) {
             subscriber.status = 'Active';
-            console.log(`Auto-activating subscriber ${req.params.id} due to package assignment`);
         } else if (status) {
             subscriber.status = status;
+        } else {
+            subscriber.status = 'Fresh';
         }
 
         if (expiryDate) {
@@ -568,7 +542,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
-        const user = await User.findById(userId);
 
         const subscriber = await Subscriber.findById(req.params.id);
 
@@ -580,30 +553,16 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         }
 
         // Check permissions
-        if (user.role === 'reseller' && subscriber.resellerId.toString() !== userId) {
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
             return res.status(403).json({
                 success: false,
                 message: 'Unauthorized access'
             });
         }
 
-        if (user.role === 'distributor') {
-            const distributorResellers = await User.find({
-                role: 'reseller',
-                createdBy: userId
-            });
-            const resellerIds = distributorResellers.map(r => r._id.toString());
-
-            if (!resellerIds.includes(subscriber.resellerId.toString())) {
-                return res.status(403).json({
-                    success: false,
-                    message: 'Unauthorized access'
-                });
-            }
-        }
-
         // If admin, allow true deletion
-        if (user.role === 'admin') {
+        if (req.user.role === 'admin') {
             await subscriber.deleteOne();
             return res.json({
                 success: true,
@@ -632,5 +591,27 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         });
     }
 });
+
+// Helper function to check subscriber permissions
+async function checkSubscriberPermission(userId, subscriber) {
+    const user = await User.findById(userId);
+
+    if (user.role === 'admin') return true;
+
+    if (user.role === 'reseller' && subscriber.resellerId && subscriber.resellerId._id.toString() === userId) {
+        return true;
+    }
+
+    if (user.role === 'distributor') {
+        const distributorResellers = await User.find({
+            role: 'reseller',
+            createdBy: userId
+        });
+        const resellerIds = distributorResellers.map(r => r._id.toString());
+        return subscriber.resellerId && resellerIds.includes(subscriber.resellerId._id.toString());
+    }
+
+    return false;
+}
 
 export default router;
