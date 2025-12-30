@@ -25,6 +25,40 @@ import {
 } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
+
+// Watermark Component
+const WatermarkOverlay = () => {
+    return (
+        <View
+            style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                right: 0,
+                bottom: 0,
+                justifyContent: 'center',
+                alignItems: 'center',
+                pointerEvents: 'none',
+                zIndex: 1,
+            }}
+        >
+            <Text
+                style={{
+                    color: 'rgba(255, 255, 255, 0.15)',
+                    fontSize: 28,
+                    fontWeight: 'bold',
+                    transform: [{ rotate: '-45deg' }],
+                    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+                    textShadowOffset: { width: 1, height: 1 },
+                    textShadowRadius: 2,
+                }}
+            >
+                Online IPTV Hub
+            </Text>
+        </View>
+    );
+};
+
 export default function ChannelsScreen() {
     const {
         channels,
@@ -400,6 +434,34 @@ export default function ChannelsScreen() {
         // Simplified - handle main stream types
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
+                {/* Watermark on video player */}
+                <View
+                    style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        pointerEvents: 'none',
+                        zIndex: 5,
+                    }}
+                >
+                    <Text
+                        style={{
+                            color: 'rgba(255, 255, 255, 0.12)',
+                            fontSize: 22,
+                            fontWeight: 'bold',
+                            transform: [{ rotate: '-45deg' }],
+                            textShadowColor: 'rgba(0, 0, 0, 0.4)',
+                            textShadowOffset: { width: 1, height: 1 },
+                            textShadowRadius: 3,
+                        }}
+                    >
+                        Online IPTV Hub
+                    </Text>
+                </View>
                 {renderStreamTypeBadge(type.type)}
 
                 {videoLoading && (
@@ -607,6 +669,9 @@ export default function ChannelsScreen() {
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
 
+            {/* Watermark Overlay */}
+            <WatermarkOverlay />
+
             {/* Header + Search */}
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between mb-3">
@@ -692,7 +757,11 @@ export default function ChannelsScreen() {
 
                     {renderVideoPlayer()}
 
-                    <ScrollView className="flex-1">
+                    <ScrollView
+                        className="flex-1"
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={{ paddingBottom: 100 }}
+                    >
                         <View className="p-4 bg-gray-900">
                             <View className="flex-row items-center mb-3">
                                 <View className="flex-1">
@@ -732,7 +801,7 @@ export default function ChannelsScreen() {
 
                             {/* More Like This - Improved Recommendations */}
                             {getRecommendedChannels().length > 0 && (
-                                <View className="mt-6">
+                                <View className="mt-6 mb-8">
                                     <View className="flex-row items-center justify-between mb-4">
                                         <View className="flex-row items-center">
                                             <Ionicons name="list" size={22} color="#f97316" />
@@ -751,7 +820,11 @@ export default function ChannelsScreen() {
                                         {selectedChannel?.language?.name} • {selectedChannel?.genre?.name}
                                     </Text>
 
-                                    <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                                    <ScrollView
+                                        horizontal
+                                        showsHorizontalScrollIndicator={false}
+                                        contentContainerStyle={{ paddingRight: 16 }}
+                                    >
                                         {getRecommendedChannels().map(channel => (
                                             <TouchableOpacity
                                                 key={channel.id}
@@ -953,12 +1026,7 @@ export default function ChannelsScreen() {
                 </View>
             </Modal>
 
-            {/* DCN Badge */}
-            <View className="absolute bottom-2 left-2">
-                <View className="bg-orange-500 rounded-lg">
-                    <Text className="text-black text-lg font-bold px-3 py-2">IPTV</Text>
-                </View>
-            </View>
+
         </SafeAreaView>
     );
 }
