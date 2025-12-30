@@ -1,7 +1,6 @@
-import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable } from 'react-native';
-import React, { useState, useEffect } from 'react'; // added useEffect import
+import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable, Dimensions, Platform, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
-// import { SafeAreaView } from 'react-native-safe-area-context';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
 import * as Constants from 'expo-constants';
@@ -9,23 +8,48 @@ import Loading from '../../components/Loading';
 import CustomKeyboardView from "../../components/CustomKeyboardView";
 import { useAuth } from '@/context/authContext';
 import { useRouter } from 'expo-router';
+import * as ScreenOrientation from 'expo-screen-orientation';
 
-import * as ScreenOrientation from 'expo-screen-orientation'; // import ScreenOrientation
+let TVEventHandler = null;
+try {
+    TVEventHandler = require('react-native').TVEventHandler;
+} catch (e) {
+    TVEventHandler = null;
+}
 
 const Signin = () => {
     const { login, checkSubscriptionStatus, isAuthenticated, subscriptionStatus } = useAuth();
+    const router = useRouter();
 
-
+    // States
     const [partnerCode, setPartnerCode] = useState('');
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState('');
     const [deviceInfo, setDeviceInfo] = useState({});
-
     const [showCustomMacModal, setShowCustomMacModal] = useState(false);
     const [customMac, setCustomMac] = useState('');
     const [inactiveMessage, setInactiveMessage] = useState('');
-    const router = useRouter();
 
+    // TV Detection
+    const isTV = Device.deviceType === Device.DeviceType.TV ||
+        Platform.isTV ||
+        Device.modelName?.toLowerCase().includes('tv') ||
+        Device.deviceName?.toLowerCase().includes('tv') ||
+        Device.brand?.toLowerCase().includes('google');
+
+    const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
+    const isLandscape = screenWidth > screenHeight;
+
+    // TV Navigation States
+    const [focusedElement, setFocusedElement] = useState('partnerCode'); // 'partnerCode', 'loginBtn', 'customMacBtn'
+    const tvEventHandler = useCallback(null);
+
+    // Screen Orientation
+    useEffect(() => {
+        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+    }, []);
+
+    // Network Check
     useEffect(() => {
         const check = async () => {
             try {
@@ -45,21 +69,19 @@ const Signin = () => {
         check();
     }, []);
 
+    // Auto Redirect
     useEffect(() => {
         if (!isAuthenticated) return;
-        // if (loading) return;
         if (subscriptionStatus !== 'ACTIVE') return;
-
         console.log("Redirect → user authenticated & ACTIVE");
         router.replace('/(tabs)');
-
     }, [isAuthenticated, subscriptionStatus]);
 
+    // Device Info
     useEffect(() => {
         const getDeviceInfo = async () => {
             const info = {
                 macAddress: Device.modelId || Device.osBuildId || 'UNKNOWN_DEVICE',
-                // macAddress: Application.androidId || Device.osBuildId || 'UNKNOWN_DEVICE',
                 deviceName: Device.deviceName || 'Unknown Device',
                 modelName: Device.modelName || 'Unknown Model',
                 brand: Device.brand || 'Unknown',
@@ -73,10 +95,39 @@ const Signin = () => {
         getDeviceInfo();
     }, []);
 
+    // TV Remote Handler
+    useEffect(() => {
+        if (!isTV || !TVEventHandler) return;
+
+        const handler = new TVEventHandler();
+        handler.enable(null, (component, evt) => {
+            console.log('TV Signin Event:', evt);
+
+            if (evt.eventType === 'select') {
+                if (focusedElement === 'partnerCode') {
+                    handleSubmit(false);
+                } else if (focusedElement === 'loginBtn') {
+                    handleSubmit(false);
+                } else if (focusedElement === 'customMacBtn') {
+                    setShowCustomMacModal(true);
+                }
+            } else if (evt.eventType === 'right') {
+                // Navigate right
+                if (focusedElement === 'partnerCode') setFocusedElement('loginBtn');
+            } else if (evt.eventType === 'left') {
+                // Navigate left
+                if (focusedElement === 'loginBtn') setFocusedElement('partnerCode');
+            }
+        });
+
+        return () => {
+            handler.disable();
+        };
+    }, [focusedElement]);
+
     const handleSubmit = async (useCustomMac = false) => {
         setError('');
         const finalCode = partnerCode.trim() || "2001";
-
 
         if (useCustomMac && !customMac.trim()) {
             setError('Please enter custom MAC address');
@@ -87,31 +138,20 @@ const Signin = () => {
         try {
             let mac = deviceInfo.macAddress;
             if (!mac) {
-
-                mac = "cph2667_15.0.0.1300(ex01)";  // your hardcoded MAC
-
+                mac = "cph2667_15.0.0.1300(ex01)";
             }
-            // setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
 
-
-            // const result = await login(
-            //     partnerCode.trim(),
-            //     {
-            //         ...deviceInfo,
-            //         macAddress: mac,
-            //         customMac: useCustomMac ? customMac.trim() : null
-            //     }
-            // );
             const finalDeviceInfo = {
                 ...deviceInfo,
                 macAddress: useCustomMac ? customMac.trim() : mac,
                 customMac: useCustomMac ? customMac.trim() : null,
             };
-            console.log(finalDeviceInfo + "→ " + finalCode);
+
+            console.log(finalDeviceInfo, "→", finalCode);
             const result = await login(finalCode.trim(), finalDeviceInfo);
             console.log(result);
-            if (result.success) {
 
+            if (result.success) {
                 setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
                 setShowCustomMacModal(false);
                 setCustomMac('');
@@ -145,6 +185,249 @@ const Signin = () => {
         setInactiveMessage('');
     };
 
+    const clearPartnerCode = () => setPartnerCode('');
+    const clearCustomMac = () => setCustomMac('');
+
+    // ========================================
+    // TV HORIZONTAL LAYOUT (Landscape)
+    // ========================================
+    if (isTV) {
+        return (
+            <View className="flex-1 bg-gradient-to-r from-black via-gray-900 to-black">
+                <StatusBar barStyle="light-content" hidden />
+
+                {/* TV Hero Section - 60% */}
+                <View className="flex-1 px-12 py-16 justify-center items-center">
+                    <View className="w-40 h-40 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl items-center justify-center mb-16 shadow-2xl border-4 border-white/20">
+                        <Ionicons name="tv-outline" size={80} color="white" />
+                    </View>
+                    <Text className="text-6xl font-black text-white text-center mb-12 tracking-wide drop-shadow-lg">
+                        Online IPTV Hub
+                    </Text>
+                    <Text className="text-2xl text-gray-200 text-center mb-8 max-w-2xl leading-relaxed">
+                        Enter your partner code to unlock 1000+ live channels in HD
+                    </Text>
+                    <View className="w-32 h-1 bg-gradient-to-r from-orange-500 to-orange-300 rounded-full" />
+                </View>
+
+                {/* TV Login Panel - 40% */}
+                <View className="h-2/5 bg-gray-900/95 border-t-8 border-orange-500/50 rounded-t-3xl p-12 mx-8 shadow-2xl">
+                    {/* Header */}
+                    <View className="flex-row items-center justify-between mb-16 pb-8 border-b-2 border-gray-800">
+                        <View className="w-24 h-24 bg-gradient-to-br from-orange-500/20 to-orange-600/20 rounded-2xl items-center justify-center border-4 border-orange-500/30">
+                            <Ionicons name="key-outline" size={40} color="#f97316" />
+                        </View>
+                        <View className="flex-col items-end">
+                            <Text className="text-3xl font-black text-white">Quick Access</Text>
+                            <Text className="text-orange-400 text-lg font-semibold">1 Step Login</Text>
+                        </View>
+                    </View>
+
+                    {/* Partner Code Input */}
+                    <View className={`mb-16 ${focusedElement === 'partnerCode' ? 'border-4 border-yellow-500 shadow-2xl' : ''}`}>
+                        <Text className="text-2xl font-bold text-gray-200 mb-8">Partner Code</Text>
+                        <View className="flex-row items-center bg-black/60 border-4 border-orange-500/40 rounded-3xl px-8 py-8 shadow-xl">
+                            <Ionicons name="key-outline" size={36} color="#f97316" />
+                            <TextInput
+                                value={partnerCode}
+                                onChangeText={setPartnerCode}
+                                placeholder="2001 (default)"
+                                placeholderTextColor="#9ca3af"
+                                autoCapitalize="characters"
+                                autoCorrect={false}
+                                maxLength={20}
+                                className="flex-1 ml-8 text-3xl text-white font-mono tracking-widest"
+                                style={{ paddingVertical: 0 }}
+                                onSubmitEditing={() => handleSubmit(false)}
+                                hasTVPreferredFocus={focusedElement === 'partnerCode'}
+                            />
+                            {partnerCode.length > 0 && (
+                                <TouchableOpacity onPress={clearPartnerCode} className="p-3">
+                                    <Ionicons name="close-circle" size={32} color="#6b7280" />
+                                </TouchableOpacity>
+                            )}
+                        </View>
+                    </View>
+
+                    {/* Device Info */}
+                    <View className="flex-row items-center justify-between mb-16 bg-black/40 p-8 rounded-3xl border-2 border-gray-700 shadow-xl">
+                        <View className="flex-col">
+                            <Text className="text-gray-400 text-xl mb-2">Device MAC</Text>
+                            <Text className="text-white text-2xl font-mono font-bold bg-gray-800 px-6 py-3 rounded-2xl" numberOfLines={1}>
+                                {deviceInfo.macAddress || 'Loading...'}
+                            </Text>
+                        </View>
+                        <View className="items-center space-y-2">
+                            <Ionicons name="tv-outline" size={48} color="#f97316" />
+                            <Text className="text-gray-300 text-lg font-semibold">{deviceInfo.deviceName || 'Smart TV'}</Text>
+                        </View>
+                    </View>
+
+                    {/* Action Buttons */}
+                    <View className="flex-row space-x-6">
+                        {/* Main Login Button */}
+                        <TouchableOpacity
+                            onPress={() => handleSubmit(false)}
+                            disabled={isLoading}
+                            className={`flex-1 py-8 rounded-3xl shadow-2xl transform transition-all ${focusedElement === 'loginBtn'
+                                    ? 'border-4 border-yellow-400 shadow-yellow-500/50 scale-105'
+                                    : 'border-2 border-transparent'
+                                } ${isLoading ? 'bg-gray-700' : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 hover:from-orange-600 hover:to-orange-800'}`}
+                            hasTVPreferredFocus={focusedElement === 'loginBtn'}
+                        >
+                            {isLoading ? (
+                                <View className="flex-row items-center justify-center">
+                                    <ActivityIndicator size={28} color="white" />
+                                    <Text className="text-white font-black text-2xl ml-4">Verifying</Text>
+                                </View>
+                            ) : (
+                                <View className="flex-row items-center justify-center">
+                                    <Ionicons name="rocket-outline" size={36} color="white" />
+                                    <Text className="text-white font-black text-2xl ml-4">START TV</Text>
+                                </View>
+                            )}
+                        </TouchableOpacity>
+
+                        {/* Custom MAC Button */}
+                        <TouchableOpacity
+                            onPress={() => setShowCustomMacModal(true)}
+                            className={`w-28 h-28 rounded-3xl items-center justify-center shadow-2xl transform transition-all ${focusedElement === 'customMacBtn'
+                                    ? 'border-4 border-yellow-400 shadow-yellow-500/50 scale-105 bg-orange-500/30'
+                                    : 'border-2 border-gray-600 bg-gray-800/50'
+                                }`}
+                            hasTVPreferredFocus={focusedElement === 'customMacBtn'}
+                        >
+                            <Ionicons name="swap-horizontal-outline" size={36} color="#f97316" />
+                            <Text className="text-white font-bold text-lg mt-2">MAC</Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    {/* Error Display */}
+                    {error ? (
+                        <View className="mt-12 p-8 bg-red-900/50 rounded-3xl border-4 border-red-500/60 shadow-xl">
+                            <View className="flex-row items-center mb-4">
+                                <Ionicons name="alert-triangle" size={32} color="#ef4444" />
+                                <Text className="text-red-200 text-2xl font-bold ml-4">Login Failed</Text>
+                            </View>
+                            <Text className="text-red-100 text-xl leading-relaxed text-center">{error}</Text>
+                        </View>
+                    ) : null}
+                </View>
+
+                {/* TV Footer */}
+                <View className="px-12 py-8 bg-black/60 border-t-2 border-gray-800">
+                    <Text className="text-center text-gray-400 text-xl font-semibold">
+                        Online IPTV Hub v{deviceInfo.appVersion || '1.0.0'}
+                    </Text>
+                    <Text className="text-center text-gray-600 text-lg mt-2">
+                        Contact reseller for activation
+                    </Text>
+                </View>
+
+                {/* ======================================== */}
+                {/* TV Custom MAC Modal */}
+                {/* ======================================== */}
+                <Modal animationType="slide" transparent visible={showCustomMacModal} onRequestClose={closeModal}>
+                    <Pressable className="flex-1 bg-black/95 justify-center items-center p-8">
+                        <Pressable className="bg-gray-900 w-full max-w-4xl rounded-3xl p-12 border-8 border-orange-500/40 shadow-2xl max-h-[90vh]">
+                            <TouchableOpacity className="absolute top-8 right-8 p-4 rounded-full bg-gray-800" onPress={closeModal}>
+                                <Ionicons name="close-circle" size={40} color="#6b7280" />
+                            </TouchableOpacity>
+
+                            {/* Modal Header */}
+                            <View className="items-center mb-12">
+                                <View className="w-28 h-28 bg-gradient-to-br from-orange-500/30 to-orange-600/30 rounded-3xl items-center justify-center mb-8 border-4 border-orange-500/50">
+                                    <Ionicons name="swap-horizontal" size={48} color="#f97316" />
+                                </View>
+                                <Text className="text-4xl font-black text-white mb-4 text-center">Custom MAC Login</Text>
+                                <Text className="text-gray-300 text-2xl text-center max-w-2xl leading-relaxed mb-8">
+                                    Your device needs activation. Use another device's active MAC address.
+                                </Text>
+                            </View>
+
+                            {/* Inactive Message */}
+                            {inactiveMessage ? (
+                                <View className="mb-12 p-8 bg-yellow-900/50 rounded-3xl border-4 border-yellow-500/60 shadow-xl">
+                                    <View className="flex-row items-center mb-4">
+                                        <Ionicons name="information-circle" size={32} color="#f59e0b" />
+                                        <Text className="text-yellow-100 text-2xl font-bold ml-4">Device Status</Text>
+                                    </View>
+                                    <Text className="text-yellow-50 text-xl leading-relaxed">{inactiveMessage}</Text>
+                                </View>
+                            ) : null}
+
+                            {/* Current Device MAC */}
+                            <View className="mb-12 p-8 bg-gray-800/60 rounded-3xl border-4 border-gray-600 shadow-xl">
+                                <Text className="text-gray-300 text-2xl font-bold mb-6 text-center">Your Device MAC</Text>
+                                <View className="bg-black/50 p-6 rounded-2xl border-2 border-gray-500">
+                                    <Text className="text-white text-3xl font-mono font-black text-center tracking-wider">
+                                        {deviceInfo.macAddress || 'Loading...'}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Custom MAC Input */}
+                            <View className="mb-16">
+                                <Text className="text-3xl font-bold text-gray-200 mb-8 text-center">Enter Active MAC</Text>
+                                <View className="flex-row items-center bg-black/70 border-6 border-orange-500/50 rounded-3xl px-10 py-10 shadow-2xl">
+                                    <Ionicons name="hardware-chip-outline" size={40} color="#f97316" />
+                                    <TextInput
+                                        value={customMac}
+                                        onChangeText={setCustomMac}
+                                        placeholder="Enter active MAC address"
+                                        placeholderTextColor="#9ca3af"
+                                        autoCapitalize="characters"
+                                        autoCorrect={false}
+                                        className="flex-1 ml-10 text-3xl text-white font-mono tracking-widest"
+                                        style={{ paddingVertical: 0 }}
+                                    />
+                                    {customMac.length > 0 && (
+                                        <TouchableOpacity onPress={clearCustomMac} className="p-4">
+                                            <Ionicons name="close-circle" size={36} color="#6b7280" />
+                                        </TouchableOpacity>
+                                    )}
+                                </View>
+                                <Text className="text-gray-400 text-xl mt-4 text-center font-semibold">
+                                    Enter MAC from an already active device
+                                </Text>
+                            </View>
+
+                            {/* Modal Buttons */}
+                            <View className="flex-row space-x-6">
+                                <TouchableOpacity
+                                    onPress={handleCustomMacLogin}
+                                    disabled={isLoading || !customMac.trim()}
+                                    className={`flex-1 py-10 rounded-3xl shadow-2xl ${(!customMac.trim() || isLoading)
+                                            ? 'bg-gray-700 border-2 border-gray-600'
+                                            : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 hover:from-orange-600 hover:to-orange-800'
+                                        }`}
+                                >
+                                    <View className="flex-row items-center justify-center">
+                                        <Ionicons name="checkmark-circle" size={40} color="white" />
+                                        <Text className="text-white font-black text-3xl ml-6">LOGIN</Text>
+                                    </View>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                    onPress={closeModal}
+                                    className="flex-1 py-10 rounded-3xl bg-gray-800/70 border-4 border-gray-600 items-center justify-center shadow-xl hover:bg-gray-700"
+                                >
+                                    <View className="flex-row items-center">
+                                        <Ionicons name="close-circle" size={36} color="#9ca3af" />
+                                        <Text className="text-gray-300 font-bold text-2xl ml-4">CANCEL</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            </View>
+                        </Pressable>
+                    </Pressable>
+                </Modal>
+            </View>
+        );
+    }
+
+    // ========================================
+    // MOBILE PORTRAIT LAYOUT (Original - UNCHANGED)
+    // ========================================
     return (
         <View className="flex-1 bg-black">
             <StatusBar barStyle="light-content" backgroundColor="#000" />
@@ -179,28 +462,24 @@ const Signin = () => {
                             </View>
                         ) : null}
 
-
                         {/* Device Information Card */}
                         <View className="mb-6 p-4 bg-gray-900 rounded-xl border border-gray-700">
                             <View className="flex-row items-center mb-3">
                                 <Ionicons name="phone-portrait-outline" size={18} color="#f97316" />
                                 <Text className="text-white text-sm font-semibold ml-2">This Device</Text>
                             </View>
-
                             <View className="flex-row items-center justify-between py-2 border-b border-gray-800">
                                 <Text className="text-gray-400 text-xs">MAC Address:</Text>
                                 <Text className="text-white text-xs font-mono font-semibold">
                                     {deviceInfo.macAddress || 'Loading...'}
                                 </Text>
                             </View>
-
                             <View className="flex-row items-center justify-between py-2 border-b border-gray-800">
                                 <Text className="text-gray-400 text-xs">Device Name:</Text>
                                 <Text className="text-white text-xs font-semibold" numberOfLines={1}>
                                     {deviceInfo.deviceName || 'Loading...'}
                                 </Text>
                             </View>
-
                             <View className="flex-row items-center justify-between py-2">
                                 <Text className="text-gray-400 text-xs">OS:</Text>
                                 <Text className="text-white text-xs font-semibold">
@@ -227,7 +506,7 @@ const Signin = () => {
                                     returnKeyType="done"
                                 />
                                 {partnerCode.length > 0 && (
-                                    <TouchableOpacity onPress={() => setPartnerCode('')}>
+                                    <TouchableOpacity onPress={clearPartnerCode}>
                                         <Ionicons name="close-circle" size={20} color="#6b7280" />
                                     </TouchableOpacity>
                                 )}
@@ -254,12 +533,8 @@ const Signin = () => {
                             )}
                         </TouchableOpacity>
 
-                        {/* Info Cards */}
-                        <TouchableOpacity
-                            onPress={() => setShowCustomMacModal(true)}
-                            disabled={isLoading}
-                            style={{ elevation: 5 }}
-                        >
+                        {/* Custom MAC Info Card */}
+                        <TouchableOpacity onPress={() => setShowCustomMacModal(true)} disabled={isLoading} style={{ elevation: 5 }}>
                             <View className="mt-10">
                                 <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
                                     <View className="flex-row items-center">
@@ -288,7 +563,7 @@ const Signin = () => {
                 </ScrollView>
             </CustomKeyboardView>
 
-            {/* CUSTOM MAC MODAL */}
+            {/* Mobile Custom MAC Modal */}
             <Modal
                 animationType="slide"
                 transparent={true}
@@ -303,8 +578,6 @@ const Signin = () => {
                         className="bg-gray-900 rounded-t-3xl p-6 border-t-2 border-orange-500"
                         onPress={(e) => e.stopPropagation()}
                     >
-                        {/* Modal content with same structure and styles */}
-                        {/* ... continuing as in your original modal ... */}
                         <View className="items-center mb-6">
                             <View className="w-16 h-16 bg-orange-500/20 rounded-full items-center justify-center mb-4">
                                 <Ionicons name="swap-horizontal" size={32} color="#f97316" />
@@ -340,7 +613,7 @@ const Signin = () => {
                                     className="flex-1 ml-3 text-white text-base font-mono"
                                 />
                                 {customMac.length > 0 && (
-                                    <TouchableOpacity onPress={() => setCustomMac('')}>
+                                    <TouchableOpacity onPress={clearCustomMac}>
                                         <Ionicons name="close-circle" size={20} color="#6b7280" />
                                     </TouchableOpacity>
                                 )}

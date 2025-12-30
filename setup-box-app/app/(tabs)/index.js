@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -12,18 +12,14 @@ import {
     Alert,
     AppState,
     FlatList,
-    TextInput,
     Platform,
     Dimensions,
 } from 'react-native';
-// import { SafeAreaView } from 'react-native-safe-area-context';
-import { useAuth } from '../../context/authContext';
-import Ionicons from '@expo/vector-icons/Ionicons';
-import { Video } from 'expo-av';
-import * as ScreenOrientation from 'expo-screen-orientation';
+import { useAuth } from '@/context/authContext';
+import { Ionicons } from '@expo/vector-icons';
+import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
-import debounce from 'lodash.debounce';
-
+import * as ScreenOrientation from 'expo-screen-orientation';
 
 let TVEventHandler = null;
 try {
@@ -38,68 +34,45 @@ function assertDefined(name, value) {
     }
 }
 
-function startLiveTranscode(channel, inputUrl) {
-    const channelDir = path.join(LIVE_HLS_DIR, channel);
-    if (!fs.existsSync(channelDir)) fs.mkdirSync(channelDir, { recursive: true });
-
-    // Prevent multiple FFmpeg processes for the same channel
-    const lockFile = path.join(channelDir, 'ffmpeg.lock');
-    if (fs.existsSync(lockFile)) return;
-
-    fs.writeFileSync(lockFile, 'running');
-
-    const ffmpeg = spawn('ffmpeg', [
-        '-i', inputUrl,                // <-- your live stream URL here
-        '-c:v', 'libx264',
-        '-c:a', 'aac',
-        '-f', 'hls',
-        '-hls_time', '6',
-        '-hls_list_size', '6',
-        '-hls_flags', 'delete_segments',
-        '-hls_segment_filename', `${channelDir}/segment_%03d.ts`,
-        `${channelDir}/output.m3u8`
-    ]);
-
-    ffmpeg.stderr.on('data', data => console.log(`[FFmpeg ${channel}]: ${data}`));
-    ffmpeg.on('close', code => {
-        console.log(`[FFmpeg ${channel}] exited with code ${code}`);
-        fs.unlinkSync(lockFile);
-    });
-}
-
 assertDefined('Ionicons', Ionicons);
 assertDefined('YoutubeView', YoutubeView);
 assertDefined('useYouTubePlayer', useYouTubePlayer);
 assertDefined('useYouTubeEvent', useYouTubeEvent);
+
 if (Platform.isTV && TVEventHandler) {
     assertDefined('TVEventHandler', TVEventHandler);
 }
 
 // Player height scales to 65% of the window height so it fits large TV screens
-const windowHeight = Dimensions.get('window').height;
+const { height: windowHeight } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65)); // min fallback
 
 export default function Index() {
     console.log('Platform.isTV:', Platform.isTV);
+
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
 
+    // Core states
     const [selectedChannel, setSelectedChannel] = useState(null);
     const [showUserInfo, setShowUserInfo] = useState(false);
+    const [showRecommendations, setShowRecommendations] = useState(false);
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
     const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
-    const [currentStreamUrl, setCurrentStreamUrl] = useState('');
+    const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
+
+    // TV Navigation states
     const [focusedCategory, setFocusedCategory] = useState(0);
     const [focusedChannelIndex, setFocusedChannelIndex] = useState(0);
     const [isCategoryFocused, setIsCategoryFocused] = useState(true);
     const [channelNumberInput, setChannelNumberInput] = useState('');
-    const channelNumberTimeout = useRef(null);
 
     const videoRef = useRef(null);
     const tvEventHandler = useRef(null);
+    const channelNumberTimeout = useRef(null);
 
     // Group channels by language
     const channelsByLanguage = useMemo(() => {
@@ -107,15 +80,13 @@ export default function Index() {
 
         const grouped = channels.reduce((acc, channel) => {
             const lang = channel.language?.name || 'Other';
-            if (!acc[lang]) {
-                acc[lang] = [];
-            }
+            if (!acc[lang]) acc[lang] = [];
             acc[lang].push(channel);
             return acc;
         }, {});
 
         Object.keys(grouped).forEach(lang => {
-            grouped[lang].sort((a, b) => (a.lcn || 999999) - (b.lcn || 999999));
+            grouped[lang].sort((a, b) => (a.lcn ?? 999999) - (b.lcn ?? 999999));
         });
 
         return Object.entries(grouped).map(([language, channels]) => ({
@@ -134,20 +105,23 @@ export default function Index() {
 
     // TV Remote Control Handler
     useEffect(() => {
-        if (TVEventHandler && typeof TVEventHandler === 'function') {
+        if (TVEventHandler && typeof TVEventHandler.enable === 'function') {
             tvEventHandler.current = new TVEventHandler();
             tvEventHandler.current.enable(null, (component, evt) => {
                 console.log('TVEventHandler event:', evt);
-                // Handle number key input
-                if (evt && evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /^[0-9]$/.test(evt.eventKey)) {
+
+                // Handle number key input (0-9)
+                if (evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /[0-9]/.test(evt.eventKey)) {
                     handleChannelNumberInput(evt.eventKey);
                     return;
                 }
-                if (evt && evt.eventType === 'select') {
+
+                // Handle SELECT/OK button
+                if (evt.eventType === 'select') {
                     if (isCategoryFocused) {
                         setIsCategoryFocused(false);
                         setFocusedChannelIndex(0);
-                        // Optionally: auto-play first channel in category
+                        // Optionally auto-play first channel in category
                         const currentCategory = channelsByLanguage[focusedCategory];
                         if (currentCategory && currentCategory.channels[0]) {
                             debouncedHandleChannelChange(currentCategory.channels[0]);
@@ -157,23 +131,30 @@ export default function Index() {
                         if (currentCategory) {
                             const channel = currentCategory.channels[focusedChannelIndex];
                             if (channel) {
-                                handleChannelChange(channel);
+                                debouncedHandleChannelChange(channel);
                             }
                         }
                     }
-                } else if (evt && evt.eventType === 'right') {
+                    return;
+                }
+
+                // Handle navigation
+                if (evt.eventType === 'right') {
                     handleNavigateRight();
-                } else if (evt && evt.eventType === 'left') {
+                } else if (evt.eventType === 'left') {
                     handleNavigateLeft();
-                } else if (evt && evt.eventType === 'up') {
+                } else if (evt.eventType === 'up') {
                     handleNavigateUp();
-                } else if (evt && evt.eventType === 'down') {
+                } else if (evt.eventType === 'down') {
                     handleNavigateDown();
-                } else if (evt && evt.eventType === 'menu') {
+                } else if (evt.eventType === 'menu') {
                     setShowUserInfo(true);
-                } else if (evt && evt.eventType === 'back') {
+                } else if (evt.eventType === 'back') {
                     // Go back to category focus
-                    if (!isCategoryFocused) setIsCategoryFocused(true);
+                    if (!isCategoryFocused) {
+                        setIsCategoryFocused(true);
+                        return;
+                    }
                 }
             });
 
@@ -185,58 +166,50 @@ export default function Index() {
         }
     }, [isCategoryFocused, focusedCategory, focusedChannelIndex, channelsByLanguage]);
 
-    const handleNavigateRight = () => {
-    const currentCategory = channelsByLanguage[focusedCategory];
-    if (currentCategory && focusedChannelIndex < currentCategory.channels.length - 1) {
-        const nextIndex = focusedChannelIndex + 1;
-        setFocusedChannelIndex(nextIndex);
-        const nextChannel = currentCategory.channels[nextIndex];
-        if (nextChannel) {
-            debouncedHandleChannelChange(nextChannel);
-        }
-    }
-};
-
-    const handleNavigateLeft = () => {
-    const currentCategory = channelsByLanguage[focusedCategory];
-    if (currentCategory && focusedChannelIndex > 0) {
-        const prevIndex = focusedChannelIndex - 1;
-        setFocusedChannelIndex(prevIndex);
-        const prevChannel = currentCategory.channels[prevIndex];
-        if (prevChannel) {
-            debouncedHandleChannelChange(prevChannel);
-        }
-    }
-};
-
-    // const handleNavigateDown = () => {
-    //     if (focusedCategory < channelsByLanguage.length - 1) {
-    //         setFocusedCategory(focusedCategory + 1);
-    //         setFocusedChannelIndex(0);
-    //     }
-    // };
-    const handleNavigateDown = () => {
-    if (isCategoryFocused) {
-        if (focusedCategory < channelsByLanguage.length - 1) {
-            setFocusedCategory(focusedCategory + 1);
-        }
-    } else {
-        // setFocusedCategory(focusedCategory + 1);
-        //     setFocusedChannelIndex(0);
-        // Move to next category and focus its first channel
-        if (focusedCategory < channelsByLanguage.length - 1) {
-            setFocusedCategory(focusedCategory + 1);
-            setFocusedChannelIndex(0);
-            // Optionally: auto-play first channel in new category
-            const nextCategory = channelsByLanguage[focusedCategory + 1];
-            if (nextCategory && nextCategory.channels[0]) {
-                debouncedHandleChannelChange(nextCategory.channels[0]);
+    const handleNavigateRight = useCallback(() => {
+        const currentCategory = channelsByLanguage[focusedCategory];
+        if (currentCategory && focusedChannelIndex < currentCategory.channels.length - 1) {
+            const nextIndex = focusedChannelIndex + 1;
+            setFocusedChannelIndex(nextIndex);
+            const nextChannel = currentCategory.channels[nextIndex];
+            if (nextChannel) {
+                debouncedHandleChannelChange(nextChannel);
             }
         }
-    }
-};
+    }, [focusedCategory, focusedChannelIndex, channelsByLanguage]);
 
-        const handleNavigateUp = () => {
+    const handleNavigateLeft = useCallback(() => {
+        const currentCategory = channelsByLanguage[focusedCategory];
+        if (currentCategory && focusedChannelIndex > 0) {
+            const prevIndex = focusedChannelIndex - 1;
+            setFocusedChannelIndex(prevIndex);
+            const prevChannel = currentCategory.channels[prevIndex];
+            if (prevChannel) {
+                debouncedHandleChannelChange(prevChannel);
+            }
+        }
+    }, [focusedCategory, focusedChannelIndex, channelsByLanguage]);
+
+    const handleNavigateDown = useCallback(() => {
+        if (isCategoryFocused) {
+            if (focusedCategory < channelsByLanguage.length - 1) {
+                setFocusedCategory(focusedCategory + 1);
+            }
+        } else {
+            // Move to next category and focus its first channel
+            if (focusedCategory < channelsByLanguage.length - 1) {
+                setFocusedCategory(focusedCategory + 1);
+                setFocusedChannelIndex(0);
+                // Optionally auto-play first channel in new category
+                const nextCategory = channelsByLanguage[focusedCategory + 1];
+                if (nextCategory && nextCategory.channels[0]) {
+                    debouncedHandleChannelChange(nextCategory.channels[0]);
+                }
+            }
+        }
+    }, [isCategoryFocused, focusedCategory, channelsByLanguage]);
+
+    const handleNavigateUp = useCallback(() => {
         if (isCategoryFocused) {
             if (focusedCategory > 0) {
                 setFocusedCategory(focusedCategory - 1);
@@ -246,15 +219,49 @@ export default function Index() {
             if (focusedCategory > 0) {
                 setFocusedCategory(focusedCategory - 1);
                 setFocusedChannelIndex(0);
-                // Optionally: auto-play first channel in new category
+                // Optionally auto-play first channel in new category
                 const prevCategory = channelsByLanguage[focusedCategory - 1];
                 if (prevCategory && prevCategory.channels[0]) {
                     debouncedHandleChannelChange(prevCategory.channels[0]);
                 }
             }
         }
-    };
+    }, [isCategoryFocused, focusedCategory, channelsByLanguage]);
 
+    const handleChannelNumberInput = useCallback((digit) => {
+        setChannelNumberInput(prev => {
+            const newInput = prev + digit;
+            // Reset timer
+            if (channelNumberTimeout.current) {
+                clearTimeout(channelNumberTimeout.current);
+            }
+            channelNumberTimeout.current = setTimeout(() => {
+                playChannelByNumber(newInput);
+                setChannelNumberInput('');
+            }, 1000);
+            return newInput;
+        });
+    }, []);
+
+    const playChannelByNumber = useCallback((numberStr) => {
+        const lcn = parseInt(numberStr, 10);
+        if (isNaN(lcn)) return;
+
+        for (let catIdx = 0; catIdx < channelsByLanguage.length; catIdx++) {
+            const category = channelsByLanguage[catIdx];
+            const chIdx = category.channels.findIndex(ch => ch.lcn == lcn);
+            if (chIdx !== -1) {
+                setFocusedCategory(catIdx);
+                setFocusedChannelIndex(chIdx);
+                setIsCategoryFocused(false);
+                debouncedHandleChannelChange(category.channels[chIdx]);
+                return;
+            }
+        }
+        setErrorMessage(`Channel ${lcn} not found`);
+    }, [channelsByLanguage]);
+
+    // AppState listener
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (nextAppState) => {
             if (nextAppState === 'active') {
@@ -264,13 +271,14 @@ export default function Index() {
         return () => subscription.remove();
     }, []);
 
+    // Always landscape for TV
     useEffect(() => {
         ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
     }, []);
 
     const getUserPackage = () => {
         if (!user?.package || !packagesList) return null;
-        return packagesList.find(pkg => pkg._id === user.package);
+        return packagesList.find((pkg) => pkg.id === user.package) || null;
     };
 
     const formatDate = (dateString) => {
@@ -283,7 +291,7 @@ export default function Index() {
         if (!user?.expiryDate) return null;
         const endDate = new Date(user.expiryDate);
         const today = new Date();
-        const diffTime = endDate - today;
+        const diffTime = endDate.getTime() - today.getTime();
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         return diffDays;
     };
@@ -296,19 +304,24 @@ export default function Index() {
             if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
             if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
             if (urlLower.includes('playlist') || urlLower.includes('list=')) return { type: 'youtube-playlist', isValid: true };
-            if (urlLower.includes('/c/') || urlLower.includes('/@')) return { type: 'youtube-channel', isValid: true };
+            if (urlLower.includes('/c/') || urlLower.includes('/@') || urlLower.includes('/channel/')) return { type: 'youtube-channel', isValid: true };
             return { type: 'youtube-video', isValid: true };
         }
 
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
-        if (urlLower.includes('hls')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
+
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
         if (urlLower.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
+
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
+
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
-        if (url.match(/live/)) return { type: 'iptv', isValid: true };
+        if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
+
         if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
+
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
@@ -322,7 +335,6 @@ export default function Index() {
             /youtube\.com\/live\/([a-zA-Z0-9_-]{11})/,
             /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/
         ];
-
         for (const pattern of patterns) {
             const match = url.match(pattern);
             if (match) return match[1];
@@ -337,75 +349,82 @@ export default function Index() {
         return match ? match[1] : null;
     };
 
-    const getCurrentStreamUrl = () => {
-        if (!selectedChannel) return null;
-        const { type } = analyzeStreamUrl(selectedChannel.url);
+    const getCurrentStreamUrl = (channel, proxyEnabled) => {
+        if (!channel) return null;
+        const type = analyzeStreamUrl(channel.url);
 
-        if (type.startsWith('youtube')) {
-            return { uri: selectedChannel.url };
+        if (type.type.startsWith('youtube')) {
+            return { uri: channel.url };
         }
 
-        const baseUrl = useProxy && selectedChannel.proxyUrl && serverInfo?.proxyEnabled
-            ? selectedChannel.proxyUrl
-            : selectedChannel.url;
+        const baseUrl = proxyEnabled && channel.proxyUrl && serverInfo?.proxyEnabled ? channel.proxyUrl : channel.url;
 
-        console.log('[Stream Load]', {
-            channelName: selectedChannel.name,
-            streamType: type,
-            isProxy: useProxy && !!selectedChannel.proxyUrl,
-            finalUrl: baseUrl.substring(0, 100),
+        console.log('Stream Load:', {
+            channelName: channel.name,
+            streamType: type.type,
+            isProxy: useProxy && !!channel.proxyUrl,
+            finalUrl: baseUrl.substring(0, 100) + '...'
         });
 
         return {
             uri: baseUrl,
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Referer': selectedChannel.url.split('/').slice(0, 3).join('/') + '/',
-                'Origin': selectedChannel.url.split('/').slice(0, 3).join('/'),
-                'Accept': '*/*',
+                Referer: channel.url.split('/').slice(0, 3).join('/'),
+                Origin: channel.url.split('/').slice(0, 3).join('/'),
+                Accept: '*/*',
                 'Accept-Language': 'en-US,en;q=0.9',
                 'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
+                Pragma: 'no-cache',
                 'Accept-Encoding': 'identity',
-                'Connection': 'keep-alive'
-            }
+                Connection: 'keep-alive',
+            },
         };
     };
 
-    useEffect(() => {
-        if (selectedChannel) {
-            const newUrl = getCurrentStreamUrl();
-            const newUrlString = JSON.stringify(newUrl);
-            if (newUrlString !== currentStreamUrl || !currentStreamUrl) {
-                setCurrentStreamUrl(newUrlString);
-                setVideoLoading(true);
-                setVideoError(false);
+    const loadStream = async (channel, proxyEnabled) => {
+        setVideoLoading(true);
+        setVideoError(false);
+        setErrorMessage('');
 
-                if (videoRef.current) {
-                    videoRef.current.unloadAsync().then(() => {
-                        console.log('[Video] Loading stream:', selectedChannel.name, 'URL:', newUrl?.uri?.substring(0, 60));
-                        videoRef.current?.loadAsync(newUrl, { shouldPlay: true }).catch((err) => {
-                            console.error('[Video Load Error]', err.message || err);
-                        });
-                    }).catch((err) => {
-                        console.error('[Unload Error]', err);
-                    });
-                } else if (currentStreamUrl) {
-                    setCurrentStreamUrl(newUrlString);
+        const newUrl = getCurrentStreamUrl(channel, proxyEnabled);
+        const newUrlString = JSON.stringify(newUrl);
+
+        if (newUrlString !== currentStreamUrl) {
+            setCurrentStreamUrl(newUrlString);
+
+            if (videoRef.current) {
+                try {
+                    await videoRef.current.unloadAsync();
+                    await videoRef.current.loadAsync(newUrl, { shouldPlay: true });
+                } catch (error) {
+                    setVideoError(true);
+                    setVideoLoading(false);
+                    if (proxyEnabled) {
+                        // fallback to direct connection
+                        loadStream(channel, false);
+                    } else {
+                        setErrorMessage('No stream available');
+                    }
                 }
             }
         }
-    }, [useProxy, selectedChannel]);
+    };
 
+    // Auto load stream when channel changes
+    useEffect(() => {
+        if (selectedChannel) {
+            // always start with proxy
+            loadStream(selectedChannel, true);
+        }
+    }, [selectedChannel]);
+
+    // Cleanup on unmount
     useEffect(() => {
         return () => {
-            // Cleanup on component unmount
-            // if (videoRef.current) {
-            //     videoRef.current.unloadAsync().catch(() => {
-            //         console.log('Error unloading video on unmount');
-            //     });
-            // }
-
+            if (videoRef.current) {
+                videoRef.current.unloadAsync().catch(console.log);
+            }
             // Also reset state
             setSelectedChannel(null);
             setVideoLoading(false);
@@ -434,7 +453,7 @@ export default function Index() {
             controls: true,
             playsinline: true,
             rel: false,
-            modestbranding: true
+            modestbranding: true,
         });
 
         useYouTubeEvent(player, 'ready', () => {
@@ -451,20 +470,23 @@ export default function Index() {
 
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
+                {/* OnlineIptvHUb Watermark */}
+                {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
                         style={{
-                        position: 'absolute',
-                        bottom: 16,
-                        right: 16,
-                        width: 60, // adjust size as needed
-                        height: 60,
-                        opacity: 0.7, // optional: make watermark semi-transparent
-                        zIndex: 10,
+                            position: 'absolute',
+                            bottom: 16,
+                            right: 16,
+                            width: 60,
+                            height: 60,
+                            opacity: 0.7,
+                            zIndex: 10,
                         }}
                         resizeMode="contain"
-                />
+                    />
+                )}
             </View>
         );
     };
@@ -476,7 +498,7 @@ export default function Index() {
             controls: true,
             playsinline: true,
             rel: false,
-            modestbranding: true
+            modestbranding: true,
         });
 
         useYouTubeEvent(player, 'ready', () => {
@@ -497,42 +519,26 @@ export default function Index() {
                     <View className="w-2 h-2 bg-white rounded-full mr-2" />
                     <Text className="text-white text-xs font-bold">LIVE</Text>
                 </View>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
+                {/* OnlineIptvHUb Watermark */}
+                {selectedChannel && (
+                    <Image
+                        source={{ uri: selectedChannel.imageUrl }}
+                        style={{
+                            position: 'absolute',
+                            bottom: 16,
+                            right: 16,
+                            width: 60,
+                            height: 60,
+                            opacity: 0.7,
+                            zIndex: 10,
+                        }}
+                        resizeMode="contain"
+                    />
+                )}
             </View>
         );
     };
-
-
-        const handleChannelNumberInput = (digit) => {
-            setChannelNumberInput(prev => {
-                const newInput = prev + digit;
-                // Reset timer
-                if (channelNumberTimeout.current) clearTimeout(channelNumberTimeout.current);
-                channelNumberTimeout.current = setTimeout(() => {
-                    playChannelByNumber(newInput);
-                    setChannelNumberInput('');
-                }, 1000); 
-                return newInput;
-            });
-        };
-
-        const playChannelByNumber = (numberStr) => {
-            const lcn = parseInt(numberStr, 10);
-            if (isNaN(lcn)) return;
-            for (let catIdx = 0; catIdx < channelsByLanguage.length; catIdx++) {
-                const category = channelsByLanguage[catIdx];
-                const chIdx = category.channels.findIndex(ch => ch.lcn === lcn);
-                if (chIdx !== -1) {
-                    setFocusedCategory(catIdx);
-                    setFocusedChannelIndex(chIdx);
-                    setIsCategoryFocused(false);
-                    debouncedHandleChannelChange(category.channels[chIdx]);
-                    return;
-                }
-            }
-            setErrorMessage(`Channel ${lcn} not found`);
-        };
-
 
     const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
         const player = useYouTubePlayer(videoId, {
@@ -544,7 +550,7 @@ export default function Index() {
             modestbranding: true,
             loop: true,
             list: playlistId,
-            listType: 'playlist'
+            listType: 'playlist',
         });
 
         useYouTubeEvent(player, 'ready', () => {
@@ -561,10 +567,26 @@ export default function Index() {
 
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
                 <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
                     <Text className="text-white text-xs font-bold">PLAYLIST</Text>
                 </View>
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
+                {/* OnlineIptvHUb Watermark */}
+                {selectedChannel && (
+                    <Image
+                        source={{ uri: selectedChannel.imageUrl }}
+                        style={{
+                            position: 'absolute',
+                            bottom: 16,
+                            right: 16,
+                            width: 60,
+                            height: 60,
+                            opacity: 0.7,
+                            zIndex: 10,
+                        }}
+                        resizeMode="contain"
+                    />
+                )}
             </View>
         );
     };
@@ -578,12 +600,25 @@ export default function Index() {
             <Text className="text-gray-400 text-sm mt-2 text-center px-6">
                 Please use a specific video or playlist URL
             </Text>
-            <TouchableOpacity
-                className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
-                onPress={() => Linking.openURL(url)}
-            >
+            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
                 <Text className="text-white font-semibold">Open in YouTube</Text>
             </TouchableOpacity>
+            {/* OnlineIptvHUb Watermark */}
+            {selectedChannel && (
+                <Image
+                    source={{ uri: selectedChannel.imageUrl }}
+                    style={{
+                        position: 'absolute',
+                        bottom: 16,
+                        right: 16,
+                        width: 60,
+                        height: 60,
+                        opacity: 0.7,
+                        zIndex: 10,
+                    }}
+                    resizeMode="contain"
+                />
+            )}
         </View>
     );
 
@@ -596,11 +631,9 @@ export default function Index() {
             'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
             'iptv': { icon: 'tv', color: 'bg-indigo-600', text: 'IPTV' },
             'rtmp': { icon: 'cloud-upload', color: 'bg-pink-600', text: 'RTMP' },
-            'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' }
+            'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
         };
-
         const badge = badges[type] || { icon: 'help-circle', color: 'bg-gray-600', text: 'Unknown' };
-
         return (
             <View className={`${badge.color} px-3 py-1.5 rounded-full flex-row items-center absolute top-3 right-3 z-10`}>
                 <Ionicons name={badge.icon} size={14} color="white" />
@@ -619,7 +652,7 @@ export default function Index() {
             );
         }
 
-        const currentUrl = getCurrentStreamUrl();
+        const currentUrl = getCurrentStreamUrl(selectedChannel, useProxy);
         const { type, isValid } = analyzeStreamUrl(selectedChannel.url);
 
         if (!isValid) {
@@ -644,12 +677,7 @@ export default function Index() {
                     </View>
                 );
             }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubeVideoPlayer videoId={videoId} />
-                </>
-            );
+            return <YouTubeVideoPlayer videoId={videoId} />;
         }
 
         if (type === 'youtube-live') {
@@ -662,12 +690,7 @@ export default function Index() {
                     </View>
                 );
             }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubeLivePlayer videoId={videoId} />
-                </>
-            );
+            return <YouTubeLivePlayer videoId={videoId} />;
         }
 
         if (type === 'youtube-playlist') {
@@ -681,59 +704,41 @@ export default function Index() {
                     </View>
                 );
             }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />
-                </>
-            );
+            return <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />;
         }
 
         if (type === 'youtube-channel') {
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubeChannelPlayer url={selectedChannel.url} />
-                </>
-            );
+            return <YouTubeChannelPlayer url={selectedChannel.url} />;
         }
 
         // expo-av Player for all non-YouTube streams
-        if (
-            type !== 'youtube-video' &&
-            type !== 'youtube-live' &&
-            type !== 'youtube-playlist' &&
-            type !== 'youtube-channel'
-        ) {
-            return (
-                <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
-                    {renderStreamTypeBadge(type)}
+        return (
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
+                {renderStreamTypeBadge(type)}
 
-                    {videoLoading && (
-                        <View className="absolute inset-0 bg-black items-center justify-center z-20">
-                            <ActivityIndicator size="large" color="#f97316" />
-                            <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
-                            <Text className="text-gray-400 mt-1 text-xs">
-                                {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
-                            </Text>
-                        </View>
-                    )}
+                {videoLoading && (
+                    <View className="absolute inset-0 bg-black items-center justify-center z-20">
+                        <ActivityIndicator size="large" color="#f97316" />
+                        <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                        <Text className="text-gray-400 mt-1 text-xs">
+                            {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
+                        </Text>
+                    </View>
+                )}
 
-                    {videoError && (
-                        <View className="absolute inset-0 bg-black items-center justify-center z-30">
-                            <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                            <Text className="text-white text-center mt-4 text-lg font-semibold">
-                                Stream Error
+                {videoError && (
+                    <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Stream Error</Text>
+                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
+                            {errorMessage || 'Unable to load the stream'}
+                        </Text>
+                        {bothAttemptsFailed ? (
+                            <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
+                                Use remote control to switch channels
                             </Text>
-                            <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
-                                {errorMessage || 'Unable to load the stream'}
-                            </Text>
-                            {bothAttemptsFailed && (
-                                <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
-                                    Use remote control to switch channels
-                                </Text>
-                            )}
-                            {!bothAttemptsFailed && (
+                        ) : (
+                            <>
                                 <TouchableOpacity
                                     className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
                                     onPress={() => {
@@ -743,58 +748,70 @@ export default function Index() {
                                 >
                                     <Text className="text-white font-semibold">Retry</Text>
                                 </TouchableOpacity>
-                            )}
-                            {serverInfo?.proxyEnabled && !bothAttemptsFailed && (
-                                <TouchableOpacity
-                                    className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
-                                    onPress={() => {
-                                        setUseProxy(!useProxy);
-                                        setVideoError(false);
-                                        setVideoLoading(true);
-                                        setProxyAttempted(true);
-                                    }}
-                                >
-                                    <Text className="text-white font-semibold">
-                                        {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
-                                    </Text>
-                                </TouchableOpacity>
-                            )}
-                        </View>
-                    )}
+                                {serverInfo?.proxyEnabled && (
+                                    <TouchableOpacity
+                                        className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
+                                        onPress={() => {
+                                            setUseProxy(!useProxy);
+                                            setVideoError(false);
+                                            setVideoLoading(true);
+                                            setProxyAttempted(true);
+                                        }}
+                                    >
+                                        <Text className="text-white font-semibold">
+                                            {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
+                                        </Text>
+                                    </TouchableOpacity>
+                                )}
+                            </>
+                        )}
+                    </View>
+                )}
 
-                    <Video
-                        ref={videoRef}
-                        source={{ uri: currentUrl.uri, headers: currentUrl.headers }}
-                        style={{ width: '100%', height: '100%' }}
-                        useNativeControls
-                        resizeMode="contain"
-                        shouldPlay
-                        onLoadStart={() => setVideoLoading(true)}
-                        onReadyForDisplay={() => setVideoLoading(false)}
-                        onError={e => {
-                            setVideoError(true);
-                            setVideoLoading(false);
-                            setErrorMessage(
-                                'Video Error: ' + (e?.nativeEvent?.error || 'Playback failed')
-                            );
-                        }}
-                        onPlaybackStatusUpdate={status => {
-                            if (status.isLoaded) {
-                                if (status.isPlaying) {
-                                    setVideoLoading(false);
-                                    setVideoError(false);
-                                    setBothAttemptsFailed(false);
-                                }
+                <Video
+                    key={currentStreamUrl || 'stream'}
+                    ref={videoRef}
+                    source={getCurrentStreamUrl(selectedChannel, true)}
+                    rate={1.0}
+                    volume={1.0}
+                    isMuted={false}
+                    resizeMode={ResizeMode.CONTAIN}
+                    shouldPlay
+                    isLooping={false}
+                    useNativeControls
+                    style={{ width: '100%', height: PLAYER_HEIGHT }}
+                    onLoad={() => {
+                        setVideoLoading(false);
+                        setVideoError(false);
+                    }}
+                    onError={(e) => {
+                        setVideoError(true);
+                        setVideoLoading(false);
+                        let msg = 'Failed to load stream.';
+                        if (e?.error?.code === -1100) msg = 'Network error. Check your connection.';
+                        else if (e?.error?.domain === 'AVFoundationErrorDomain')
+                            msg = 'Stream format not supported or unavailable.';
+                        setErrorMessage(msg);
+                        // fallback to direct
+                        loadStream(selectedChannel, false);
+                    }}
+                    onLoadStart={() => setVideoLoading(true)}
+                    onPlaybackStatusUpdate={(status) => {
+                        if (status.isLoaded) {
+                            if (status.isPlaying) {
+                                setVideoLoading(false);
+                                setVideoError(false);
+                                setBothAttemptsFailed(false);
                             } else if (status.error) {
                                 setVideoError(true);
                                 setVideoLoading(false);
-                                setErrorMessage(
-                                    'Video Error: ' + (status.error || 'Playback failed')
-                                );
+                                setErrorMessage(`Video Error: ${status.error}. Playback failed`);
                             }
-                        }}
-                    />
-
+                        }
+                    }}
+                />
+                {/* OnlineIptvHUb Watermark - Always visible */}
+                {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
                         style={{
@@ -808,10 +825,10 @@ export default function Index() {
                         }}
                         resizeMode="contain"
                     />
-                </View>
-            );
-        }
-    } // <-- Add this closing brace to end renderVideoPlayer
+                )}
+            </View>
+        );
+    };
 
     const handleChannelChange = (channel) => {
         setSelectedChannel(channel);
@@ -820,41 +837,33 @@ export default function Index() {
         setBothAttemptsFailed(false);
         setProxyAttempted(false);
 
-        const { type } = analyzeStreamUrl(channel.url);
+        const type = analyzeStreamUrl(channel.url);
         setUseProxy(!type.startsWith('youtube'));
 
-        // if (videoRef.current) {
-        //     videoRef.current.unloadAsync().catch(() => { });
-        // }
+        if (videoRef.current) {
+            videoRef.current.unloadAsync().catch(console.error);
+        }
     };
 
     const debouncedHandleChannelChange = useMemo(
-    () => debounce(handleChannelChange, 200),
-    []
-);
+        () => require('lodash.debounce')(handleChannelChange, 200),
+        []
+    );
 
     const handleLogout = () => {
-        Alert.alert(
-            'Logout',
-            'Are you sure you want to logout?',
-            [
-                { text: 'Cancel', style: 'cancel' },
-                { text: 'Logout', style: 'destructive', onPress: logout }
-            ]
-        );
+        Alert.alert('Logout', 'Are you sure you want to logout?', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Logout', style: 'destructive', onPress: logout },
+        ]);
     };
 
     const handleWhatsAppLink = (number) => {
         const url = `https://wa.me/${number}`;
-        Linking.openURL(url).catch(() => {
-            Alert.alert('Error', 'Unable to open WhatsApp');
-        });
+        Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open WhatsApp'));
     };
 
     const handleCustomLink = (url) => {
-        Linking.openURL(url).catch(() => {
-            Alert.alert('Error', 'Unable to open link');
-        });
+        Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open link'));
     };
 
     if (!user || !channels || channels.length === 0) {
@@ -882,133 +891,105 @@ export default function Index() {
             <StatusBar barStyle="light-content" hidden />
 
             {/* Channel Number Input Overlay - render at root level */}
-            {channelNumberInput !== '' && (
-                <View
-                    style={{
-                        position: 'absolute',
-                        top: 60,
-                        left: 0,
-                        right: 0,
-                        alignItems: 'center',
-                        zIndex: 100,
-                    }}
-                    pointerEvents="none"
-                >
-                    <View
-                        style={{
-                            backgroundColor: 'rgba(0,0,0,0.85)',
-                            borderRadius: 16,
-                            paddingHorizontal: 32,
-                            paddingVertical: 18,
-                            borderWidth: 2,
-                            borderColor: '#f97316',
-                        }}
-                    >
-                        <Text
-                            style={{
-                                color: '#fff',
-                                fontSize: 48,
-                                fontWeight: 'bold',
-                                letterSpacing: 4,
-                                textAlign: 'center',
-                            }}
-                        >
-                            {channelNumberInput}
-                        </Text>
-                        <Text
-                            style={{
-                                color: '#f97316',
-                                fontSize: 16,
-                                textAlign: 'center',
-                                marginTop: 4,
-                            }}
-                        >
-                            Enter Channel Number
-                        </Text>
+            {channelNumberInput && (
+                <View style={{
+                    position: 'absolute',
+                    top: 60,
+                    left: 0,
+                    right: 0,
+                    alignItems: 'center',
+                    zIndex: 100,
+                    pointerEvents: 'none'
+                }}>
+                    <View style={{
+                        backgroundColor: 'rgba(0,0,0,0.85)',
+                        borderRadius: 16,
+                        paddingHorizontal: 32,
+                        paddingVertical: 18,
+                        borderWidth: 2,
+                        borderColor: '#f97316',
+                    }}>
+                        <Text style={{
+                            color: '#fff',
+                            fontSize: 48,
+                            fontWeight: 'bold',
+                            letterSpacing: 4,
+                            textAlign: 'center',
+                        }}>{channelNumberInput}</Text>
+                        <Text style={{
+                            color: '#f97316',
+                            fontSize: 16,
+                            textAlign: 'center',
+                            marginTop: 4,
+                        }}>Enter Channel Number</Text>
                     </View>
                 </View>
             )}
 
-            {/* Video Player - Full Width Top Section (65%) */}
+            {/* Video Player - Full Width Top Section 65% */}
             <View style={{ height: PLAYER_HEIGHT, width: '100%' }}>
                 {renderVideoPlayer()}
-
-                {/* Channel Info Overlay */}
-                {selectedChannel && (
-                    <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
-                        <View className="flex-row items-center justify-between">
-                            <View className="flex-1">
-                                <View className="flex-row items-center mb-2">
-                                    <View className="bg-orange-500 px-3 py-1 rounded mr-3">
-                                        <Text className="text-white font-bold text-sm">LCN {selectedChannel.lcn}</Text>
-                                    </View>
-                                    <Text className="text-white text-2xl font-bold flex-1" numberOfLines={1}>
-                                        {selectedChannel.name}
-                                    </Text>
-                                </View>
-                                <Text className="text-gray-300 text-sm">
-                                    {selectedChannel.language?.name} • {selectedChannel.genre?.name}
-                                </Text>
-                            </View>
-
-                            {/* User Info Button */}
-                            <TouchableOpacity
-                                onPress={() => setShowUserInfo(true)}
-                                className="bg-gray-800/80 p-3 rounded-full"
-                            >
-                                <Ionicons name="person-circle" size={28} color="#f97316" />
-                            </TouchableOpacity>
-                            {/*Water Mark channel logo */}
-                            <Image
-                                source={{ uri: selectedChannel.imageUrl }}
-                                style={{
-                                position: 'absolute',
-                                bottom: 16,
-                                right: 16,
-                                width: 60, // adjust size as needed
-                                height: 60,
-                                opacity: 0.7, // optional: make watermark semi-transparent
-                                zIndex: 10,
-                                }}
-                                resizeMode="contain"
-                            />
-                        </View>
-                    </View>
-                )}
             </View>
 
-            {/* Language-based Horizontal Categories - Bottom Section (35%) */}
+            {/* Channel Info Overlay */}
+            {selectedChannel && (
+                <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
+                    <View className="flex-row items-center justify-between">
+                        <View className="flex-1">
+                            <View className="flex-row items-center mb-2">
+                                <View className="bg-orange-500 px-3 py-1 rounded mr-3">
+                                    <Text className="text-white font-bold text-sm">LCN {selectedChannel.lcn}</Text>
+                                </View>
+                                <Text className="text-white text-2xl font-bold flex-1" numberOfLines={1}>
+                                    {selectedChannel.name}
+                                </Text>
+                            </View>
+                            <Text className="text-gray-300 text-sm">
+                                {selectedChannel.language?.name} {selectedChannel.genre?.name}
+                            </Text>
+                        </View>
+                        {/* Hide Recommendations Button */}
+                        <TouchableOpacity
+                            onPress={() => setShowRecommendations(!showRecommendations)}
+                            className="bg-gray-800/80 p-3 rounded-full"
+                        >
+                            <Ionicons
+                                name={showRecommendations ? "eye-off" : "eye"}
+                                size={28}
+                                color="#f97316"
+                            />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
+
+            {/* Language-based Horizontal Categories - Bottom Section 35% */}
             <View style={{ height: '35%', width: '100%' }} className="bg-gray-900">
-                <ScrollView
-                    showsVerticalScrollIndicator={false}
-                    contentContainerStyle={{ paddingVertical: 12 }}
-                >
+                <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {channelsByLanguage.map((category, categoryIndex) => (
                         <View key={category.language} className="mb-4">
                             <View className="flex-row items-center justify-between px-6 mb-3">
-                                <Text
-  className={`text-white text-lg font-bold ${isCategoryFocused && focusedCategory === categoryIndex ? 'bg-orange-500 px-2 rounded' : ''}`}
->
-  {category.language}
-</Text>
-                                <Text className="text-gray-500 text-sm">
-                                    {category.channels.length} channels
+                                <Text className={`text-lg font-bold ${isCategoryFocused && focusedCategory === categoryIndex
+                                    ? 'bg-orange-500 px-2 rounded'
+                                    : ''
+                                    }`}>
+                                    {category.language}
                                 </Text>
+                                <Text className="text-gray-500 text-sm">{category.channels.length} channels</Text>
                             </View>
                             <FlatList
                                 data={category.channels}
-                                keyExtractor={item => item._id}
+                                keyExtractor={(item) => item.id ? String(item.id) : String(item.lcn)}
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
                                 contentContainerStyle={{ paddingHorizontal: 24 }}
                                 renderItem={({ item: channel, index: channelIndex }) => {
                                     const isFocused = focusedCategory === categoryIndex && focusedChannelIndex === channelIndex;
-                                    const isPlaying = selectedChannel?._id === channel._id;
-
+                                    const isPlaying = selectedChannel?.id === channel.id;
                                     return (
                                         <TouchableOpacity
-                                            key={channel._id}
-                                            className={`mr-4 rounded-lg p-3 hover:bg-yellow-500 ${isPlaying
+                                            key={channel.id}
+                                            className={`mr-4 rounded-lg p-3 ${isPlaying
                                                 ? 'bg-orange-500'
                                                 : isFocused
                                                     ? 'bg-gray-700 border-2 border-orange-500'
@@ -1018,41 +999,25 @@ export default function Index() {
                                             onPress={() => debouncedHandleChannelChange(channel)}
                                             hasTVPreferredFocus={categoryIndex === 0 && channelIndex === 0}
                                         >
-                                        {(() => {
-                                            const thumb = channel.imageUrl || channel.logo || channel.image || channel.thumbnail || channel.poster || channel.thumb || null;
-
-                                            return thumb ? (
-                                                <Image
-                                                    source={{ uri: thumb }}
-                                                    style={{
-                                                        width: '100%',
-                                                        height: 84,
-                                                        borderRadius: 8,
-                                                        marginBottom: 8,
-                                                        backgroundColor: '#111',
-                                                    }}
-                                                    resizeMode="cover"
-                                                />
-                                            ) : (
-                                                <View
-                                                    style={{
-                                                        width: '100%',
-                                                        height: 84,
-                                                        borderRadius: 8,
-                                                        backgroundColor: '#111',
-                                                        alignItems: 'center',
-                                                        justifyContent: 'center',
-                                                        marginBottom: 8,
-                                                    }}
-                                                >
-                                                    <Ionicons name="tv-outline" size={36} color="#6b7280" />
-                                                </View>
-                                            );
-                                        })()}
-
+                                            {(() => {
+                                                const thumb = channel.imageUrl || channel.logo || channel.image || channel.thumbnail || channel.poster || channel.thumb || null;
+                                                return thumb ? (
+                                                    <Image
+                                                        source={{ uri: thumb }}
+                                                        style={{ width: 100, height: 84, borderRadius: 8, marginBottom: 8, backgroundColor: '#111' }}
+                                                        resizeMode="cover"
+                                                    />
+                                                ) : (
+                                                    <View style={{ width: 100, height: 84, borderRadius: 8, backgroundColor: '#111', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
+                                                        <Ionicons name="tv-outline" size={36} color="#6b7280" />
+                                                    </View>
+                                                );
+                                            })()}
                                             <View className="flex-row items-center justify-between mb-2">
-                                                <View className={`px-2 py-1 rounded ${isPlaying ? 'bg-white/20' : 'bg-gray-700'}`}>
-                                                    <Text className={`text-xs font-bold ${isPlaying ? 'text-white' : 'text-gray-300'}`}>
+                                                <View className={`px-2 py-1 rounded ${isPlaying ? 'bg-white/20' : 'bg-gray-700'
+                                                    }`}>
+                                                    <Text className={`text-xs font-bold ${isPlaying ? 'text-white' : 'text-gray-300'
+                                                        }`}>
                                                         {channel.lcn}
                                                     </Text>
                                                 </View>
@@ -1060,11 +1025,7 @@ export default function Index() {
                                                     <Ionicons name="play-circle" size={20} color="white" />
                                                 )}
                                             </View>
-                                            <Text
-                                                className={`font-semibold ${isPlaying ? 'text-white' : 'text-gray-200'}`}
-                                                numberOfLines={2}
-                                                style={{ fontSize: 13 }}
-                                            >
+                                            <Text className={`font-semibold ${isPlaying ? 'text-white' : 'text-gray-200'}`} numberOfLines={2} style={{ fontSize: 13 }}>
                                                 {channel.name}
                                             </Text>
                                             <Text className={`text-xs mt-1 ${isPlaying ? 'text-white/70' : 'text-gray-400'}`}>
@@ -1075,12 +1036,26 @@ export default function Index() {
                                 }}
                                 initialNumToRender={6}
                                 windowSize={3}
-                                 removeClippedSubviews={true}
+                                removeClippedSubviews={true}
                             />
                         </View>
                     ))}
                 </ScrollView>
             </View>
+
+            {/* Recommendations Section - Optional */}
+            {showRecommendations && (
+                <View className="absolute bottom-40 left-0 right-0 bg-black/90 p-4 z-20">
+                    <TouchableOpacity
+                        onPress={() => setShowRecommendations(false)}
+                        className="absolute top-2 right-2 p-2"
+                    >
+                        <Ionicons name="close" size={24} color="white" />
+                    </TouchableOpacity>
+                    <Text className="text-white text-lg font-bold mb-3">Recommended Channels</Text>
+                    {/* Add recommended channels FlatList here */}
+                </View>
+            )}
 
             {/* User Info Modal */}
             <Modal
@@ -1089,6 +1064,7 @@ export default function Index() {
                 transparent
                 onRequestClose={() => setShowUserInfo(false)}
             >
+                {/* User info modal content - same as mobile version */}
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
                         <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
@@ -1097,9 +1073,7 @@ export default function Index() {
                                 <Ionicons name="close" size={24} color="white" />
                             </TouchableOpacity>
                         </View>
-
                         <ScrollView className="px-6 py-4" style={{ maxHeight: 500 }}>
-                            {/* User Info */}
                             <View className="bg-gray-800 rounded-xl p-4 mb-4">
                                 <View className="flex-row items-center mb-4">
                                     <View className="w-16 h-16 bg-orange-500 rounded-full items-center justify-center mr-4">
@@ -1107,108 +1081,101 @@ export default function Index() {
                                     </View>
                                     <View className="flex-1">
                                         <Text className="text-white text-lg font-bold">{user.name}</Text>
-                                        <Text className="text-gray-400 text-xs mt-1">{user.subscriberName || 'Subscriber'}</Text>
-                                    </View>
-                                </View>
-
-                                <View className="border-t border-gray-700 pt-3 space-y-2">
-                                    <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Package</Text>
-                                        <Text className="text-white font-semibold">
-                                            {user.packageName || 'Multi-Package'}
+                                        <Text className="text-gray-400 text-xs mt-1">
+                                            {user.subscriberName} Subscriber
                                         </Text>
                                     </View>
-
-                                    <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Expiry Date</Text>
-                                        <Text className="text-white font-semibold">{formatDate(user.expiryDate)}</Text>
-                                    </View>
-
-                                    {daysRemaining !== null && (
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Days Remaining</Text>
-                                            <Text className={`font-bold ${daysRemaining <= 7 ? 'text-red-500' : 'text-green-500'}`}>
-                                                {daysRemaining} days
-                                            </Text>
-                                        </View>
-                                    )}
-
-                                    <View className="flex-row justify-between py-2">
-                                        <Text className="text-gray-400">Total Channels</Text>
-                                        <Text className="text-white font-semibold">{channels.length}</Text>
-                                    </View>
-
-                                    {user.totalPackages && (
-                                        <View className="flex-row justify-between py-2">
-                                            <Text className="text-gray-400">Active Packages</Text>
-                                            <Text className="text-white font-semibold">{user.totalPackages}</Text>
-                                        </View>
-                                    )}
                                 </View>
                             </View>
 
-                            {/* Device Info */}
+                            <View className="border-t border-gray-700 pt-3 space-y-2">
+                                <View className="flex-row justify-between py-2">
+                                    <Text className="text-gray-400">Package</Text>
+                                    <Text className="text-white font-semibold">
+                                        {user.packageName || 'Multi-Package'}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between py-2">
+                                    <Text className="text-gray-400">Expiry Date</Text>
+                                    <Text className="text-white font-semibold">
+                                        {formatDate(user.expiryDate)}
+                                    </Text>
+                                </View>
+                                {daysRemaining !== null && (
+                                    <View className="flex-row justify-between py-2">
+                                        <Text className="text-gray-400">Days Remaining</Text>
+                                        <Text
+                                            className={`font-bold ${daysRemaining <= 7 ? 'text-red-500' : 'text-green-500'
+                                                }`}
+                                        >
+                                            {daysRemaining}
+                                        </Text>
+                                    </View>
+                                )}
+                                <View className="flex-row justify-between py-2">
+                                    <Text className="text-gray-400">Total Channels</Text>
+                                    <Text className="text-white font-semibold">{channels.length}</Text>
+                                </View>
+                                <View className="flex-row justify-between py-2">
+                                    <Text className="text-gray-400">Active Packages</Text>
+                                    <Text className="text-white font-semibold">{user.totalPackages}</Text>
+                                </View>
+                            </View>
+
                             <View className="bg-gray-800 rounded-xl p-4 mb-4">
                                 <View className="flex-row items-center mb-3 pb-3 border-b border-gray-700">
                                     <View className="bg-blue-500/20 p-2 rounded-full mr-3">
                                         <Ionicons name="phone-portrait" size={20} color="#3b82f6" />
                                     </View>
-                                    <Text className="text-white text-base font-semibold">Device Information</Text>
+                                    <Text className="text-white text-base font-semibold">
+                                        Device Information
+                                    </Text>
                                 </View>
-
                                 <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
                                     <Text className="text-gray-400 text-sm">MAC Address</Text>
                                     <Text className="text-white text-xs font-mono font-semibold">
-                                        {user.macAddress || 'N/A'}
+                                        {user.macAddress || 'NA'}
                                     </Text>
                                 </View>
-
-                                {user.deviceName && (
-                                    <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                        <Text className="text-gray-400 text-sm">Device Name</Text>
-                                        <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-                                            {user.deviceName}
-                                        </Text>
-                                    </View>
-                                )}
-
-                                {user.modelName && (
-                                    <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                        <Text className="text-gray-400 text-sm">Model</Text>
-                                        <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-                                            {user.modelName}
-                                        </Text>
-                                    </View>
-                                )}
-
-                                {user.osName && user.osVersion && (
-                                    <View className="flex-row justify-between items-center py-2">
-                                        <Text className="text-gray-400 text-sm">Operating System</Text>
-                                        <Text className="text-white text-sm font-semibold">
-                                            {user.osName} {user.osVersion}
-                                        </Text>
-                                    </View>
-                                )}
-
-                                {user.deviceType && (
-                                    <View className="flex-row justify-between items-center py-2 border-t border-gray-700">
-                                        <Text className="text-gray-400 text-sm">Device Type</Text>
-                                        <Text className="text-white text-sm font-semibold">{user.deviceType}</Text>
-                                    </View>
-                                )}
+                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                    <Text className="text-gray-400 text-sm">Device Name</Text>
+                                    <Text className="text-white text-sm font-semibold" numberOfLines={1}>
+                                        {user.deviceName}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                    <Text className="text-gray-400 text-sm">Model</Text>
+                                    <Text className="text-white text-sm font-semibold" numberOfLines={1}>
+                                        {user.modelName}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
+                                    <Text className="text-gray-400 text-sm">Operating System</Text>
+                                    <Text className="text-white text-sm font-semibold">
+                                        {user.osName} {user.osVersion}
+                                    </Text>
+                                </View>
+                                <View className="flex-row justify-between items-center py-2 border-t border-gray-700">
+                                    <Text className="text-gray-400 text-sm">Device Type</Text>
+                                    <Text className="text-white text-sm font-semibold">
+                                        {user.deviceType}
+                                    </Text>
+                                </View>
                             </View>
 
-                            {/* Packages List */}
                             {packagesList && packagesList.length > 0 && (
-                                <View className="mb-4">
+                                <View>
                                     <Text className="text-white text-lg font-bold mb-3">Your Packages</Text>
-                                    {packagesList.map((pkg, index) => (
-                                        <View key={index} className="bg-gray-800 rounded-xl p-4 mb-2">
+                                    {packagesList.map((pkg) => (
+                                        <View
+                                            key={pkg.id || pkg.name}
+                                            className="bg-gray-800 rounded-xl p-4 mb-2"
+                                        >
                                             <Text className="text-white font-semibold text-base">{pkg.name}</Text>
                                             <View className="flex-row items-center mt-2">
                                                 <Ionicons name="tv" size={16} color="#9ca3af" />
                                                 <Text className="text-gray-400 text-sm ml-2">
-                                                    {pkg.channelCount || 0} channels
+                                                    {pkg.channelCount} channels
                                                 </Text>
                                             </View>
                                         </View>
@@ -1216,35 +1183,6 @@ export default function Index() {
                                 </View>
                             )}
 
-                            {/* Support Buttons */}
-                            {serverInfo?.whatsappNumber && (
-                                <TouchableOpacity
-                                    className="bg-green-600 py-4 rounded-xl items-center mb-3"
-                                    onPress={() => handleWhatsAppLink(serverInfo.whatsappNumber)}
-                                >
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="logo-whatsapp" size={20} color="white" />
-                                        <Text className="text-white font-bold text-base ml-2">Contact Support</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            )}
-
-                            {/*  Key Action*/}
-                            {serverInfo?.customButtonLink && serverInfo?.customButtonText && (
-                                <TouchableOpacity
-                                    className="bg-blue-600 py-4 rounded-xl items-center mb-3"
-                                    onPress={() => handleCustomLink(serverInfo.customButtonLink)}
-                                >
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="open-outline" size={20} color="white" />
-                                        <Text className="text-white font-bold text-base ml-2">
-                                            {serverInfo.customButtonText}
-                                        </Text>
-                                    </View>
-                                </TouchableOpacity>
-                            )}
-
-                            {/* Logout Button */}
                             <TouchableOpacity
                                 className="bg-red-600 py-4 rounded-xl items-center mb-4"
                                 onPress={handleLogout}
