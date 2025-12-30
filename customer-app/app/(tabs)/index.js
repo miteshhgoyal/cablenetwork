@@ -25,32 +25,23 @@ import {
 } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
 
-
-// Watermark Component
+// Watermark Component - Bottom Right, No Rotation, No Shadow
 const WatermarkOverlay = () => {
     return (
         <View
             style={{
                 position: 'absolute',
-                top: 0,
-                left: 0,
-                right: 0,
-                bottom: 0,
-                justifyContent: 'center',
-                alignItems: 'center',
-                pointerEvents: 'none',
+                bottom: 16,
+                right: 16,
                 zIndex: 1,
+                pointerEvents: 'none',
             }}
         >
             <Text
                 style={{
                     color: 'rgba(255, 255, 255, 0.15)',
-                    fontSize: 28,
+                    fontSize: 14,
                     fontWeight: 'bold',
-                    transform: [{ rotate: '-45deg' }],
-                    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-                    textShadowOffset: { width: 1, height: 1 },
-                    textShadowRadius: 2,
                 }}
             >
                 Online IPTV Hub
@@ -157,7 +148,7 @@ export default function ChannelsScreen() {
             if (items.length > 0) {
                 sections.push({
                     title: `${lang} Channels`,
-                    data: items.slice(0, 20), // Limit per section
+                    data: items.slice(0, 20),
                     type: 'language',
                     count: items.length
                 });
@@ -365,7 +356,7 @@ export default function ChannelsScreen() {
         }
     }, [selectedChannel, showPlayer]);
 
-    // YouTube Player Components (same as original)
+    // YouTube Player Components
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
@@ -431,32 +422,23 @@ export default function ChannelsScreen() {
             );
         }
 
-        // Simplified - handle main stream types
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
-                {/* Watermark on video player */}
+                {/* Watermark on video player - Bottom Right */}
                 <View
                     style={{
                         position: 'absolute',
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        justifyContent: 'center',
-                        alignItems: 'center',
-                        pointerEvents: 'none',
+                        bottom: 8,
+                        right: 8,
                         zIndex: 5,
+                        pointerEvents: 'none',
                     }}
                 >
                     <Text
                         style={{
                             color: 'rgba(255, 255, 255, 0.12)',
-                            fontSize: 22,
+                            fontSize: 12,
                             fontWeight: 'bold',
-                            transform: [{ rotate: '-45deg' }],
-                            textShadowColor: 'rgba(0, 0, 0, 0.4)',
-                            textShadowOffset: { width: 1, height: 1 },
-                            textShadowRadius: 3,
                         }}
                     >
                         Online IPTV Hub
@@ -669,7 +651,7 @@ export default function ChannelsScreen() {
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
 
-            {/* Watermark Overlay */}
+            {/* Watermark Overlay - Bottom Right */}
             <WatermarkOverlay />
 
             {/* Header + Search */}
@@ -729,7 +711,7 @@ export default function ChannelsScreen() {
                 }
             />
 
-            {/* Player Modal */}
+            {/* Player Modal - Using Movies Pattern for Suggestions */}
             <Modal visible={showPlayer} animationType="slide" onRequestClose={() => {
                 setShowPlayer(false);
                 setSelectedChannel(null);
@@ -755,13 +737,13 @@ export default function ChannelsScreen() {
                         </View>
                     </View>
 
-                    {renderVideoPlayer()}
-
                     <ScrollView
                         className="flex-1"
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={{ paddingBottom: 100 }}
                     >
+                        {renderVideoPlayer()}
+
                         <View className="p-4 bg-gray-900">
                             <View className="flex-row items-center mb-3">
                                 <View className="flex-1">
@@ -799,15 +781,13 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {/* More Like This - Improved Recommendations */}
+                            {/* More Like This - Movies Pattern */}
                             {getRecommendedChannels().length > 0 && (
-                                <View className="mt-6 mb-8">
-                                    <View className="flex-row items-center justify-between mb-4">
-                                        <View className="flex-row items-center">
-                                            <Ionicons name="list" size={22} color="#f97316" />
-                                            <Text className="text-white text-lg font-bold ml-2">
-                                                More Like This
-                                            </Text>
+                                <View className="mt-6">
+                                    <View className="flex-row items-center justify-between mb-3">
+                                        <View>
+                                            <Text className="text-white text-lg font-bold">More Like This</Text>
+                                            <View className="h-1 w-12 bg-orange-500 mt-1 rounded-full" />
                                         </View>
                                         <View className="bg-orange-500/20 px-3 py-1.5 rounded-full">
                                             <Text className="text-orange-500 text-xs font-bold">
@@ -820,60 +800,45 @@ export default function ChannelsScreen() {
                                         {selectedChannel?.language?.name} • {selectedChannel?.genre?.name}
                                     </Text>
 
-                                    <ScrollView
-                                        horizontal
-                                        showsHorizontalScrollIndicator={false}
-                                        contentContainerStyle={{ paddingRight: 16 }}
-                                    >
-                                        {getRecommendedChannels().map(channel => (
-                                            <TouchableOpacity
-                                                key={channel.id}
-                                                className="mr-3"
-                                                style={{ width: 140 }}
-                                                onPress={() => {
-                                                    setSelectedChannel(channel);
-                                                    setVideoError(false);
-                                                    setVideoLoading(true);
-                                                    const type = analyzeStreamUrl(channel.url);
-                                                    loadStream(channel, !type.type.startsWith('youtube'));
-                                                }}
-                                                activeOpacity={0.7}
-                                            >
-                                                <View className="relative">
-                                                    <Image
-                                                        source={{ uri: channel.imageUrl }}
-                                                        className="w-full h-52 rounded-xl bg-gray-800"
-                                                        resizeMode="cover"
-                                                    />
-                                                    <View className="absolute inset-0 items-center justify-center">
-                                                        <View className="bg-black/50 rounded-full p-3">
-                                                            <Ionicons name="play" size={32} color="white" />
-                                                        </View>
-                                                    </View>
-                                                    {channel.lcn && (
-                                                        <View className="absolute bottom-2 left-2 bg-orange-500/90 px-2 py-1 rounded-lg">
-                                                            <View className="flex-row items-center">
-                                                                <Ionicons name="tv" size={12} color="white" />
-                                                                <Text className="text-white text-xs font-bold ml-1">LCN {channel.lcn}</Text>
-                                                            </View>
-                                                        </View>
-                                                    )}
-                                                    {channel.language?.name === selectedChannel?.language?.name &&
-                                                        channel.genre?.name === selectedChannel?.genre?.name && (
-                                                            <View className="absolute top-2 right-2 bg-green-500/90 px-2 py-1 rounded-lg">
-                                                                <Text className="text-white text-xs font-bold">Match</Text>
-                                                            </View>
-                                                        )}
-                                                </View>
-                                                <Text className="text-white font-semibold mt-2 text-sm" numberOfLines={2}>
+                                    {getRecommendedChannels().map(channel => (
+                                        <TouchableOpacity
+                                            key={channel.id}
+                                            className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-xl active:bg-gray-700"
+                                            onPress={() => {
+                                                setSelectedChannel(channel);
+                                                setVideoError(false);
+                                                setVideoLoading(true);
+                                                const type = analyzeStreamUrl(channel.url);
+                                                loadStream(channel, !type.type.startsWith('youtube'));
+                                            }}
+                                            activeOpacity={0.7}
+                                        >
+                                            <Image
+                                                source={{ uri: channel.imageUrl }}
+                                                className="w-16 h-24 rounded-lg bg-gray-700 mr-3"
+                                                resizeMode="cover"
+                                            />
+                                            <View className="flex-1">
+                                                <Text className="text-white font-semibold text-base" numberOfLines={2}>
                                                     {channel.name}
                                                 </Text>
-                                                <View className="flex-row items-center mt-1 flex-wrap">
-                                                    <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-1 mb-1">
-                                                        <Text className="text-orange-500 text-xs font-semibold">
-                                                            {channel.genre?.name}
-                                                        </Text>
+                                                {channel.lcn && (
+                                                    <View className="flex-row items-center mt-1 mb-1">
+                                                        <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-2">
+                                                            <Text className="text-orange-500 text-xs font-semibold">
+                                                                LCN {channel.lcn}
+                                                            </Text>
+                                                        </View>
                                                     </View>
+                                                )}
+                                                <View className="flex-row items-center mt-1 flex-wrap">
+                                                    {channel.genre?.name && (
+                                                        <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-1 mb-1">
+                                                            <Text className="text-orange-500 text-xs font-semibold">
+                                                                {channel.genre?.name}
+                                                            </Text>
+                                                        </View>
+                                                    )}
                                                     <View className="flex-row items-center">
                                                         <Ionicons name="language" size={10} color="#9ca3af" />
                                                         <Text className="text-gray-400 text-xs ml-1">
@@ -881,9 +846,18 @@ export default function ChannelsScreen() {
                                                         </Text>
                                                     </View>
                                                 </View>
-                                            </TouchableOpacity>
-                                        ))}
-                                    </ScrollView>
+                                                {channel.language?.name === selectedChannel?.language?.name &&
+                                                    channel.genre?.name === selectedChannel?.genre?.name && (
+                                                        <View className="bg-green-500/20 px-2 py-1 rounded mt-1 self-start">
+                                                            <Text className="text-green-500 text-xs font-bold">Perfect Match</Text>
+                                                        </View>
+                                                    )}
+                                            </View>
+                                            <View className="bg-orange-500/20 rounded-full p-2">
+                                                <Ionicons name="play" size={24} color="#f97316" />
+                                            </View>
+                                        </TouchableOpacity>
+                                    ))}
                                 </View>
                             )}
                         </View>
@@ -891,9 +865,8 @@ export default function ChannelsScreen() {
                 </SafeAreaView>
             </Modal>
 
-            {/* User Info Modal - Same as original */}
+            {/* User Info Modal */}
             <Modal visible={showUserInfo} animationType="slide" transparent={false} onRequestClose={() => setShowUserInfo(false)}>
-                {/* User info modal content - same as your original */}
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
                         <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
@@ -1025,8 +998,6 @@ export default function ChannelsScreen() {
                     </View>
                 </View>
             </Modal>
-
-
         </SafeAreaView>
     );
 }
