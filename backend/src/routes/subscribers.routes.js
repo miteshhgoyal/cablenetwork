@@ -1,4 +1,3 @@
-// backend/src/routes/subscribers.js
 import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import Subscriber from '../models/Subscriber.js';
@@ -347,7 +346,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         }
 
         // Calculate new expiry date
-        // If current expiry is in future, extend from there; otherwise extend from now
         const currentExpiry = subscriber.expiryDate ? new Date(subscriber.expiryDate) : new Date();
         const now = new Date();
         const baseDate = currentExpiry > now ? currentExpiry : now;
@@ -450,7 +448,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validate expiry date - cannot be before current expiry date
+        // Validate expiry date
         if (expiryDate) {
             const newExpiryDate = new Date(expiryDate);
             const currentExpiryDate = subscriber.expiryDate ? new Date(subscriber.expiryDate) : null;
@@ -467,18 +465,15 @@ router.put('/:id', authenticateToken, async (req, res) => {
         const oldPackageIds = subscriber.packages.map(p => p._id.toString());
         const newPackageIds = packages;
 
-        // Find added and removed packages
         const addedPackageIds = newPackageIds.filter(id => !oldPackageIds.includes(id));
         const removedPackageIds = oldPackageIds.filter(id => !newPackageIds.includes(id));
 
         let costDifference = 0;
 
         if (addedPackageIds.length > 0 || removedPackageIds.length > 0) {
-            // Get new packages cost
             const addedPackages = await Package.find({ _id: { $in: addedPackageIds } });
             const addedCost = addedPackages.reduce((sum, pkg) => sum + pkg.cost, 0);
 
-            // Get removed packages cost
             const removedCost = subscriber.packages
                 .filter(p => removedPackageIds.includes(p._id.toString()))
                 .reduce((sum, pkg) => sum + pkg.cost, 0);
@@ -497,7 +492,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
                 });
             }
 
-            // Check if reseller has sufficient balance
             if (reseller.balance < costDifference) {
                 return res.status(400).json({
                     success: false,
@@ -505,7 +499,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
                 });
             }
 
-            // Atomically deduct balance
             const updatedReseller = await User.findOneAndUpdate(
                 {
                     _id: subscriber.resellerId,
@@ -529,7 +522,14 @@ router.put('/:id', authenticateToken, async (req, res) => {
         subscriber.subscriberName = subscriberName.trim();
         subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
-        subscriber.status = status || 'Active';
+
+        // Auto-activate if packages are assigned and status is Fresh/Inactive
+        if (packages && packages.length > 0 && (subscriber.status === 'Fresh' || subscriber.status === 'Inactive')) {
+            subscriber.status = 'Active';
+            console.log(`Auto-activating subscriber ${req.params.id} due to package assignment`);
+        } else if (status) {
+            subscriber.status = status;
+        }
 
         if (expiryDate) {
             subscriber.expiryDate = new Date(expiryDate);
@@ -602,7 +602,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-
         // If admin, allow true deletion
         if (user.role === 'admin') {
             await subscriber.deleteOne();
@@ -616,7 +615,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         subscriber.status = 'Fresh';
         subscriber.resellerId = null;
         subscriber.expiryDate = null;
-        // Optionally clear packages, primaryPackageId, etc.
         subscriber.packages = [];
         subscriber.primaryPackageId = null;
         await subscriber.save();

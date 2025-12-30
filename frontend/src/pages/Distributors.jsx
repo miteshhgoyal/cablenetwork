@@ -1,3 +1,4 @@
+// frontend/src/pages/distributors/Distributors.jsx
 import React, { useState, useEffect } from "react";
 import api from "../services/api.js";
 import {
@@ -14,6 +15,14 @@ import {
   AlertCircle,
   Package as PackageIcon,
   Check,
+  Mail,
+  Phone,
+  Hash,
+  Wallet,
+  Calendar,
+  Shield,
+  User,
+  Users,
 } from "lucide-react";
 
 const Distributors = () => {
@@ -25,6 +34,7 @@ const Distributors = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedDistributor, setSelectedDistributor] = useState(null);
@@ -99,6 +109,11 @@ const Distributors = () => {
     setShowModal(true);
   };
 
+  const handleViewDetails = (distributor) => {
+    setSelectedDistributor(distributor);
+    setShowViewModal(true);
+  };
+
   const handleCloseModal = () => {
     setShowModal(false);
     setSelectedDistributor(null);
@@ -142,7 +157,6 @@ const Distributors = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate balance before submission
     if (!formData.balance || !validateBalance(formData.balance)) {
       return;
     }
@@ -155,15 +169,16 @@ const Distributors = () => {
         balance: parseFloat(formData.balance),
       };
 
-      // Remove password if empty during edit
       if (modalMode === "edit" && !submitData.password) {
         delete submitData.password;
       }
 
       if (modalMode === "create") {
         await api.post("/distributors", submitData);
+        alert("Distributor created successfully!");
       } else {
         await api.put(`/distributors/${selectedDistributor._id}`, submitData);
+        alert("Distributor updated successfully!");
       }
       fetchDistributors();
       handleCloseModal();
@@ -179,6 +194,7 @@ const Distributors = () => {
     setSubmitting(true);
     try {
       await api.delete(`/distributors/${selectedDistributor._id}`);
+      alert("Distributor deleted successfully!");
       fetchDistributors();
       setShowDeleteModal(false);
       setSelectedDistributor(null);
@@ -195,9 +211,25 @@ const Distributors = () => {
     return (
       distributor.name.toLowerCase().includes(searchLower) ||
       distributor.email.toLowerCase().includes(searchLower) ||
-      distributor.phone.toLowerCase().includes(searchLower)
+      distributor.phone.toLowerCase().includes(searchLower) ||
+      distributor.serialNumber?.toLowerCase().includes(searchLower)
     );
   });
+
+  const getStatusColor = (status) => {
+    return status === "Active"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : "bg-red-50 text-red-700 border-red-200";
+  };
+
+  const formatDate = (date) => {
+    if (!date) return "N/A";
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -211,10 +243,10 @@ const Distributors = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  Distributors
+                  Distributors Management
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Manage distributor accounts and packages
+                  Manage distributor accounts, packages, and balances
                 </p>
               </div>
             </div>
@@ -228,7 +260,7 @@ const Distributors = () => {
               </button>
               <button
                 onClick={() => handleOpenModal("create")}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
+                className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all shadow-md"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Distributor</span>
@@ -246,7 +278,7 @@ const Distributors = () => {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, email, or phone..."
+              placeholder="Search by name, email, phone, or serial number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -263,7 +295,7 @@ const Distributors = () => {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">All Status</option>
                     <option value="Active">Active</option>
@@ -286,6 +318,55 @@ const Distributors = () => {
           )}
         </div>
 
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-600 font-medium mb-1">
+                  Total Distributors
+                </p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {filteredDistributors.length}
+                </p>
+              </div>
+              <Building2 className="w-10 h-10 text-blue-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-600 font-medium mb-1">
+                  Active
+                </p>
+                <p className="text-3xl font-bold text-green-900">
+                  {
+                    filteredDistributors.filter((d) => d.status === "Active")
+                      .length
+                  }
+                </p>
+              </div>
+              <Shield className="w-10 h-10 text-green-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-600 font-medium mb-1">
+                  Total Balance
+                </p>
+                <p className="text-2xl font-bold text-purple-900">
+                  ₹
+                  {filteredDistributors
+                    .reduce((sum, d) => sum + (d.balance || 0), 0)
+                    .toLocaleString("en-IN")}
+                </p>
+              </div>
+              <Wallet className="w-10 h-10 text-purple-600 opacity-50" />
+            </div>
+          </div>
+        </div>
+
         {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -296,35 +377,29 @@ const Distributors = () => {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      S.No
+                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      #
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Distributor Info
+                    </th>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Serial Number
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Name
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Contact
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Role
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Phone
-                    </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Balance
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Packages
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -332,71 +407,140 @@ const Distributors = () => {
                 <tbody className="divide-y divide-gray-200">
                   {filteredDistributors.length === 0 ? (
                     <tr>
-                      <td colSpan="10" className="px-6 py-12 text-center">
-                        <p className="text-gray-500">No distributors found</p>
+                      <td colSpan="8" className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <Building2 className="w-12 h-12 text-gray-300" />
+                          <p className="text-gray-500 font-medium">
+                            No distributors found
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            Try adjusting your filters
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredDistributors.map((distributor, index) => (
                       <tr
                         key={distributor._id}
-                        className="hover:bg-gray-50 transition-colors"
+                        className="hover:bg-blue-50 transition-colors"
                       >
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          <span className="font-mono text-blue-600 font-semibold">
-                            {distributor.serialNumber || "N/A"}
+                        <td className="px-4 py-4">
+                          <span className="text-sm font-bold text-gray-600">
+                            {index + 1}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {distributor.name}
+
+                        {/* Distributor Info */}
+                        <td className="px-4 py-4">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                              {distributor.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-900">
+                                {distributor.name}
+                              </p>
+                              <div className="flex items-center space-x-1 mt-1">
+                                <Calendar className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs text-gray-500">
+                                  Joined: {formatDate(distributor.createdAt)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
                         </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          <span className="uppercase text-xs">
-                            {distributor.role}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {distributor.email}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {distributor.phone}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900 font-medium">
-                          ₹{distributor.balance?.toLocaleString("en-IN") || "0"}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {distributor.packages?.length > 0 ? (
+
+                        {/* Serial Number */}
+                        <td className="px-4 py-4">
+                          <div className="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg p-2 border border-cyan-200 inline-block">
                             <div className="flex items-center space-x-1">
-                              <PackageIcon className="w-4 h-4 text-blue-600" />
-                              <span className="font-medium">
-                                {distributor.packages.length}
-                              </span>
+                              <Hash className="w-3 h-3 text-cyan-600" />
+                              <p className="text-sm font-mono font-bold text-cyan-900">
+                                {distributor.serialNumber || "N/A"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Contact */}
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1">
+                              <Mail className="w-3 h-3 text-gray-400" />
+                              <p className="text-xs text-gray-900">
+                                {distributor.email}
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <Phone className="w-3 h-3 text-gray-400" />
+                              <p className="text-xs text-gray-600">
+                                {distributor.phone}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Balance */}
+                        <td className="px-4 py-4">
+                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-2 border border-green-200 inline-block">
+                            <div className="flex items-center space-x-1">
+                              <Wallet className="w-3 h-3 text-green-600" />
+                              <p className="text-sm font-bold text-green-900">
+                                ₹
+                                {distributor.balance?.toLocaleString("en-IN") ||
+                                  "0"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Packages */}
+                        <td className="px-4 py-4">
+                          {distributor.packages &&
+                          distributor.packages.length > 0 ? (
+                            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200 inline-block">
+                              <div className="flex items-center space-x-1">
+                                <PackageIcon className="w-3 h-3 text-indigo-600" />
+                                <p className="text-sm font-bold text-indigo-900">
+                                  {distributor.packages.length} Package(s)
+                                </p>
+                              </div>
                             </div>
                           ) : (
-                            <span className="text-gray-400">None</span>
+                            <span className="text-xs text-gray-400 italic">
+                              None
+                            </span>
                           )}
                         </td>
-                        <td className="px-6 py-4 text-sm">
+
+                        {/* Status */}
+                        <td className="px-4 py-4">
                           <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                              distributor.status === "Active"
-                                ? "bg-green-50 text-green-700 border border-green-200"
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
+                              distributor.status
+                            )}`}
                           >
                             {distributor.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-right">
-                          <div className="flex items-center justify-end space-x-2">
+
+                        {/* Actions */}
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-end space-x-1">
+                            <button
+                              onClick={() => handleViewDetails(distributor)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() =>
                                 handleOpenModal("edit", distributor)
                               }
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                              title="Edit"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -406,6 +550,7 @@ const Distributors = () => {
                                 setShowDeleteModal(true);
                               }}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -421,21 +566,190 @@ const Distributors = () => {
         )}
       </div>
 
+      {/* VIEW MODAL */}
+      {showViewModal && selectedDistributor && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
+                Distributor Complete Details
+              </h2>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                  <p className="text-xs text-blue-600 font-semibold mb-2">
+                    Name
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
+                    {selectedDistributor.name}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                  <p className="text-xs text-purple-600 font-semibold mb-2">
+                    Email
+                  </p>
+                  <p className="text-base font-semibold text-purple-900">
+                    {selectedDistributor.email}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                  <p className="text-xs text-green-600 font-semibold mb-2">
+                    Phone
+                  </p>
+                  <p className="text-lg font-bold text-green-900">
+                    {selectedDistributor.phone}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-xl p-4 border border-cyan-200">
+                  <p className="text-xs text-cyan-600 font-semibold mb-2">
+                    Serial Number
+                  </p>
+                  <p className="text-lg font-mono font-bold text-cyan-900">
+                    {selectedDistributor.serialNumber || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Role & Financial Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl p-4 border border-indigo-200">
+                  <p className="text-xs text-indigo-600 font-semibold mb-2">
+                    Role
+                  </p>
+                  <p className="text-lg font-bold text-indigo-900 uppercase">
+                    {selectedDistributor.role}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-100 rounded-xl p-4 border border-emerald-200">
+                  <p className="text-xs text-emerald-600 font-semibold mb-2">
+                    Current Balance
+                  </p>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    ₹
+                    {selectedDistributor.balance?.toLocaleString("en-IN") ||
+                      "0"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status & Created Date */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-xl p-4 border border-pink-200">
+                  <p className="text-xs text-pink-600 font-semibold mb-2">
+                    Status
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold border ${getStatusColor(
+                      selectedDistributor.status
+                    )}`}
+                  >
+                    {selectedDistributor.status}
+                  </span>
+                </div>
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border border-yellow-200">
+                  <p className="text-xs text-yellow-600 font-semibold mb-2">
+                    Created Date
+                  </p>
+                  <p className="text-base font-bold text-yellow-900">
+                    {formatDate(selectedDistributor.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Created By Info */}
+              {selectedDistributor.createdBy && (
+                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border-2 border-gray-300">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
+                    <User className="w-4 h-4" />
+                    <span>Created By</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-xs text-gray-600 font-semibold mb-1">
+                        Name
+                      </p>
+                      <p className="text-base font-bold text-gray-900">
+                        {selectedDistributor.createdBy?.name || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 font-semibold mb-1">
+                        Email
+                      </p>
+                      <p className="text-sm text-gray-700">
+                        {selectedDistributor.createdBy?.email || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Packages */}
+              {selectedDistributor.packages &&
+                selectedDistributor.packages.length > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                    <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center space-x-2">
+                      <PackageIcon className="w-4 h-4" />
+                      <span>
+                        Assigned Packages ({selectedDistributor.packages.length}
+                        )
+                      </span>
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedDistributor.packages.map((pkg, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200"
+                        >
+                          <span className="font-semibold text-gray-900">
+                            {pkg.name}
+                          </span>
+                          <span className="text-sm font-bold text-blue-600">
+                            ₹{pkg.cost} / {pkg.duration}d
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-full px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
                 {modalMode === "create"
-                  ? "Add Distributor"
+                  ? "Add New Distributor"
                   : "Edit Distributor"}
               </h2>
               <button
                 onClick={handleCloseModal}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
 
@@ -453,7 +767,7 @@ const Distributors = () => {
                       setFormData({ ...formData, name: e.target.value })
                     }
                     placeholder="Enter name"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -470,7 +784,7 @@ const Distributors = () => {
                       setFormData({ ...formData, email: e.target.value })
                     }
                     placeholder="Enter email"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -492,7 +806,7 @@ const Distributors = () => {
                           ? "Enter password"
                           : "Leave blank to keep current"
                       }
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12"
                       required={modalMode === "create"}
                       minLength="6"
                     />
@@ -519,14 +833,14 @@ const Distributors = () => {
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, ""); // keep digits only
+                      const value = e.target.value.replace(/[^0-9]/g, "");
                       if (value.length <= 10) {
                         setFormData({ ...formData, phone: value });
                       }
                     }}
                     maxLength={10}
-                    placeholder="Enter phone"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    placeholder="Enter 10-digit phone"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -541,7 +855,7 @@ const Distributors = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, status: e.target.value })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   >
                     <option value="Active">Active</option>
@@ -559,7 +873,7 @@ const Distributors = () => {
                     value={formData.balance}
                     onChange={handleBalanceChange}
                     placeholder="Enter balance amount"
-                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:border-transparent ${
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 ${
                       balanceError
                         ? "border-red-300 focus:ring-red-500"
                         : "border-gray-200 focus:ring-blue-500"
@@ -580,12 +894,12 @@ const Distributors = () => {
 
                 {/* Packages */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Packages (Optional)
                   </label>
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
                     {packages.length === 0 ? (
-                      <p className="text-gray-500 text-sm">
+                      <p className="text-gray-500 text-sm text-center py-4">
                         No packages available
                       </p>
                     ) : (
@@ -593,7 +907,7 @@ const Distributors = () => {
                         {packages.map((pkg) => (
                           <label
                             key={pkg._id}
-                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                            className="flex items-center space-x-3 p-3 rounded-lg hover:bg-white cursor-pointer transition-all border border-transparent hover:border-blue-200"
                           >
                             <div className="relative">
                               <input
@@ -625,14 +939,29 @@ const Distributors = () => {
                                 )}
                               </div>
                             </div>
-                            <span className="text-sm text-gray-900 font-medium">
-                              {pkg.name} - ₹{pkg.cost} ({pkg.duration} days)
-                            </span>
+                            <div className="flex-1">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {pkg.name}
+                              </span>
+                              <span className="text-xs text-gray-500 ml-2">
+                                (₹{pkg.cost} • {pkg.duration} days)
+                              </span>
+                            </div>
+                            {formData.packages.includes(pkg._id) && (
+                              <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
+                                Selected
+                              </div>
+                            )}
                           </label>
                         ))}
                       </div>
                     )}
                   </div>
+                  {formData.packages.length > 0 && (
+                    <p className="text-xs text-gray-600 mt-2">
+                      {formData.packages.length} package(s) selected
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -640,7 +969,7 @@ const Distributors = () => {
                 <button
                   type="submit"
                   disabled={submitting || balanceError}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting
                     ? "Saving..."
@@ -651,7 +980,7 @@ const Distributors = () => {
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
@@ -666,8 +995,8 @@ const Distributors = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
                 Delete Distributor
@@ -683,7 +1012,7 @@ const Distributors = () => {
                 <button
                   onClick={handleDelete}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting ? "Deleting..." : "Delete"}
                 </button>
@@ -692,7 +1021,7 @@ const Distributors = () => {
                     setShowDeleteModal(false);
                     setSelectedDistributor(null);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>

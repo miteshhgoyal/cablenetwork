@@ -1,4 +1,3 @@
-// backend/src/routes/customer.js
 import express from 'express';
 import User from '../models/User.js';
 import Subscriber from '../models/Subscriber.js';
@@ -21,7 +20,6 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
-        // ✅ FIX: Remove fallback - use only env variable
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
         const subscriber = await Subscriber.findById(decoded.id);
@@ -112,7 +110,6 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Find reseller by partner code
         const reseller = await User.findOne({
             partnerCode: partnerCode.trim(),
             role: 'reseller',
@@ -126,13 +123,6 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        if (!reseller.packages || reseller.packages.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Reseller has no packages available'
-            });
-        }
-
         const deviceMac = macAddress.trim().toLowerCase();
         let subscriber;
         let usingCustomMac = false;
@@ -143,7 +133,6 @@ router.post('/login', async (req, res) => {
         if (customMac) {
             const customMacAddress = customMac.trim().toLowerCase();
 
-            // ✅ Find the ACTIVE subscriber with this custom MAC (from ANY reseller)
             const activeSubscriber = await Subscriber.findOne({
                 serialNumber: customMacAddress,
                 status: 'Active'
@@ -157,7 +146,6 @@ router.post('/login', async (req, res) => {
                 });
             }
 
-            // Check if custom MAC subscription is expired
             if (new Date() > new Date(activeSubscriber.expiryDate)) {
                 return res.status(403).json({
                     success: false,
@@ -166,13 +154,11 @@ router.post('/login', async (req, res) => {
                 });
             }
 
-            // ✅ Check if current device MAC exists as subscriber
             subscriber = await Subscriber.findOne({
                 resellerId: reseller._id,
                 serialNumber: deviceMac
             });
 
-            // If device MAC doesn't exist, create it as Fresh (will inherit custom MAC's status)
             if (!subscriber) {
                 subscriber = new Subscriber({
                     resellerId: reseller._id,
@@ -187,7 +173,6 @@ router.post('/login', async (req, res) => {
                 await subscriber.save();
             }
 
-            // ✅ Store the custom MAC in macAddress field for reference
             subscriber.macAddress = customMacAddress;
             subscriber.deviceInfo = {
                 ...subscriber.deviceInfo,
@@ -196,11 +181,10 @@ router.post('/login', async (req, res) => {
             };
             await subscriber.save();
 
-            // ✅ Use the ACTIVE subscriber's data for login
             subscriber = activeSubscriber;
             usingCustomMac = true;
 
-            console.log(`✅ Login with custom MAC: ${customMacAddress} from device: ${deviceMac}`);
+            console.log(`Login with custom MAC: ${customMacAddress} from device: ${deviceMac}`);
 
             // ==========================================
             // CASE 2: No Custom MAC - Use Own Device MAC
@@ -218,40 +202,66 @@ router.post('/login', async (req, res) => {
                     subscriberName: deviceName || 'User',
                     serialNumber: deviceMac,
                     macAddress: deviceMac,
-                    packages: reseller.packages.map(pkg => pkg._id),
-                    primaryPackageId: reseller.packages[0]._id,
-                    status: 'Inactive',
+                    packages: [],
+                    primaryPackageId: null,
+                    status: 'Fresh',
                     expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
                 });
                 await subscriber.save();
 
+                console.log(`New Fresh subscriber created: ${deviceMac}`);
+
                 return res.status(201).json({
                     success: false,
-                    code: 'MAC_INACTIVE',
-                    message: 'Device registered successfully. Please contact admin/reseller to activate your account.',
+                    code: 'MAC_FRESH',
+                    message: 'Device registered successfully as Fresh. Please contact admin/reseller to assign packages and activate your account.',
                     data: {
                         deviceMac: deviceMac,
-                        status: 'Inactive',
-                        canUseCustomMac: true
+                        status: 'Fresh',
+                        canUseCustomMac: true,
+                        hasPackages: false
                     }
                 });
             }
 
-            // SUB-CASE B: Device MAC found but NOT Active
-            if (subscriber.status !== 'Active') {
+            // Auto-activate if packages are assigned to Fresh subscriber
+            if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
+                subscriber.status = 'Active';
+                await subscriber.save();
+                console.log(`Auto-activated Fresh subscriber with packages: ${deviceMac}`);
+            }
+
+            // SUB-CASE B: Device MAC found but is Fresh without packages
+            if (subscriber.status === 'Fresh') {
                 return res.status(403).json({
                     success: false,
-                    code: 'MAC_INACTIVE',
-                    message: `Your device is ${subscriber.status}. Please contact admin/reseller to activate.`,
+                    code: 'MAC_FRESH',
+                    message: 'Your device is Fresh. Please contact admin/reseller to assign packages and activate.',
                     data: {
                         deviceMac: deviceMac,
                         status: subscriber.status,
-                        canUseCustomMac: true
+                        canUseCustomMac: true,
+                        hasPackages: subscriber.packages?.length > 0
                     }
                 });
             }
 
-            // SUB-CASE C: Device MAC Active but Expired
+            // SUB-CASE C: Device MAC found but is Inactive
+            if (subscriber.status === 'Inactive') {
+                return res.status(403).json({
+                    success: false,
+                    code: 'MAC_INACTIVE',
+                    message: 'Your device is Inactive. Please contact admin/reseller to activate.',
+                    data: {
+                        deviceMac: deviceMac,
+                        status: subscriber.status,
+                        canUseCustomMac: true,
+                        hasPackages: subscriber.packages?.length > 0
+                    }
+                });
+            }
+
+            // SUB-CASE D: Device MAC Active but Expired
             if (new Date() > new Date(subscriber.expiryDate)) {
                 return res.status(403).json({
                     success: false,
@@ -266,7 +276,22 @@ router.post('/login', async (req, res) => {
                 });
             }
 
-            // SUB-CASE D: Device MAC Active and Valid
+            // SUB-CASE E: Check if subscriber has no packages assigned
+            if (!subscriber.packages || subscriber.packages.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'NO_PACKAGES',
+                    message: 'Your device is Active but no packages are assigned. Please contact admin/reseller to assign packages.',
+                    data: {
+                        deviceMac: deviceMac,
+                        status: subscriber.status,
+                        hasPackages: false,
+                        canUseCustomMac: true
+                    }
+                });
+            }
+
+            // SUB-CASE F: Device MAC Active and Valid
             subscriber.deviceInfo = {
                 ...subscriber.deviceInfo,
                 lastIPAddress: req.ip || req.connection.remoteAddress,
@@ -274,7 +299,7 @@ router.post('/login', async (req, res) => {
             };
             await subscriber.save();
 
-            console.log(`✅ Login with own device MAC: ${deviceMac}`);
+            console.log(`Login with own device MAC: ${deviceMac}`);
         }
 
         // ==========================================
@@ -296,40 +321,42 @@ router.post('/login', async (req, res) => {
         const channelMap = new Map();
         const packagesList = [];
 
-        subscriber.packages.forEach(pkg => {
-            packagesList.push({
-                _id: pkg._id,
-                name: pkg.name,
-                cost: pkg.cost,
-                duration: pkg.duration,
-                channelCount: pkg.channels?.length || 0
-            });
-
-            if (pkg.channels && Array.isArray(pkg.channels)) {
-                pkg.channels.forEach(channel => {
-                    if (channel._id) {
-                        const channelId = channel._id.toString();
-                        if (channelMap.has(channelId)) {
-                            const existing = channelMap.get(channelId);
-                            if (!existing.packageNames.includes(pkg.name)) {
-                                existing.packageNames.push(pkg.name);
-                            }
-                        } else {
-                            channelMap.set(channelId, {
-                                _id: channel._id,
-                                name: channel.name,
-                                lcn: channel.lcn,
-                                imageUrl: channel.imageUrl,
-                                url: channel.url,
-                                genre: channel.genre,
-                                language: channel.language,
-                                packageNames: [pkg.name]
-                            });
-                        }
-                    }
+        if (subscriber.packages && subscriber.packages.length > 0) {
+            subscriber.packages.forEach(pkg => {
+                packagesList.push({
+                    _id: pkg._id,
+                    name: pkg.name,
+                    cost: pkg.cost,
+                    duration: pkg.duration,
+                    channelCount: pkg.channels?.length || 0
                 });
-            }
-        });
+
+                if (pkg.channels && Array.isArray(pkg.channels)) {
+                    pkg.channels.forEach(channel => {
+                        if (channel._id) {
+                            const channelId = channel._id.toString();
+                            if (channelMap.has(channelId)) {
+                                const existing = channelMap.get(channelId);
+                                if (!existing.packageNames.includes(pkg.name)) {
+                                    existing.packageNames.push(pkg.name);
+                                }
+                            } else {
+                                channelMap.set(channelId, {
+                                    _id: channel._id,
+                                    name: channel.name,
+                                    lcn: channel.lcn,
+                                    imageUrl: channel.imageUrl,
+                                    url: channel.url,
+                                    genre: channel.genre,
+                                    language: channel.language,
+                                    packageNames: [pkg.name]
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
 
         const channels = buildChannelResponse(channelMap);
 
@@ -386,7 +413,6 @@ router.post('/login', async (req, res) => {
 // Refresh channels route
 router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
-        // Fetch subscriber with their assigned packages
         const subscriber = await Subscriber.findById(req.user.id)
             .populate({
                 path: 'packages',
@@ -411,45 +437,46 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
             });
         }
 
-        // ✅ Build channels from subscriber's ASSIGNED packages (not reseller packages)
         const channelMap = new Map();
         const packagesList = [];
 
-        subscriber.packages.forEach(pkg => {
-            packagesList.push({
-                _id: pkg._id,
-                name: pkg.name,
-                cost: pkg.cost,
-                duration: pkg.duration,
-                channelCount: pkg.channels?.length || 0
-            });
-
-            if (pkg.channels && Array.isArray(pkg.channels)) {
-                pkg.channels.forEach(channel => {
-                    if (channel._id) {
-                        const channelId = channel._id.toString();
-
-                        if (channelMap.has(channelId)) {
-                            const existing = channelMap.get(channelId);
-                            if (!existing.packageNames.includes(pkg.name)) {
-                                existing.packageNames.push(pkg.name);
-                            }
-                        } else {
-                            channelMap.set(channelId, {
-                                _id: channel._id,
-                                name: channel.name,
-                                lcn: channel.lcn,
-                                imageUrl: channel.imageUrl,
-                                url: channel.url,
-                                genre: channel.genre,
-                                language: channel.language,
-                                packageNames: [pkg.name]
-                            });
-                        }
-                    }
+        if (subscriber.packages && subscriber.packages.length > 0) {
+            subscriber.packages.forEach(pkg => {
+                packagesList.push({
+                    _id: pkg._id,
+                    name: pkg.name,
+                    cost: pkg.cost,
+                    duration: pkg.duration,
+                    channelCount: pkg.channels?.length || 0
                 });
-            }
-        });
+
+                if (pkg.channels && Array.isArray(pkg.channels)) {
+                    pkg.channels.forEach(channel => {
+                        if (channel._id) {
+                            const channelId = channel._id.toString();
+
+                            if (channelMap.has(channelId)) {
+                                const existing = channelMap.get(channelId);
+                                if (!existing.packageNames.includes(pkg.name)) {
+                                    existing.packageNames.push(pkg.name);
+                                }
+                            } else {
+                                channelMap.set(channelId, {
+                                    _id: channel._id,
+                                    name: channel.name,
+                                    lcn: channel.lcn,
+                                    imageUrl: channel.imageUrl,
+                                    url: channel.url,
+                                    genre: channel.genre,
+                                    language: channel.language,
+                                    packageNames: [pkg.name]
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
 
         const channels = buildChannelResponse(channelMap);
 
@@ -554,7 +581,7 @@ router.post('/update-security-info', authenticateToken, async (req, res) => {
         });
 
         if (isRooted || isVPNActive) {
-            console.warn(`⚠️ Security Alert: Subscriber ${req.user.id}`, {
+            console.warn(`Security Alert: Subscriber ${req.user.id}`, {
                 isRooted,
                 isVPNActive,
                 ip: clientIP
@@ -626,7 +653,6 @@ router.get('/movies', authenticateToken, async (req, res) => {
             .populate('language', 'name')
             .sort({ createdAt: -1 });
 
-        // Group by genre for category-wise display
         const groupedByGenre = movies.reduce((acc, movie) => {
             const genreName = movie.genre?.name || 'Uncategorized';
             if (!acc[genreName]) {
@@ -675,7 +701,6 @@ router.get('/series', authenticateToken, async (req, res) => {
             .populate('language', 'name')
             .sort({ createdAt: -1 });
 
-        // Group by genre for category-wise display
         const groupedByGenre = series.reduce((acc, show) => {
             const genreName = show.genre?.name || 'Uncategorized';
             if (!acc[genreName]) {
@@ -742,7 +767,7 @@ router.get('/ott/:id', authenticateToken, async (req, res) => {
 router.get('/check-status', authenticateToken, async (req, res) => {
     try {
         const subscriber = await Subscriber.findById(req.user.id)
-            .select('subscriberName status expiryDate macAddress deviceInfo')
+            .select('subscriberName status expiryDate macAddress deviceInfo packages')
             .lean();
 
         if (!subscriber) {
@@ -753,13 +778,33 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if expired
         const now = new Date();
         const expiryDate = new Date(subscriber.expiryDate);
         const isExpired = now > expiryDate;
 
-        // Check if inactive
-        if (subscriber.status !== 'Active') {
+        // Auto-activate if Fresh with packages
+        if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
+            await Subscriber.findByIdAndUpdate(req.user.id, { status: 'Active' });
+            subscriber.status = 'Active';
+            console.log(`Auto-activated Fresh subscriber on status check: ${req.user.id}`);
+        }
+
+        if (subscriber.status === 'Fresh') {
+            return res.json({
+                success: false,
+                code: 'FRESH',
+                message: 'Your subscription is Fresh. Please contact admin to assign packages and activate.',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo
+                }
+            });
+        }
+
+        if (subscriber.status === 'Inactive') {
             return res.json({
                 success: false,
                 code: 'INACTIVE',
@@ -774,7 +819,6 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if expired
         if (isExpired) {
             return res.json({
                 success: false,

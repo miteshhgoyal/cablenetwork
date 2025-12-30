@@ -14,6 +14,12 @@ import {
   MapPin,
   Shield,
   CheckCircle,
+  Calendar,
+  Package as PackageIcon,
+  User,
+  Hash,
+  Clock,
+  AlertCircle,
 } from "lucide-react";
 
 const Subscribers = () => {
@@ -34,7 +40,7 @@ const Subscribers = () => {
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
   const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [renewExpiryDate, setRenewExpiryDate] = useState("");
+  const [renewDuration, setRenewDuration] = useState(30);
 
   const [formData, setFormData] = useState({
     subscriberName: "",
@@ -117,9 +123,7 @@ const Subscribers = () => {
 
   const handleRenewClick = (subscriber) => {
     setSelectedSubscriber(subscriber);
-    setRenewExpiryDate(
-      new Date(subscriber.expiryDate).toISOString().split("T")[0]
-    );
+    setRenewDuration(30);
     setShowRenewModal(true);
   };
 
@@ -129,6 +133,7 @@ const Subscribers = () => {
       await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
         expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
       });
+      alert("Subscriber activated successfully!");
       fetchSubscribers();
       setShowActivateModal(false);
       setSelectedSubscriber(null);
@@ -144,8 +149,9 @@ const Subscribers = () => {
     setSubmitting(true);
     try {
       await api.patch(`/subscribers/${selectedSubscriber._id}/renew`, {
-        expiryDate: renewExpiryDate,
+        duration: renewDuration,
       });
+      alert(`Package renewed successfully for ${renewDuration} days!`);
       fetchSubscribers();
       setShowRenewModal(false);
       setSelectedSubscriber(null);
@@ -162,6 +168,7 @@ const Subscribers = () => {
     setSubmitting(true);
     try {
       await api.put(`/subscribers/${selectedSubscriber._id}`, formData);
+      alert("Subscriber updated successfully!");
       fetchSubscribers();
       setShowEditModal(false);
       setSelectedSubscriber(null);
@@ -177,6 +184,7 @@ const Subscribers = () => {
     setSubmitting(true);
     try {
       await api.delete(`/subscribers/${selectedSubscriber._id}`);
+      alert("Subscriber deleted successfully!");
       fetchSubscribers();
       setShowDeleteModal(false);
       setSelectedSubscriber(null);
@@ -194,7 +202,8 @@ const Subscribers = () => {
       subscriber.subscriberName.toLowerCase().includes(searchLower) ||
       subscriber.macAddress.toLowerCase().includes(searchLower) ||
       subscriber.serialNumber?.toLowerCase().includes(searchLower) ||
-      subscriber.resellerId?.name.toLowerCase().includes(searchLower);
+      subscriber.resellerId?.name.toLowerCase().includes(searchLower) ||
+      subscriber.resellerId?.partnerCode?.toLowerCase().includes(searchLower);
 
     if (!filterOption) return matchesSearch;
 
@@ -203,11 +212,14 @@ const Subscribers = () => {
 
     switch (filterOption) {
       case "active":
-        return matchesSearch && expiry > now;
+        return matchesSearch && expiry > now && subscriber.status === "Active";
       case "expired":
         return matchesSearch && expiry < now;
       case "fresh":
         return matchesSearch && subscriber.status === "Fresh";
+      case "expiring_soon":
+        const daysRemaining = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+        return matchesSearch && daysRemaining > 0 && daysRemaining <= 7;
       default:
         return matchesSearch;
     }
@@ -226,18 +238,46 @@ const Subscribers = () => {
     }
   };
 
+  const getExpiryStatus = (expiryDate) => {
+    const now = new Date();
+    const expiry = new Date(expiryDate);
+    const daysRemaining = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+
+    if (daysRemaining < 0) {
+      return { text: "Expired", color: "text-red-600", bgColor: "bg-red-50" };
+    } else if (daysRemaining <= 7) {
+      return {
+        text: `${daysRemaining}d left`,
+        color: "text-orange-600",
+        bgColor: "bg-orange-50",
+      };
+    } else if (daysRemaining <= 30) {
+      return {
+        text: `${daysRemaining}d left`,
+        color: "text-yellow-600",
+        bgColor: "bg-yellow-50",
+      };
+    } else {
+      return {
+        text: `${daysRemaining}d left`,
+        color: "text-green-600",
+        bgColor: "bg-green-50",
+      };
+    }
+  };
+
   const formatDate = (date) => {
     if (!date) return "N/A";
-    return new Date(date).toLocaleDateString("en-US", {
-      month: "2-digit",
+    return new Date(date).toLocaleDateString("en-IN", {
       day: "2-digit",
+      month: "short",
       year: "numeric",
     });
   };
 
   const formatDateTime = (date) => {
     if (!date) return "N/A";
-    return new Date(date).toLocaleString("en-US", {
+    return new Date(date).toLocaleString("en-IN", {
       month: "short",
       day: "numeric",
       hour: "2-digit",
@@ -257,10 +297,11 @@ const Subscribers = () => {
               </div>
               <div>
                 <h1 className="text-2xl font-bold text-gray-900">
-                  Subscribers
+                  Subscribers Management
                 </h1>
                 <p className="text-sm text-gray-600">
-                  View and manage subscriber information with location tracking
+                  Complete subscriber tracking with location, device info, and
+                  upline details
                 </p>
               </div>
             </div>
@@ -283,7 +324,7 @@ const Subscribers = () => {
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
             <input
               type="text"
-              placeholder="Search by name, MAC address, or serial number..."
+              placeholder="Search by name, MAC, serial number, or partner code..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
@@ -292,7 +333,7 @@ const Subscribers = () => {
 
           {showFilters && (
             <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Status
@@ -300,7 +341,7 @@ const Subscribers = () => {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">All Status</option>
                     <option value="Active">Active</option>
@@ -311,17 +352,18 @@ const Subscribers = () => {
 
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Filter
+                    Quick Filter
                   </label>
                   <select
                     value={filterOption}
                     onChange={(e) => setFilterOption(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="">All</option>
-                    <option value="active">Active</option>
+                    <option value="">All Subscribers</option>
+                    <option value="active">Active Only</option>
                     <option value="expired">Expired</option>
-                    <option value="fresh">Fresh</option>
+                    <option value="expiring_soon">Expiring in 7 Days</option>
+                    <option value="fresh">Fresh Users</option>
                   </select>
                 </div>
 
@@ -333,65 +375,105 @@ const Subscribers = () => {
                     <select
                       value={resellerFilter}
                       onChange={(e) => setResellerFilter(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     >
                       <option value="">All Resellers</option>
                       {resellers.map((reseller) => (
                         <option key={reseller._id} value={reseller._id}>
-                          {reseller.name}
+                          {reseller.name}{" "}
+                          {reseller.partnerCode
+                            ? `(${reseller.partnerCode})`
+                            : ""}
                         </option>
                       ))}
                     </select>
                   </div>
                 )}
-              </div>
 
-              {(statusFilter || resellerFilter || filterOption) && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <button
-                    onClick={() => {
-                      setStatusFilter("");
-                      setResellerFilter("");
-                      setFilterOption("");
-                    }}
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    Clear all filters
-                  </button>
+                <div className="flex items-end">
+                  {(statusFilter || resellerFilter || filterOption) && (
+                    <button
+                      onClick={() => {
+                        setStatusFilter("");
+                        setResellerFilter("");
+                        setFilterOption("");
+                      }}
+                      className="w-full px-4 py-2.5 text-sm text-blue-600 hover:text-blue-700 font-medium bg-blue-50 rounded-xl hover:bg-blue-100 transition-all"
+                    >
+                      Clear Filters
+                    </button>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
           )}
         </div>
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <p className="text-sm text-gray-600 mb-1">Total Subscribers</p>
-            <p className="text-2xl font-bold text-gray-900">
-              {filteredSubscribers.length}
-            </p>
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-600 font-medium mb-1">Total</p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {filteredSubscribers.length}
+                </p>
+              </div>
+              <UserCheck className="w-10 h-10 text-blue-600 opacity-50" />
+            </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <p className="text-sm text-gray-600 mb-1">Active</p>
-            <p className="text-2xl font-bold text-green-600">
-              {filteredSubscribers.filter((s) => s.status === "Active").length}
-            </p>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-600 font-medium mb-1">
+                  Active
+                </p>
+                <p className="text-3xl font-bold text-green-900">
+                  {
+                    filteredSubscribers.filter((s) => s.status === "Active")
+                      .length
+                  }
+                </p>
+              </div>
+              <CheckCircle className="w-10 h-10 text-green-600 opacity-50" />
+            </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <p className="text-sm text-gray-600 mb-1">Inactive</p>
-            <p className="text-2xl font-bold text-red-600">
-              {
-                filteredSubscribers.filter((s) => s.status === "Inactive")
-                  .length
-              }
-            </p>
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-orange-600 font-medium mb-1">
+                  Expiring Soon
+                </p>
+                <p className="text-3xl font-bold text-orange-900">
+                  {
+                    filteredSubscribers.filter((s) => {
+                      const days = Math.ceil(
+                        (new Date(s.expiryDate) - new Date()) /
+                          (1000 * 60 * 60 * 24)
+                      );
+                      return days > 0 && days <= 7;
+                    }).length
+                  }
+                </p>
+              </div>
+              <AlertCircle className="w-10 h-10 text-orange-600 opacity-50" />
+            </div>
           </div>
-          <div className="bg-white rounded-xl p-4 border border-gray-200">
-            <p className="text-sm text-gray-600 mb-1">Fresh</p>
-            <p className="text-2xl font-bold text-blue-600">
-              {filteredSubscribers.filter((s) => s.status === "Fresh").length}
-            </p>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-600 font-medium mb-1">
+                  Fresh
+                </p>
+                <p className="text-3xl font-bold text-purple-900">
+                  {
+                    filteredSubscribers.filter((s) => s.status === "Fresh")
+                      .length
+                  }
+                </p>
+              </div>
+              <User className="w-10 h-10 text-purple-600 opacity-50" />
+            </div>
           </div>
         </div>
 
@@ -405,26 +487,26 @@ const Subscribers = () => {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      S.No
+                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      #
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      Subscriber
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Subscriber Info
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      MAC Address
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      MAC / Serial
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      Status
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Upline Info
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      Location
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Status / Expiry
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase">
-                      Device
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Packages
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase">
+                    <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -433,146 +515,200 @@ const Subscribers = () => {
                   {filteredSubscribers.length === 0 ? (
                     <tr>
                       <td colSpan="7" className="px-6 py-12 text-center">
-                        <p className="text-gray-500">No subscribers found</p>
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <UserCheck className="w-12 h-12 text-gray-300" />
+                          <p className="text-gray-500 font-medium">
+                            No subscribers found
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            Try adjusting your filters
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
-                    filteredSubscribers.map((subscriber, index) => (
-                      <tr
-                        key={subscriber._id}
-                        className="hover:bg-gray-50 transition-colors"
-                      >
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {index + 1}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div>
-                            <p className="text-sm font-semibold text-gray-900">
-                              {subscriber.subscriberName}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              Expires: {formatDate(subscriber.expiryDate)}
-                            </p>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-600 font-mono">
-                          {subscriber.macAddress}
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border ${getStatusColor(
-                              subscriber.status
-                            )}`}
-                          >
-                            {subscriber.status}
-                          </span>
-                        </td>
-                        <td className="px-6 py-4">
-                          {subscriber.lastLocation &&
-                          subscriber.lastLocation.coordinates[0] !== 0 ? (
-                            <div className="flex items-start space-x-1">
-                              <MapPin className="w-4 h-4 text-green-600 mt-0.5" />
+                    filteredSubscribers.map((subscriber, index) => {
+                      const expiryStatus = getExpiryStatus(
+                        subscriber.expiryDate
+                      );
+                      return (
+                        <tr
+                          key={subscriber._id}
+                          className="hover:bg-blue-50 transition-colors"
+                        >
+                          <td className="px-4 py-4">
+                            <span className="text-sm font-bold text-gray-600">
+                              {index + 1}
+                            </span>
+                          </td>
+
+                          {/* Subscriber Info */}
+                          <td className="px-4 py-4">
+                            <div className="flex items-start space-x-3">
+                              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                {subscriber.subscriberName
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </div>
                               <div>
-                                <p className="text-xs font-mono text-gray-900">
-                                  {subscriber.lastLocation.coordinates[1].toFixed(
-                                    4
-                                  )}
-                                  ,{" "}
-                                  {subscriber.lastLocation.coordinates[0].toFixed(
-                                    4
-                                  )}
+                                <p className="text-sm font-bold text-gray-900">
+                                  {subscriber.subscriberName}
                                 </p>
-                                <p className="text-xs text-gray-500">
-                                  {formatDateTime(
-                                    subscriber.lastLocation.timestamp
-                                  )}
-                                </p>
+                                <div className="flex items-center space-x-1 mt-1">
+                                  <Calendar className="w-3 h-3 text-gray-400" />
+                                  <p className="text-xs text-gray-500">
+                                    Joined: {formatDate(subscriber.createdAt)}
+                                  </p>
+                                </div>
                               </div>
                             </div>
-                          ) : (
-                            <span className="text-xs text-gray-400">
-                              No location
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4">
-                          {subscriber.deviceInfo &&
-                          subscriber.deviceInfo.deviceModel ? (
-                            <div className="flex items-start space-x-1">
-                              <Shield
-                                className={`w-4 h-4 mt-0.5 ${
-                                  subscriber.deviceInfo.isRooted ||
-                                  subscriber.deviceInfo.isVPNActive
-                                    ? "text-red-600"
-                                    : "text-green-600"
-                                }`}
-                              />
-                              <div>
-                                <p className="text-xs font-medium text-gray-900">
-                                  {subscriber.deviceInfo.deviceModel}
+                          </td>
+
+                          {/* MAC / Serial */}
+                          <td className="px-4 py-4">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-1">
+                                <Hash className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs font-mono text-gray-900 font-semibold">
+                                  {subscriber.macAddress}
                                 </p>
-                                <p className="text-xs text-gray-500">
-                                  {subscriber.deviceInfo.osVersion}
+                              </div>
+                              <p className="text-xs font-mono text-gray-500">
+                                SN: {subscriber.serialNumber}
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* Upline Info */}
+                          <td className="px-4 py-4">
+                            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <User className="w-3 h-3 text-indigo-600" />
+                                <p className="text-xs font-bold text-indigo-900">
+                                  {subscriber.resellerId?.name || "N/A"}
                                 </p>
-                                {(subscriber.deviceInfo.isRooted ||
-                                  subscriber.deviceInfo.isVPNActive) && (
-                                  <p className="text-xs text-red-600 font-medium">
-                                    {subscriber.deviceInfo.isRooted && "Rooted"}
-                                    {subscriber.deviceInfo.isRooted &&
-                                      subscriber.deviceInfo.isVPNActive &&
-                                      " | "}
-                                    {subscriber.deviceInfo.isVPNActive && "VPN"}
+                              </div>
+                              {subscriber.resellerId?.partnerCode && (
+                                <div className="flex items-center space-x-1">
+                                  <Hash className="w-3 h-3 text-indigo-500" />
+                                  <p className="text-xs font-mono text-indigo-700 font-semibold">
+                                    {subscriber.resellerId.partnerCode}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Status / Expiry */}
+                          <td className="px-4 py-4">
+                            <div className="space-y-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
+                                  subscriber.status
+                                )}`}
+                              >
+                                {subscriber.status}
+                              </span>
+                              <div
+                                className={`flex items-center space-x-1 px-2 py-1 rounded-md ${expiryStatus.bgColor}`}
+                              >
+                                <Clock
+                                  className={`w-3 h-3 ${expiryStatus.color}`}
+                                />
+                                <p
+                                  className={`text-xs font-bold ${expiryStatus.color}`}
+                                >
+                                  {expiryStatus.text}
+                                </p>
+                              </div>
+                              <p className="text-xs text-gray-500">
+                                {formatDate(subscriber.expiryDate)}
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* Packages */}
+                          <td className="px-4 py-4">
+                            {subscriber.packages &&
+                            subscriber.packages.length > 0 ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-1">
+                                  <PackageIcon className="w-3 h-3 text-blue-600" />
+                                  <p className="text-xs font-bold text-blue-900">
+                                    {subscriber.packages.length} Package(s)
+                                  </p>
+                                </div>
+                                {subscriber.packages
+                                  .slice(0, 2)
+                                  .map((pkg, idx) => (
+                                    <p
+                                      key={idx}
+                                      className="text-xs text-gray-600 truncate"
+                                    >
+                                      • {pkg.name}
+                                    </p>
+                                  ))}
+                                {subscriber.packages.length > 2 && (
+                                  <p className="text-xs text-blue-600 font-semibold">
+                                    +{subscriber.packages.length - 2} more
                                   </p>
                                 )}
                               </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-400">
-                              No device info
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-right">
-                          <div className="flex items-center justify-end space-x-2">
-                            {(subscriber.status === "Inactive" ||
-                              subscriber.status === "Fresh") && (
-                              <button
-                                onClick={() => handleActivateClick(subscriber)}
-                                className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                                title="Activate Subscriber"
-                              >
-                                <CheckCircle className="w-4 h-4" />
-                              </button>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">
+                                No packages
+                              </span>
                             )}
-                            <button
-                              onClick={() => handleViewDetails(subscriber)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleEdit(subscriber)}
-                              className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteClick(subscriber)}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleRenewClick(subscriber)}
-                              className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
-                              title="Renew Package"
-                            >
-                              <CheckCircle className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-end space-x-1">
+                              {(subscriber.status === "Inactive" ||
+                                subscriber.status === "Fresh") && (
+                                <button
+                                  onClick={() =>
+                                    handleActivateClick(subscriber)
+                                  }
+                                  className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-all"
+                                  title="Activate"
+                                >
+                                  <CheckCircle className="w-4 h-4" />
+                                </button>
+                              )}
+                              <button
+                                onClick={() => handleViewDetails(subscriber)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(subscriber)}
+                                className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleRenewClick(subscriber)}
+                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                title="Renew Package"
+                              >
+                                <Clock className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClick(subscriber)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
                   )}
                 </tbody>
               </table>
@@ -581,93 +717,230 @@ const Subscribers = () => {
         )}
       </div>
 
-      {/* VIEW MODAL */}
+      {/* VIEW MODAL - Enhanced */}
       {showViewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">
-                Subscriber Details
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
+                Subscriber Complete Details
               </h2>
               <button
                 onClick={() => setShowViewModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
 
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">Subscriber Name</p>
-                  <p className="text-lg font-semibold text-gray-900">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                  <p className="text-xs text-blue-600 font-semibold mb-2">
+                    Subscriber Name
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
                     {selectedSubscriber.subscriberName}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">MAC Address</p>
-                  <p className="text-lg font-mono font-semibold text-gray-900">
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                  <p className="text-xs text-purple-600 font-semibold mb-2">
+                    MAC Address
+                  </p>
+                  <p className="text-lg font-mono font-bold text-purple-900">
                     {selectedSubscriber.macAddress}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">Serial Number</p>
-                  <p className="text-lg font-mono font-semibold text-gray-900">
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl p-4 border border-indigo-200">
+                  <p className="text-xs text-indigo-600 font-semibold mb-2">
+                    Serial Number
+                  </p>
+                  <p className="text-lg font-mono font-bold text-indigo-900">
                     {selectedSubscriber.serialNumber}
                   </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">Status</p>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                  <p className="text-xs text-green-600 font-semibold mb-2">
+                    Status
+                  </p>
                   <span
-                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium border ${getStatusColor(
+                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold border ${getStatusColor(
                       selectedSubscriber.status
                     )}`}
                   >
                     {selectedSubscriber.status}
                   </span>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">Expiry Date</p>
-                  <p className="text-lg font-semibold text-gray-900">
+              </div>
+
+              {/* Upline Info Section */}
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 border-2 border-indigo-300">
+                <h3 className="text-sm font-bold text-indigo-900 mb-3 flex items-center space-x-2">
+                  <User className="w-4 h-4" />
+                  <span>Upline / Reseller Information</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Reseller Name
+                    </p>
+                    <p className="text-base font-bold text-indigo-900">
+                      {selectedSubscriber.resellerId?.name || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Partner Code
+                    </p>
+                    <p className="text-base font-mono font-bold text-indigo-900">
+                      {selectedSubscriber.resellerId?.partnerCode || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Email
+                    </p>
+                    <p className="text-sm text-indigo-700">
+                      {selectedSubscriber.resellerId?.email || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Phone
+                    </p>
+                    <p className="text-sm text-indigo-700">
+                      {selectedSubscriber.resellerId?.phone || "N/A"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Subscription Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border border-yellow-200">
+                  <p className="text-xs text-yellow-600 font-semibold mb-2">
+                    Expiry Date
+                  </p>
+                  <p className="text-base font-bold text-yellow-900">
                     {formatDate(selectedSubscriber.expiryDate)}
                   </p>
+                  <p className="text-xs text-yellow-700 mt-1">
+                    {getExpiryStatus(selectedSubscriber.expiryDate).text}
+                  </p>
                 </div>
-                <div className="bg-gray-50 rounded-xl p-4">
-                  <p className="text-sm text-gray-600 mb-1">Reseller</p>
-                  <p className="text-lg font-semibold text-gray-900">
-                    {selectedSubscriber.resellerId?.name || "N/A"}
+                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-xl p-4 border border-pink-200">
+                  <p className="text-xs text-pink-600 font-semibold mb-2">
+                    Created At
+                  </p>
+                  <p className="text-base font-bold text-pink-900">
+                    {formatDate(selectedSubscriber.createdAt)}
                   </p>
                 </div>
               </div>
 
+              {/* Packages */}
               {selectedSubscriber.packages &&
                 selectedSubscriber.packages.length > 0 && (
-                  <div className="bg-blue-50 rounded-xl p-4">
-                    <p className="text-sm text-gray-600 mb-2">Packages</p>
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                    <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center space-x-2">
+                      <PackageIcon className="w-4 h-4" />
+                      <span>
+                        Assigned Packages ({selectedSubscriber.packages.length})
+                      </span>
+                    </h3>
                     <div className="space-y-2">
                       {selectedSubscriber.packages.map((pkg, idx) => (
                         <div
                           key={idx}
-                          className="flex items-center justify-between bg-white rounded-lg p-3"
+                          className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200"
                         >
-                          <span className="font-medium text-gray-900">
+                          <span className="font-semibold text-gray-900">
                             {pkg.name}
                           </span>
-                          <span className="text-sm text-gray-600">
-                            ₹{pkg.cost} / {pkg.duration} days
+                          <span className="text-sm font-bold text-blue-600">
+                            ₹{pkg.cost} / {pkg.duration}d
                           </span>
                         </div>
                       ))}
                     </div>
                   </div>
                 )}
+
+              {/* Location & Device */}
+              {selectedSubscriber.lastLocation && (
+                <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-xl p-4 border border-green-200">
+                  <h3 className="text-sm font-bold text-green-900 mb-3 flex items-center space-x-2">
+                    <MapPin className="w-4 h-4" />
+                    <span>Last Known Location</span>
+                  </h3>
+                  <p className="text-sm font-mono text-green-800">
+                    {selectedSubscriber.lastLocation.coordinates[1].toFixed(6)},{" "}
+                    {selectedSubscriber.lastLocation.coordinates[0].toFixed(6)}
+                  </p>
+                  <p className="text-xs text-green-600 mt-1">
+                    {formatDateTime(selectedSubscriber.lastLocation.timestamp)}
+                  </p>
+                </div>
+              )}
+
+              {selectedSubscriber.deviceInfo && (
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
+                    <Shield className="w-4 h-4" />
+                    <span>Device Information</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Model</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.deviceModel || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">OS Version</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.osVersion || "N/A"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">
+                        Security Status
+                      </p>
+                      <p
+                        className={`text-sm font-bold ${
+                          selectedSubscriber.deviceInfo.isRooted ||
+                          selectedSubscriber.deviceInfo.isVPNActive
+                            ? "text-red-600"
+                            : "text-green-600"
+                        }`}
+                      >
+                        {selectedSubscriber.deviceInfo.isRooted && "Rooted"}
+                        {selectedSubscriber.deviceInfo.isRooted &&
+                          selectedSubscriber.deviceInfo.isVPNActive &&
+                          " | "}
+                        {selectedSubscriber.deviceInfo.isVPNActive &&
+                          "VPN Active"}
+                        {!selectedSubscriber.deviceInfo.isRooted &&
+                          !selectedSubscriber.deviceInfo.isVPNActive &&
+                          "Secure"}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-600 mb-1">Last IP</p>
+                      <p className="text-sm font-mono font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.lastIPAddress || "N/A"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            <div className="px-6 py-4 bg-gray-50">
+            <div className="px-6 py-4 bg-gray-50 border-t">
               <button
                 onClick={() => setShowViewModal(false)}
-                className="w-full px-4 py-3 bg-gray-600 text-white rounded-xl hover:bg-gray-700 transition-all font-medium"
+                className="w-full px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all font-semibold"
               >
                 Close
               </button>
@@ -676,19 +949,17 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* EDIT MODAL */}
+      {/* EDIT MODAL - Same as before but with better styling */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">
-                Edit Subscriber
-              </h2>
+            <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-red-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">Edit Subscriber</h2>
               <button
                 onClick={() => setShowEditModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
 
@@ -707,7 +978,7 @@ const Subscribers = () => {
                         subscriberName: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
                     required
                   />
                 </div>
@@ -722,7 +993,7 @@ const Subscribers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, macAddress: e.target.value })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
                     required
                   />
                 </div>
@@ -740,7 +1011,7 @@ const Subscribers = () => {
                         serialNumber: e.target.value,
                       })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
                     required
                   />
                 </div>
@@ -754,7 +1025,7 @@ const Subscribers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, status: e.target.value })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
                     required
                   >
                     <option value="Active">Active</option>
@@ -763,7 +1034,7 @@ const Subscribers = () => {
                   </select>
                 </div>
 
-                <div>
+                <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Expiry Date *
                   </label>
@@ -773,13 +1044,13 @@ const Subscribers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, expiryDate: e.target.value })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
                     required
                   />
                 </div>
               </div>
 
-              <div className="col-span-2">
+              <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Packages (Select Multiple) *
                 </label>
@@ -792,7 +1063,7 @@ const Subscribers = () => {
                     packages.map((pkg) => (
                       <label
                         key={pkg._id}
-                        className="flex items-center space-x-3 p-3 hover:bg-white rounded-lg cursor-pointer transition-all border border-transparent hover:border-blue-200"
+                        className="flex items-center space-x-3 p-3 hover:bg-white rounded-lg cursor-pointer transition-all border border-transparent hover:border-orange-200"
                       >
                         <input
                           type="checkbox"
@@ -812,7 +1083,7 @@ const Subscribers = () => {
                               });
                             }
                           }}
-                          className="w-5 h-5 text-blue-600 rounded focus:ring-2 focus:ring-blue-500"
+                          className="w-5 h-5 text-orange-600 rounded focus:ring-2 focus:ring-orange-500"
                         />
                         <div className="flex-1">
                           <span className="text-sm font-semibold text-gray-900">
@@ -823,8 +1094,8 @@ const Subscribers = () => {
                           </span>
                         </div>
                         {formData.packages.includes(pkg._id) && (
-                          <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
-                            ✓ Selected
+                          <div className="bg-orange-100 text-orange-600 text-xs font-bold px-2 py-1 rounded">
+                            Selected
                           </div>
                         )}
                       </label>
@@ -847,14 +1118,14 @@ const Subscribers = () => {
                 <button
                   type="submit"
                   disabled={submitting || formData.packages.length === 0}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-xl hover:from-orange-700 hover:to-red-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-semibold"
                 >
                   {submitting ? "Updating..." : "Update Subscriber"}
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowEditModal(false)}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
@@ -869,8 +1140,8 @@ const Subscribers = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
                 Delete Subscriber
@@ -886,7 +1157,7 @@ const Subscribers = () => {
                 <button
                   onClick={handleDelete}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting ? "Deleting..." : "Delete"}
                 </button>
@@ -895,7 +1166,7 @@ const Subscribers = () => {
                     setShowDeleteModal(false);
                     setSelectedSubscriber(null);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
@@ -910,25 +1181,24 @@ const Subscribers = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 bg-green-100 rounded-full mx-auto mb-4">
-                <CheckCircle className="w-6 h-6 text-green-600" />
+              <div className="flex items-center justify-center w-16 h-16 bg-green-100 rounded-full mx-auto mb-4">
+                <CheckCircle className="w-8 h-8 text-green-600" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
                 Activate Subscriber
               </h2>
               <p className="text-gray-600 text-center mb-6">
-                Are you sure you want to activate "
+                Activate "
                 <span className="font-semibold">
                   {selectedSubscriber?.subscriberName}
                 </span>
-                "? This will set the status to Active and extend expiry by 30
-                days.
+                "? Status will be set to Active with 30 days validity.
               </p>
               <div className="flex items-center space-x-3">
                 <button
                   onClick={handleActivate}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting ? "Activating..." : "Activate"}
                 </button>
@@ -937,7 +1207,7 @@ const Subscribers = () => {
                     setShowActivateModal(false);
                     setSelectedSubscriber(null);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
@@ -947,46 +1217,59 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* RENEW MODAL */}
+      {/* RENEW MODAL - Enhanced */}
       {showRenewModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-4 rounded-t-2xl">
+              <h2 className="text-xl font-bold text-white">Renew Package</h2>
+            </div>
             <div className="p-6">
-              <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
-                Renew Package
-              </h2>
-              <p className="text-gray-600 text-center mb-4">
-                Renew package for{" "}
-                <span className="font-semibold">
-                  {selectedSubscriber.subscriberName}
-                </span>
-              </p>
+              <div className="bg-purple-50 rounded-xl p-4 mb-4 border border-purple-200">
+                <p className="text-sm text-purple-600 font-semibold mb-1">
+                  Subscriber
+                </p>
+                <p className="text-lg font-bold text-purple-900">
+                  {selectedSubscriber?.subscriberName}
+                </p>
+                <p className="text-xs text-purple-700 mt-2">
+                  Current Expiry: {formatDate(selectedSubscriber.expiryDate)}
+                </p>
+              </div>
+
               <div className="mb-4">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Expiry Date
+                  Renewal Duration (Days) *
                 </label>
                 <input
-                  type="date"
-                  value={renewExpiryDate}
-                  onChange={(e) => setRenewExpiryDate(e.target.value)}
-                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  type="number"
+                  min="1"
+                  value={renewDuration}
+                  onChange={(e) => setRenewDuration(Number(e.target.value))}
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-purple-500"
                   required
                 />
+                <p className="text-xs text-gray-500 mt-2">
+                  New expiry will be calculated from current expiry date
+                </p>
               </div>
+
               <div className="flex items-center space-x-3">
                 <button
                   onClick={handleRenew}
-                  disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
+                  disabled={submitting || !renewDuration || renewDuration <= 0}
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-xl hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 font-semibold"
                 >
-                  {submitting ? "Renewing..." : "Renew"}
+                  {submitting
+                    ? "Renewing..."
+                    : `Renew for ${renewDuration} Days`}
                 </button>
                 <button
                   onClick={() => {
                     setShowRenewModal(false);
                     setSelectedSubscriber(null);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>

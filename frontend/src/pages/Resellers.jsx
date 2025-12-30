@@ -15,6 +15,15 @@ import {
   EyeOff,
   AlertCircle,
   Check,
+  User,
+  Mail,
+  Phone,
+  Hash,
+  Wallet,
+  UserPlus,
+  Package as PackageIcon,
+  Calendar,
+  Shield,
 } from "lucide-react";
 
 const Resellers = () => {
@@ -27,6 +36,7 @@ const Resellers = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showViewModal, setShowViewModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedReseller, setSelectedReseller] = useState(null);
@@ -131,6 +141,11 @@ const Resellers = () => {
     setShowModal(true);
   };
 
+  const handleViewDetails = (reseller) => {
+    setSelectedReseller(reseller);
+    setShowViewModal(true);
+  };
+
   const handleCloseModal = () => {
     setShowModal(false);
     setSelectedReseller(null);
@@ -152,7 +167,6 @@ const Resellers = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // Validate balance before submission (only for create mode)
     if (modalMode === "create") {
       if (!formData.balance || !validateBalance(formData.balance)) {
         return;
@@ -164,20 +178,20 @@ const Resellers = () => {
     try {
       const submitData = { ...formData };
 
-      // Convert balance to number if present
       if (submitData.balance) {
         submitData.balance = parseFloat(submitData.balance);
       }
 
-      // Remove password if empty during edit
       if (modalMode === "edit" && !submitData.password) {
         delete submitData.password;
       }
 
       if (modalMode === "create") {
         await api.post("/resellers", submitData);
+        alert("Reseller created successfully!");
       } else {
         await api.put(`/resellers/${selectedReseller._id}`, submitData);
+        alert("Reseller updated successfully!");
       }
       fetchResellers();
       handleCloseModal();
@@ -193,6 +207,7 @@ const Resellers = () => {
     setSubmitting(true);
     try {
       await api.delete(`/resellers/${selectedReseller._id}`);
+      alert("Reseller deleted successfully!");
       fetchResellers();
       setShowDeleteModal(false);
       setSelectedReseller(null);
@@ -214,6 +229,21 @@ const Resellers = () => {
     );
   });
 
+  const getStatusColor = (status) => {
+    return status === "Active"
+      ? "bg-green-50 text-green-700 border-green-200"
+      : "bg-red-50 text-red-700 border-red-200";
+  };
+
+  const formatDate = (date) => {
+    if (!date) return "N/A";
+    return new Date(date).toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -225,9 +255,11 @@ const Resellers = () => {
                 <Users className="w-6 h-6 text-blue-600" />
               </div>
               <div>
-                <h1 className="text-2xl font-bold text-gray-900">Resellers</h1>
+                <h1 className="text-2xl font-bold text-gray-900">
+                  Resellers Management
+                </h1>
                 <p className="text-sm text-gray-600">
-                  Manage reseller accounts and permissions
+                  Manage reseller accounts, balances, and permissions
                 </p>
               </div>
             </div>
@@ -241,7 +273,7 @@ const Resellers = () => {
               </button>
               <button
                 onClick={() => handleOpenModal("create")}
-                className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
+                className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all shadow-md"
               >
                 <Plus className="w-4 h-4" />
                 <span>Add Reseller</span>
@@ -276,7 +308,7 @@ const Resellers = () => {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
                     <option value="">All Status</option>
                     <option value="Active">Active</option>
@@ -299,6 +331,55 @@ const Resellers = () => {
           )}
         </div>
 
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-600 font-medium mb-1">
+                  Total Resellers
+                </p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {filteredResellers.length}
+                </p>
+              </div>
+              <Users className="w-10 h-10 text-blue-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-600 font-medium mb-1">
+                  Active
+                </p>
+                <p className="text-3xl font-bold text-green-900">
+                  {
+                    filteredResellers.filter((r) => r.status === "Active")
+                      .length
+                  }
+                </p>
+              </div>
+              <Shield className="w-10 h-10 text-green-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-600 font-medium mb-1">
+                  Total Balance
+                </p>
+                <p className="text-2xl font-bold text-purple-900">
+                  ₹
+                  {filteredResellers
+                    .reduce((sum, r) => sum + (r.balance || 0), 0)
+                    .toLocaleString("en-IN")}
+                </p>
+              </div>
+              <Wallet className="w-10 h-10 text-purple-600 opacity-50" />
+            </div>
+          </div>
+        </div>
+
         {/* Table */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -309,29 +390,29 @@ const Resellers = () => {
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
-                  <tr className="bg-gray-50 border-b border-gray-200">
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      S.No
+                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      #
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Name
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Reseller Info
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Email
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Contact
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
-                      Phone
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Partner Code
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Balance
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Created By
                     </th>
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
@@ -340,56 +421,133 @@ const Resellers = () => {
                   {filteredResellers.length === 0 ? (
                     <tr>
                       <td colSpan="8" className="px-6 py-12 text-center">
-                        <p className="text-gray-500">No resellers found</p>
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <Users className="w-12 h-12 text-gray-300" />
+                          <p className="text-gray-500 font-medium">
+                            No resellers found
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            Try adjusting your filters
+                          </p>
+                        </div>
                       </td>
                     </tr>
                   ) : (
                     filteredResellers.map((reseller, index) => (
                       <tr
                         key={reseller._id}
-                        className="hover:bg-gray-50 transition-colors"
+                        className="hover:bg-blue-50 transition-colors"
                       >
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {index + 1}
+                        <td className="px-4 py-4">
+                          <span className="text-sm font-bold text-gray-600">
+                            {index + 1}
+                          </span>
                         </td>
-                        <td className="px-6 py-4 text-sm font-medium text-gray-900">
-                          {reseller.name}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {reseller.email}
-                        </td>
-                        <td className="px-6 py-4 text-sm text-gray-900">
-                          {reseller.phone}
-                        </td>
-                        <td className="px-6 py-4 text-sm font-semibold text-gray-900">
-                          ₹{reseller.balance?.toLocaleString("en-IN") || "0"}
-                        </td>
-                        <td className="px-6 py-4 text-sm">
-                          <div className="flex flex-col space-y-1">
-                            <span className="text-gray-900 font-medium">
-                              {reseller.createdBy?.name || "N/A"}
-                            </span>
-                            <span className="text-gray-500 text-xs">
-                              {reseller.createdBy?.email || ""}
-                            </span>
+
+                        {/* Reseller Info */}
+                        <td className="px-4 py-4">
+                          <div className="flex items-start space-x-3">
+                            <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                              {reseller.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <p className="text-sm font-bold text-gray-900">
+                                {reseller.name}
+                              </p>
+                              <div className="flex items-center space-x-1 mt-1">
+                                <Calendar className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs text-gray-500">
+                                  Joined: {formatDate(reseller.createdAt)}
+                                </p>
+                              </div>
+                            </div>
                           </div>
                         </td>
-                        <td className="px-6 py-4 text-sm">
+
+                        {/* Contact */}
+                        <td className="px-4 py-4">
+                          <div className="space-y-1">
+                            <div className="flex items-center space-x-1">
+                              <Mail className="w-3 h-3 text-gray-400" />
+                              <p className="text-xs text-gray-900">
+                                {reseller.email}
+                              </p>
+                            </div>
+                            <div className="flex items-center space-x-1">
+                              <Phone className="w-3 h-3 text-gray-400" />
+                              <p className="text-xs text-gray-600">
+                                {reseller.phone}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Partner Code */}
+                        <td className="px-4 py-4">
+                          <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200 inline-block">
+                            <div className="flex items-center space-x-1">
+                              <Hash className="w-3 h-3 text-indigo-600" />
+                              <p className="text-sm font-mono font-bold text-indigo-900">
+                                {reseller.partnerCode || "N/A"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Balance */}
+                        <td className="px-4 py-4">
+                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-2 border border-green-200 inline-block">
+                            <div className="flex items-center space-x-1">
+                              <Wallet className="w-3 h-3 text-green-600" />
+                              <p className="text-sm font-bold text-green-900">
+                                ₹
+                                {reseller.balance?.toLocaleString("en-IN") ||
+                                  "0"}
+                              </p>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Created By */}
+                        <td className="px-4 py-4">
+                          <div className="bg-gray-50 rounded-lg p-2 border border-gray-200">
+                            <div className="flex items-center space-x-1 mb-1">
+                              <User className="w-3 h-3 text-gray-600" />
+                              <p className="text-xs font-bold text-gray-900">
+                                {reseller.createdBy?.name || "N/A"}
+                              </p>
+                            </div>
+                            <p className="text-xs text-gray-500">
+                              {reseller.createdBy?.email || ""}
+                            </p>
+                          </div>
+                        </td>
+
+                        {/* Status */}
+                        <td className="px-4 py-4">
                           <span
-                            className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                              reseller.status === "Active"
-                                ? "bg-green-50 text-green-700 border border-green-200"
-                                : "bg-red-50 text-red-700 border border-red-200"
-                            }`}
+                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
+                              reseller.status
+                            )}`}
                           >
                             {reseller.status}
                           </span>
                         </td>
-                        <td className="px-6 py-4 text-sm text-right">
-                          <div className="flex items-center justify-end space-x-2">
+
+                        {/* Actions */}
+                        <td className="px-4 py-4">
+                          <div className="flex items-center justify-end space-x-1">
+                            <button
+                              onClick={() => handleViewDetails(reseller)}
+                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              title="View Details"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
                             <button
                               onClick={() => handleOpenModal("edit", reseller)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                              className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                              title="Edit"
                             >
                               <Edit2 className="w-4 h-4" />
                             </button>
@@ -399,6 +557,7 @@ const Resellers = () => {
                                 setShowDeleteModal(true);
                               }}
                               className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                              title="Delete"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -414,19 +573,183 @@ const Resellers = () => {
         )}
       </div>
 
+      {/* VIEW MODAL */}
+      {showViewModal && selectedReseller && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
+                Reseller Complete Details
+              </h2>
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-white" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              {/* Basic Info */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                  <p className="text-xs text-blue-600 font-semibold mb-2">
+                    Name
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
+                    {selectedReseller.name}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                  <p className="text-xs text-purple-600 font-semibold mb-2">
+                    Email
+                  </p>
+                  <p className="text-base font-semibold text-purple-900">
+                    {selectedReseller.email}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                  <p className="text-xs text-green-600 font-semibold mb-2">
+                    Phone
+                  </p>
+                  <p className="text-lg font-bold text-green-900">
+                    {selectedReseller.phone}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl p-4 border border-indigo-200">
+                  <p className="text-xs text-indigo-600 font-semibold mb-2">
+                    Partner Code
+                  </p>
+                  <p className="text-lg font-mono font-bold text-indigo-900">
+                    {selectedReseller.partnerCode || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Financial Info */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-100 rounded-xl p-4 border border-emerald-200">
+                  <p className="text-xs text-emerald-600 font-semibold mb-2">
+                    Current Balance
+                  </p>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    ₹{selectedReseller.balance?.toLocaleString("en-IN") || "0"}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
+                  <p className="text-xs text-orange-600 font-semibold mb-2">
+                    Subscriber Limit
+                  </p>
+                  <p className="text-2xl font-bold text-orange-900">
+                    {selectedReseller.subscriberLimit || "Unlimited"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Status & Created By */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-xl p-4 border border-pink-200">
+                  <p className="text-xs text-pink-600 font-semibold mb-2">
+                    Status
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold border ${getStatusColor(
+                      selectedReseller.status
+                    )}`}
+                  >
+                    {selectedReseller.status}
+                  </span>
+                </div>
+                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border border-yellow-200">
+                  <p className="text-xs text-yellow-600 font-semibold mb-2">
+                    Created Date
+                  </p>
+                  <p className="text-base font-bold text-yellow-900">
+                    {formatDate(selectedReseller.createdAt)}
+                  </p>
+                </div>
+              </div>
+
+              {/* Created By Info */}
+              <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border-2 border-gray-300">
+                <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
+                  <User className="w-4 h-4" />
+                  <span>Created By</span>
+                </h3>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <p className="text-xs text-gray-600 font-semibold mb-1">
+                      Name
+                    </p>
+                    <p className="text-base font-bold text-gray-900">
+                      {selectedReseller.createdBy?.name || "N/A"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-gray-600 font-semibold mb-1">
+                      Email
+                    </p>
+                    <p className="text-sm text-gray-700">
+                      {selectedReseller.createdBy?.email || "N/A"}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Packages */}
+              {selectedReseller.packages &&
+                selectedReseller.packages.length > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                    <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center space-x-2">
+                      <PackageIcon className="w-4 h-4" />
+                      <span>
+                        Assigned Packages ({selectedReseller.packages.length})
+                      </span>
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedReseller.packages.map((pkg, idx) => (
+                        <div
+                          key={idx}
+                          className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200"
+                        >
+                          <span className="font-semibold text-gray-900">
+                            {pkg.name}
+                          </span>
+                          <span className="text-sm font-bold text-blue-600">
+                            ₹{pkg.cost} / {pkg.duration}d
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+            </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-full px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all font-semibold"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
-              <h2 className="text-xl font-bold text-gray-900">
-                {modalMode === "create" ? "Add Reseller" : "Edit Reseller"}
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-indigo-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
+                {modalMode === "create" ? "Add New Reseller" : "Edit Reseller"}
               </h2>
               <button
                 onClick={handleCloseModal}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
 
@@ -444,7 +767,7 @@ const Resellers = () => {
                       setFormData({ ...formData, name: e.target.value })
                     }
                     placeholder="Enter name"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -461,7 +784,7 @@ const Resellers = () => {
                       setFormData({ ...formData, email: e.target.value })
                     }
                     placeholder="Enter email"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -483,7 +806,7 @@ const Resellers = () => {
                           ? "Enter password"
                           : "Leave blank to keep current"
                       }
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-12"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12"
                       required={modalMode === "create"}
                       minLength="6"
                     />
@@ -510,14 +833,14 @@ const Resellers = () => {
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => {
-                      const value = e.target.value.replace(/\D/g, ""); // keep digits only
+                      const value = e.target.value.replace(/\D/g, "");
                       if (value.length <= 10) {
                         setFormData({ ...formData, phone: value });
                       }
                     }}
                     maxLength={10}
                     placeholder="Enter 10-digit phone"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   />
                 </div>
@@ -532,7 +855,7 @@ const Resellers = () => {
                     value={formData.balance}
                     onChange={handleBalanceChange}
                     placeholder="Enter balance amount"
-                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                       balanceError ? "border-red-300" : "border-gray-200"
                     }`}
                     min="0"
@@ -562,7 +885,7 @@ const Resellers = () => {
                       })
                     }
                     placeholder="Enter limit"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     min="0"
                   />
                 </div>
@@ -579,7 +902,7 @@ const Resellers = () => {
                       setFormData({ ...formData, partnerCode: e.target.value })
                     }
                     placeholder="Enter partner code"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
 
@@ -593,7 +916,7 @@ const Resellers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, status: e.target.value })
                     }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
                     required
                   >
                     <option value="Active">Active</option>
@@ -603,12 +926,12 @@ const Resellers = () => {
 
                 {/* Packages */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Packages (Optional)
                   </label>
                   <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
                     {packages.length === 0 ? (
-                      <p className="text-gray-500 text-sm">
+                      <p className="text-gray-500 text-sm text-center py-4">
                         No packages available
                       </p>
                     ) : (
@@ -616,7 +939,7 @@ const Resellers = () => {
                         {packages.map((pkg) => (
                           <label
                             key={pkg._id}
-                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                            className="flex items-center space-x-3 p-3 rounded-lg hover:bg-white cursor-pointer transition-all border border-transparent hover:border-blue-200"
                           >
                             <div className="relative">
                               <input
@@ -648,14 +971,29 @@ const Resellers = () => {
                                 )}
                               </div>
                             </div>
-                            <span className="text-sm text-gray-900 font-medium">
-                              {pkg.name} - ₹{pkg.cost}
-                            </span>
+                            <div className="flex-1">
+                              <span className="text-sm font-semibold text-gray-900">
+                                {pkg.name}
+                              </span>
+                              <span className="text-xs text-gray-500 ml-2">
+                                (₹{pkg.cost} • {pkg.duration} days)
+                              </span>
+                            </div>
+                            {formData.packages.includes(pkg._id) && (
+                              <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
+                                Selected
+                              </div>
+                            )}
                           </label>
                         ))}
                       </div>
                     )}
                   </div>
+                  {formData.packages.length > 0 && (
+                    <p className="text-xs text-gray-600 mt-2">
+                      {formData.packages.length} package(s) selected
+                    </p>
+                  )}
                 </div>
               </div>
 
@@ -663,7 +1001,7 @@ const Resellers = () => {
                 <button
                   type="submit"
                   disabled={submitting || !!balanceError}
-                  className="flex-1 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-xl hover:from-blue-700 hover:to-indigo-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting
                     ? "Saving..."
@@ -674,7 +1012,7 @@ const Resellers = () => {
                 <button
                   type="button"
                   onClick={handleCloseModal}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
@@ -689,8 +1027,8 @@ const Resellers = () => {
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
-              <div className="flex items-center justify-center w-12 h-12 bg-red-100 rounded-full mx-auto mb-4">
-                <Trash2 className="w-6 h-6 text-red-600" />
+              <div className="flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
               </div>
               <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
                 Delete Reseller
@@ -704,7 +1042,7 @@ const Resellers = () => {
                 <button
                   onClick={handleDelete}
                   disabled={submitting}
-                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-medium"
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-semibold"
                 >
                   {submitting ? "Deleting..." : "Delete"}
                 </button>
@@ -713,7 +1051,7 @@ const Resellers = () => {
                     setShowDeleteModal(false);
                     setSelectedReseller(null);
                   }}
-                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
                 >
                   Cancel
                 </button>
