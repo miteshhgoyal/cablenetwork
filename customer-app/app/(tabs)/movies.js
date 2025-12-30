@@ -13,7 +13,8 @@ import {
     StatusBar,
     Alert,
     TextInput,
-    Linking
+    Linking,
+    AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,10 +44,19 @@ export default function MoviesScreen() {
     const [isFullScreen, setIsFullScreen] = useState(false);
 
     const [useProxy, setUseProxy] = useState(true);
-    const [proxyAttempted, setProxyAttempted] = useState(false);
-    const [currentStreamUrl, setCurrentStreamUrl] = useState('');
+    const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
 
     const videoRef = useRef(null);
+
+    // AppState listener for refresh on app focus
+    useEffect(() => {
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'active' && isAuthenticated) {
+                fetchMovies();
+            }
+        });
+        return () => subscription.remove();
+    }, [isAuthenticated]);
 
     useEffect(() => {
         if (isAuthenticated) {
@@ -107,7 +117,8 @@ export default function MoviesScreen() {
                 title: section.title,
                 data: section.data.filter(movie =>
                     movie.title.toLowerCase().includes(lowerQuery) ||
-                    movie.genre?.name.toLowerCase().includes(lowerQuery)
+                    movie.genre?.name.toLowerCase().includes(lowerQuery) ||
+                    movie.language?.name.toLowerCase().includes(lowerQuery)
                 )
             })).filter(section => section.data.length > 0);
         }
@@ -122,7 +133,7 @@ export default function MoviesScreen() {
             if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
             if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
             if (urlLower.includes('playlist') || urlLower.includes('list=')) return { type: 'youtube-playlist', isValid: true };
-            if (urlLower.includes('/c/') || urlLower.includes('/@')) return { type: 'youtube-channel', isValid: true };
+            if (urlLower.includes('/c/') || urlLower.includes('/@') || urlLower.includes('/channel/')) return { type: 'youtube-channel', isValid: true };
             return { type: 'youtube-video', isValid: true };
         }
 
@@ -173,35 +184,72 @@ export default function MoviesScreen() {
         return match ? match[1] : null;
     };
 
-    const getCurrentStreamUrl = () => {
-        if (!selectedMovie) return '';
-        const { type } = analyzeStreamUrl(selectedMovie.mediaUrl);
-        if (type.startsWith('youtube')) {
-            return selectedMovie.mediaUrl;
+    const getCurrentStreamUrl = (movie, proxyEnabled) => {
+        if (!movie) return null;
+        const type = analyzeStreamUrl(movie.mediaUrl);
+
+        if (type.type.startsWith('youtube')) {
+            return { uri: movie.mediaUrl };
         }
-        if (useProxy && selectedMovie.proxyUrl && serverInfo?.proxyEnabled) {
-            return selectedMovie.proxyUrl;
+
+        const baseUrl = proxyEnabled && movie.proxyUrl ? movie.proxyUrl : movie.mediaUrl;
+
+        return {
+            uri: baseUrl,
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                Referer: movie.mediaUrl.split('/').slice(0, 3).join('/'),
+                Origin: movie.mediaUrl.split('/').slice(0, 3).join('/'),
+                Accept: '*/*',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Cache-Control': 'no-cache',
+                Pragma: 'no-cache',
+                'Accept-Encoding': 'identity',
+                Connection: 'keep-alive',
+            },
+        };
+    };
+
+    const loadStream = async (movie, proxyEnabled) => {
+        setVideoLoading(true);
+        setVideoError(false);
+        setErrorMessage('');
+
+        const newUrl = getCurrentStreamUrl(movie, proxyEnabled);
+        const newUrlString = JSON.stringify(newUrl);
+
+        if (newUrlString !== currentStreamUrl) {
+            setCurrentStreamUrl(newUrlString);
+
+            if (videoRef.current) {
+                try {
+                    await videoRef.current.unloadAsync();
+                    await videoRef.current.loadAsync(newUrl, { shouldPlay: true });
+                    setVideoLoading(false);
+                    setVideoError(false);
+                } catch (error) {
+                    setVideoError(true);
+                    setVideoLoading(false);
+                    if (proxyEnabled && movie.proxyUrl) {
+                        // Try direct connection as fallback
+                        setUseProxy(false);
+                        loadStream(movie, false);
+                    } else {
+                        setErrorMessage('Unable to load stream. Please try again.');
+                    }
+                }
+            }
         }
-        return selectedMovie.mediaUrl;
     };
 
     useEffect(() => {
         if (selectedMovie && showPlayer) {
-            const newUrl = getCurrentStreamUrl();
-            if (newUrl !== currentStreamUrl && currentStreamUrl !== '') {
-                setCurrentStreamUrl(newUrl);
-                setVideoLoading(true);
-                setVideoError(false);
-                if (videoRef.current) {
-                    videoRef.current.unloadAsync().then(() => {
-                        videoRef.current?.loadAsync({ uri: newUrl }, { shouldPlay: true });
-                    });
-                }
-            } else if (currentStreamUrl === '') {
-                setCurrentStreamUrl(newUrl);
+            const type = analyzeStreamUrl(selectedMovie.mediaUrl);
+            if (!type.type.startsWith('youtube')) {
+                loadStream(selectedMovie, useProxy);
             }
         }
-    }, [useProxy, selectedMovie]);
+    }, [selectedMovie, showPlayer, useProxy]);
 
     const renderStreamTypeBadge = (type) => {
         const badges = {
@@ -310,10 +358,10 @@ export default function MoviesScreen() {
 
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
                 <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
                     <Text className="text-white text-xs font-bold">PLAYLIST</Text>
                 </View>
+                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
             </View>
         );
     };
@@ -336,7 +384,7 @@ export default function MoviesScreen() {
     const renderVideoPlayer = () => {
         if (!selectedMovie) return null;
 
-        const currentUrl = getCurrentStreamUrl();
+        const currentUrl = getCurrentStreamUrl(selectedMovie, useProxy);
         const { type, isValid } = analyzeStreamUrl(selectedMovie.mediaUrl);
 
         if (!isValid) {
@@ -423,6 +471,9 @@ export default function MoviesScreen() {
                     <View className="absolute inset-0 bg-black items-center justify-center z-20">
                         <ActivityIndicator size="large" color="#f97316" />
                         <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                        {useProxy && serverInfo?.proxyEnabled && (
+                            <Text className="text-gray-400 mt-1 text-xs">Using Proxy Connection</Text>
+                        )}
                     </View>
                 )}
 
@@ -437,19 +488,19 @@ export default function MoviesScreen() {
                             onPress={() => {
                                 setVideoError(false);
                                 setVideoLoading(true);
+                                loadStream(selectedMovie, useProxy);
                             }}
                         >
                             <Text className="text-white font-semibold">Retry</Text>
                         </TouchableOpacity>
 
-                        {serverInfo?.proxyEnabled && (
+                        {serverInfo?.proxyEnabled && selectedMovie.proxyUrl && (
                             <TouchableOpacity
                                 className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
                                 onPress={() => {
                                     setUseProxy(!useProxy);
                                     setVideoError(false);
                                     setVideoLoading(true);
-                                    setProxyAttempted(true);
                                 }}
                             >
                                 <Text className="text-white font-semibold">
@@ -461,9 +512,9 @@ export default function MoviesScreen() {
                 )}
 
                 <Video
-                    key={currentStreamUrl}
+                    key={currentStreamUrl || 'movie-stream'}
                     ref={videoRef}
-                    source={{ uri: currentStreamUrl }}
+                    source={currentUrl}
                     rate={1.0}
                     volume={1.0}
                     isMuted={false}
@@ -479,7 +530,16 @@ export default function MoviesScreen() {
                     onError={(error) => {
                         setVideoError(true);
                         setVideoLoading(false);
-                        setErrorMessage('Failed to load stream. Please check your connection.');
+                        let msg = 'Failed to load stream.';
+                        if (error?.error?.code === -1100) msg = 'Network error. Check your connection.';
+                        else if (error?.error?.domain === 'AVFoundationErrorDomain') msg = 'Stream format not supported or unavailable.';
+                        setErrorMessage(msg);
+
+                        // Try direct connection as fallback
+                        if (useProxy && selectedMovie.proxyUrl) {
+                            setUseProxy(false);
+                            loadStream(selectedMovie, false);
+                        }
                     }}
                     onLoadStart={() => {
                         setVideoLoading(true);
@@ -506,21 +566,22 @@ export default function MoviesScreen() {
         );
     };
 
+    const handleMoviePress = (movie) => {
+        setSelectedMovie(movie);
+        setShowPlayer(true);
+        setVideoError(false);
+        setVideoLoading(true);
+
+        const { type } = analyzeStreamUrl(movie.mediaUrl);
+        setUseProxy(!type.startsWith('youtube'));
+        setCurrentStreamUrl(null);
+    };
+
     const renderMovieCard = ({ item }) => (
         <TouchableOpacity
             className="mr-3"
             style={{ width: 140 }}
-            onPress={() => {
-                setSelectedMovie(item);
-                setShowPlayer(true);
-                setVideoError(false);
-                setVideoLoading(true);
-
-                const { type } = analyzeStreamUrl(item.mediaUrl);
-                setUseProxy(!type.startsWith('youtube'));
-                setProxyAttempted(false);
-                setCurrentStreamUrl('');
-            }}
+            onPress={() => handleMoviePress(item)}
         >
             <View className="relative">
                 <Image
@@ -579,7 +640,7 @@ export default function MoviesScreen() {
         return movies.filter(m =>
             m.genre?.name === selectedMovie.genre?.name &&
             m._id !== selectedMovie._id
-        ).slice(0, 10);
+        ).slice(0, 15);
     };
 
     if (loading) {
@@ -659,7 +720,9 @@ export default function MoviesScreen() {
                 onRequestClose={() => {
                     setShowPlayer(false);
                     setSelectedMovie(null);
-                    videoRef.current?.pauseAsync();
+                    if (videoRef.current) {
+                        videoRef.current.pauseAsync();
+                    }
                 }}
             >
                 <SafeAreaView className="flex-1 bg-black">
@@ -669,7 +732,9 @@ export default function MoviesScreen() {
                             onPress={() => {
                                 setShowPlayer(false);
                                 setSelectedMovie(null);
-                                videoRef.current?.pauseAsync();
+                                if (videoRef.current) {
+                                    videoRef.current.pauseAsync();
+                                }
                             }}
                             className="flex-row items-center"
                         >
@@ -677,7 +742,7 @@ export default function MoviesScreen() {
                             <Text className="text-white text-lg font-semibold ml-2">Back</Text>
                         </TouchableOpacity>
                         <View className="flex-row items-center">
-                            {selectedMovie && !analyzeStreamUrl(selectedMovie.mediaUrl).type.startsWith('youtube') && serverInfo?.proxyEnabled && (
+                            {selectedMovie && !analyzeStreamUrl(selectedMovie.mediaUrl).type.startsWith('youtube') && serverInfo?.proxyEnabled && selectedMovie.proxyUrl && (
                                 <View className="flex-row items-center bg-gray-800 px-3 py-2 rounded-lg mr-3">
                                     <Ionicons
                                         name={useProxy ? "shield-checkmark" : "shield-outline"}
@@ -692,7 +757,6 @@ export default function MoviesScreen() {
                                             setUseProxy(!useProxy);
                                             setVideoError(false);
                                             setVideoLoading(true);
-                                            setProxyAttempted(false);
                                         }}
                                         className={`w-10 h-5 rounded-full justify-center ${useProxy ? 'bg-orange-500' : 'bg-gray-600'}`}
                                         style={{ padding: 2 }}
@@ -701,28 +765,34 @@ export default function MoviesScreen() {
                                     </TouchableOpacity>
                                 </View>
                             )}
-                            <TouchableOpacity
-                                onPress={() => {
-                                    if (isPlaying) {
-                                        videoRef.current?.pauseAsync();
-                                    } else {
-                                        videoRef.current?.playAsync();
-                                    }
-                                }}
-                            >
-                                <Ionicons
-                                    name={isPlaying ? 'pause' : 'play'}
-                                    size={24}
-                                    color="white"
-                                />
-                            </TouchableOpacity>
+                            {selectedMovie && !analyzeStreamUrl(selectedMovie.mediaUrl).type.startsWith('youtube') && (
+                                <TouchableOpacity
+                                    onPress={() => {
+                                        if (isPlaying) {
+                                            videoRef.current?.pauseAsync();
+                                        } else {
+                                            videoRef.current?.playAsync();
+                                        }
+                                    }}
+                                >
+                                    <Ionicons
+                                        name={isPlaying ? 'pause' : 'play'}
+                                        size={24}
+                                        color="white"
+                                    />
+                                </TouchableOpacity>
+                            )}
                         </View>
                     </View>
                     {selectedMovie && (
                         <ScrollView showsVerticalScrollIndicator={false}>
                             {renderVideoPlayer()}
                             <View className="p-4 bg-gray-900">
-                                <Text className="text-white text-2xl font-bold mb-3">{selectedMovie.title}</Text>
+                                <View className="flex-row items-center justify-between mb-3">
+                                    <View className="flex-1 mr-4">
+                                        <Text className="text-white text-2xl font-bold mb-2">{selectedMovie.title}</Text>
+                                    </View>
+                                </View>
                                 <View className="flex-row items-center flex-wrap mb-4">
                                     <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-2 mb-2">
                                         <Text className="text-white font-semibold text-sm">{selectedMovie.genre?.name || 'Movie'}</Text>
@@ -758,7 +828,7 @@ export default function MoviesScreen() {
                                                     setVideoLoading(true);
                                                     const { type } = analyzeStreamUrl(movie.mediaUrl);
                                                     setUseProxy(!type.startsWith('youtube'));
-                                                    setCurrentStreamUrl('');
+                                                    setCurrentStreamUrl(null);
                                                 }}
                                             >
                                                 <Image
