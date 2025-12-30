@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import {
   BrowserRouter as Router,
   Routes,
@@ -11,8 +11,6 @@ import Navbar from "./components/layout/Navbar.jsx";
 // Auth Pages
 import Login from "./pages/auth/Login.jsx";
 import Register from "./pages/auth/Register.jsx";
-
-// Admin Pages
 
 import LoadingSpinner from "./components/common/LoadingSpinner.jsx";
 import "./App.css";
@@ -81,6 +79,18 @@ const PublicRoute = ({ children }) => {
 };
 
 const App = () => {
+  // FIX: Disable number input scroll globally
+  useEffect(() => {
+    const handleWheel = (e) => {
+      if (document.activeElement?.type === "number") {
+        document.activeElement.blur();
+      }
+    };
+
+    document.addEventListener("wheel", handleWheel);
+    return () => document.removeEventListener("wheel", handleWheel);
+  }, []);
+
   return (
     <AuthProvider>
       <Router>
@@ -211,7 +221,7 @@ const App = () => {
                 </ProtectedRoute>
               }
             />
-             <Route
+            <Route
               path="/reseller/credit"
               element={
                 <ProtectedRoute allowedRoles={["reseller"]}>
