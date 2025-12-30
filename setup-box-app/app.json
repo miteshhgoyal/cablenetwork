@@ -1,125 +1,133 @@
 {
-    "expo": {
-        "name": "Setup Box IPTV",
-        "slug": "setup-box-iptv",
-        "version": "1.0.0",
-        "orientation": "landscape",
-        "icon": "./assets/icon.png",
-        "scheme": "setupboxiptv",
-        "userInterfaceStyle": "dark",
-        "newArchEnabled": true,
-        "splash": {
-            "image": "./assets/icon.png",
-            "resizeMode": "contain",
-            "backgroundColor": "#ffffff"
-        },
-        "ios": {
-            "supportsTablet": true,
-            "bundleIdentifier": "com.iptv.setupbox",
-            "infoPlist": {
-                "NSLocalNetworkUsageDescription": "Allow app to access local network for streaming",
-                "NSBonjourServices": [
-                    "_http._tcp",
-                    "_https._tcp"
-                ],
-                "NSLocationAlwaysAndWhenInUseUsageDescription": "We track your location to provide better service quality and support.",
-                "NSLocationWhenInUseUsageDescription": "We need your location to provide service.",
-                "NSLocationAlwaysUsageDescription": "We track location in background for service quality.",
-                "UIBackgroundModes": [
-                    "location"
-                ]
-            }
-        },
-        "android": {
-            "adaptiveIcon": {
-                "foregroundImage": "./assets/icon.png",
-                "backgroundColor": "#ffffff"
-            },
-            "package": "com.iptv.setupbox",
-            "versionCode": 2,
-            "usesCleartextTraffic": true,
-            "networkSecurityConfig": "@xml/network_security_config",
-            "permissions": [
-                "android.permission.INTERNET",
-                "android.permission.ACCESS_NETWORK_STATE",
-                "android.permission.MODIFY_AUDIO_SETTINGS",
-                "android.permission.CHANGE_NETWORK_STATE",
-                "android.permission.ACCESS_FINE_LOCATION",
-                "android.permission.ACCESS_COARSE_LOCATION",
-                "android.permission.ACCESS_BACKGROUND_LOCATION",
-                "android.permission.FOREGROUND_SERVICE",
-                "android.permission.FOREGROUND_SERVICE_LOCATION",
-                "android.permission.RECORD_AUDIO"
-            ],
-            "intentFilters": [
-                {
-                    "action": "android.intent.action.VIEW",
-                    "data": [
-                        {
-                            "scheme": "http"
-                        },
-                        {
-                            "scheme": "https"
-                        }
-                    ],
-                    "category": [
-                        "android.intent.category.BROWSABLE",
-                        "android.intent.category.DEFAULT"
-                    ]
-                }
-            ]
-        },
-        "web": {
-            "bundler": "metro",
-            "output": "static",
-            "favicon": "./assets/icon.png"
-        },
-        "plugins": [
-            [
-                "expo-router",
-                {
-                    "origin": false
-                }
-            ],
-            [
-                "expo-splash-screen",
-                {
-                    "image": "./assets/icon.png",
-                    "imageWidth": 200,
-                    "resizeMode": "contain",
-                    "backgroundColor": "#ffffff"
-                }
-            ],
-            [
-                "expo-av",
-                {
-                    "microphonePermission": "Allow Online IPTV Hub to access your microphone",
-                    "audioAmbient": false
-                }
-            ],
-            [
-                "expo-screen-orientation",
-                {
-                    "initialOrientation": "LANDSCAPE"
-                }
-            ],
-            [
-                "expo-location",
-                {
-                    "locationAlwaysAndWhenInUsePermission": "Allow Online IPTV Hub to track your location for service quality.",
-                    "locationAlwaysPermission": "Allow Online IPTV Hub to track location in background for better service.",
-                    "locationWhenInUsePermission": "Allow Online IPTV Hub to use your location while using the app.",
-                    "isIosBackgroundLocationEnabled": true,
-                    "isAndroidBackgroundLocationEnabled": true,
-                    "isAndroidForegroundServiceEnabled": true
-                }
-            ],
-            "expo-web-browser",
-            "expo-video",
-            "expo-audio"
+  "expo": {
+    "name": "Setup Box IPTV",
+    "slug": "setup-box-iptv",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "scheme": "setupboxiptv",
+    "userInterfaceStyle": "dark",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.iptv.setupbox",
+      "infoPlist": {
+        "NSLocalNetworkUsageDescription": "Allow app to access local network for streaming",
+        "NSBonjourServices": [
+          "_http._tcp",
+          "_https._tcp"
         ],
-        "experiments": {
-            "typedRoutes": false
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "We track your location to provide better service quality and support.",
+        "NSLocationWhenInUseUsageDescription": "We need your location to provide service.",
+        "NSLocationAlwaysUsageDescription": "We track location in background for service quality.",
+        "UIBackgroundModes": [
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/icon.png",
+        "backgroundColor": "#ffffff"
+      },
+      "package": "com.iptv.setupbox",
+      "versionCode": 2,
+      "usesCleartextTraffic": true,
+      "networkSecurityConfig": "@xml/network_security_config",
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
+        "android.permission.CHANGE_NETWORK_STATE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.RECORD_AUDIO"
+      ],
+      "intentFilters": [
+        {
+          "action": "android.intent.action.VIEW",
+          "data": [
+            {
+              "scheme": "http"
+            },
+            {
+              "scheme": "https"
+            }
+          ],
+          "category": [
+            "android.intent.category.BROWSABLE",
+            "android.intent.category.DEFAULT"
+          ]
         }
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/icon.png"
+    },
+    "plugins": [
+      [
+        "expo-router",
+        {
+          "origin": false
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#ffffff"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Allow Online IPTV Hub to access your microphone",
+          "audioAmbient": false
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE"
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Online IPTV Hub to track your location for service quality.",
+          "locationAlwaysPermission": "Allow Online IPTV Hub to track location in background for better service.",
+          "locationWhenInUsePermission": "Allow Online IPTV Hub to use your location while using the app.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      "expo-web-browser",
+      "expo-video",
+      "expo-audio"
+    ],
+    "experiments": {
+      "typedRoutes": false
+    },
+    "extra": {
+      "router": {
+        "origin": false
+      },
+      "eas": {
+        "projectId": "c879e6b2-0254-4954-9f92-b63587c49d53"
+      }
     }
+  }
 }
