@@ -12,11 +12,12 @@ import Credit from '../models/Credit.js';
 // For backup
 import fs from 'fs';
 import path from 'path';
-import { exec } from 'child_process';
+import os from 'os';
+import archiver from 'archiver';
 
 const router = express.Router();
 
-// Get Dashboard Overview with Role-Based Stats
+// Get Dashboard Overview with Role-Based Stats + Credit Analytics
 router.get('/overview', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -40,13 +41,86 @@ router.get('/overview', authenticateToken, async (req, res) => {
                 partnerCode: user.partnerCode,
                 createdAt: user.createdAt
             },
-            stats: {}
+            stats: {},
+            creditStats: null
+        };
+
+        // CREDIT ANALYTICS - Calculate based on role
+        let creditQuery = {};
+
+        if (user.role === 'admin') {
+            creditQuery = {};
+        } else if (user.role === 'distributor') {
+            const resellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            }).select('_id');
+            const resellerIds = resellers.map(r => r._id);
+
+            creditQuery = {
+                $or: [
+                    { senderUser: userId },
+                    { targetUser: userId },
+                    { senderUser: { $in: resellerIds } },
+                    { targetUser: { $in: resellerIds } }
+                ]
+            };
+        } else if (user.role === 'reseller') {
+            creditQuery = {
+                $or: [
+                    { senderUser: userId },
+                    { targetUser: userId }
+                ]
+            };
+        }
+
+        const credits = await Credit.find(creditQuery)
+            .populate('senderUser', 'name')
+            .populate('targetUser', 'name')
+            .sort({ createdAt: -1 });
+
+        let totalCreditsGiven = 0;
+        let totalCreditsCount = 0;
+        let totalDebitsTaken = 0;
+        let totalDebitsCount = 0;
+        let totalReverseCredits = 0;
+        let totalReverseCreditsCount = 0;
+
+        credits.forEach(credit => {
+            if (credit.senderUser?._id.toString() === userId.toString()) {
+                if (credit.type === 'Credit') {
+                    totalCreditsGiven += credit.amount;
+                    totalCreditsCount++;
+                } else if (credit.type === 'Debit') {
+                    totalDebitsTaken += credit.amount;
+                    totalDebitsCount++;
+                } else if (credit.type === 'Reverse Credit') {
+                    totalReverseCredits += credit.amount;
+                    totalReverseCreditsCount++;
+                }
+            }
+        });
+
+        const netBalanceFlow = totalCreditsGiven - (totalDebitsTaken + totalReverseCredits);
+
+        const recentTransactions = credits
+            .filter(c => c.senderUser?._id.toString() === userId.toString())
+            .slice(0, 5);
+
+        dashboardData.creditStats = {
+            totalCreditsGiven,
+            totalCreditsCount,
+            totalDebitsTaken,
+            totalDebitsCount,
+            totalReverseCredits,
+            totalReverseCreditsCount,
+            netBalanceFlow,
+            recentTransactions
         };
 
         // Role-based stats calculation
         switch (user.role) {
             case 'admin':
-                // Admin sees everything (global stats)
                 const [
                     totalCategories,
                     totalChannels,
@@ -78,13 +152,11 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     totalDistributors,
                     totalResellers,
                     activeSubscribers,
-                    inactiveSubscribers,
-                    totalRevenue: 0 // Can be calculated from Credit model
+                    inactiveSubscribers
                 };
                 break;
 
             case 'distributor':
-                // Distributor sees only their resellers and their subscribers
                 const distributorResellers = await User.find({
                     role: 'reseller',
                     createdBy: userId
@@ -104,7 +176,6 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     Channel.countDocuments(),
                     Package.countDocuments(),
                     Ott.countDocuments(),
-                    // FIXED: Use resellerId instead of resellerName
                     Subscriber.countDocuments({
                         resellerId: { $in: resellerIds }
                     }),
@@ -127,8 +198,6 @@ router.get('/overview', authenticateToken, async (req, res) => {
                 break;
 
             case 'reseller':
-                // Reseller sees only their own subscribers and packages
-                // FIXED: Use resellerId instead of resellerName
                 const [
                     resellerSubscribers,
                     resellerActiveSubscribers,
@@ -181,14 +250,21 @@ router.get('/activities', authenticateToken, async (req, res) => {
 
         let activities = [];
 
-        // Fetch recent credits based on role
         if (user.role === 'admin') {
             activities = await Credit.find()
-                .populate('user', 'name email')
+                .populate('senderUser', 'name email')
+                .populate('targetUser', 'name email')
                 .sort({ createdAt: -1 })
                 .limit(10);
         } else {
-            activities = await Credit.find({ user: userId })
+            activities = await Credit.find({
+                $or: [
+                    { senderUser: userId },
+                    { targetUser: userId }
+                ]
+            })
+                .populate('senderUser', 'name email')
+                .populate('targetUser', 'name email')
                 .sort({ createdAt: -1 })
                 .limit(10);
         }
@@ -207,65 +283,202 @@ router.get('/activities', authenticateToken, async (req, res) => {
     }
 });
 
-export default router;
-
-// Database Backup Route (Admin Only)
+// Database Backup Route (Admin Only) - Uses OS Temp Directory
 router.get('/backup', authenticateToken, async (req, res) => {
+    let backupDir = null;
+    let zipFilePath = null;
+
     try {
         console.log('[BACKUP] Route hit');
         const userId = req.user.id;
-        console.log(`[BACKUP] User ID: ${userId} (type: ${typeof userId})`);
         const user = await User.findById(userId);
+
         if (!user) {
             console.log(`[BACKUP] User not found for ID: ${userId}`);
-            return res.status(404).json({ success: false, message: `User not found ## ${userId}` });
-        }
-        console.log(`[BACKUP] User lookup result:`, user ? `role=${user.role}, id=${user._id}` : 'not found');
-        if (String(user.role).trim().toLowerCase() !== 'admin') {
-            console.log(`[BACKUP] Permission denied for user ${userId}, role value: ${user.role}`);
-            return res.status(403).json({ success: false, message: `Admin access required ## ${userId}` });
-        }
-        // MongoDB URI from environment or config
-        const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/iptv';
-        const backupDir = path.join(process.cwd(), 'backup', `mongodump_${Date.now()}`);
-        const dumpCmd = `mongodump --uri="${mongoUri}" --out "${backupDir}"`;
-        console.log(`[BACKUP] Running mongodump: ${dumpCmd}`);
-        exec(dumpCmd, async (err, stdout, stderr) => {
-            if (err) {
-                console.error('[BACKUP] mongodump error:', err, stderr);
-                return res.status(500).json({ success: false, message: 'Failed to export backup' });
-            }
-            console.log('[BACKUP] mongodump completed');
-            // Zip the backup directory
-            const zipFile = `${backupDir}.zip`;
-            const zipCmd = `powershell Compress-Archive -Path \"${backupDir}\\*\" -DestinationPath \"${zipFile}\"`;
-            console.log(`[BACKUP] Running zip: ${zipCmd}`);
-            exec(zipCmd, (zipErr, zipStdout, zipStderr) => {
-                if (zipErr) {
-                    console.error('[BACKUP] zip error:', zipErr, zipStderr);
-                    return res.status(500).json({ success: false, message: 'Failed to zip backup' });
-                }
-                console.log('[BACKUP] zip completed');
-                // Check if zip file exists before sending
-                fs.access(zipFile, fs.constants.F_OK, (accessErr) => {
-                    if (accessErr) {
-                        console.error('[BACKUP] Zip file not found:', zipFile);
-                        return res.status(500).json({ success: false, message: 'Backup zip file not found' });
-                    }
-                    console.log('[BACKUP] Streaming zip file:', zipFile);
-                    res.setHeader('Content-Type', 'application/zip');
-                    res.setHeader('Content-Disposition', `attachment; filename=\"mongodump_backup_${Date.now()}.zip\"`);
-                    const stream = fs.createReadStream(zipFile);
-                    stream.on('error', (streamErr) => {
-                        console.error('[BACKUP] Stream error:', streamErr);
-                        res.status(500).json({ success: false, message: 'Failed to stream backup file' });
-                    });
-                    stream.pipe(res);
-                });
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
             });
+        }
+
+        if (String(user.role).trim().toLowerCase() !== 'admin') {
+            console.log(`[BACKUP] Permission denied for user ${userId}, role: ${user.role}`);
+            return res.status(403).json({
+                success: false,
+                message: 'Admin access required'
+            });
+        }
+
+        console.log('[BACKUP] Fetching all collections...');
+
+        // Fetch all data from all collections
+        const [
+            users,
+            categories,
+            channels,
+            packages,
+            subscribers,
+            otts,
+            credits
+        ] = await Promise.all([
+            User.find().lean(),
+            Category.find().lean(),
+            Channel.find().lean(),
+            Package.find().lean(),
+            Subscriber.find().lean(),
+            Ott.find().lean(),
+            Credit.find().lean()
+        ]);
+
+        console.log('[BACKUP] Data fetched successfully');
+        console.log(`[BACKUP] Collections: Users=${users.length}, Categories=${categories.length}, Channels=${channels.length}, Packages=${packages.length}, Subscribers=${subscribers.length}, OTTs=${otts.length}, Credits=${credits.length}`);
+
+        // Create backup in OS temp directory (NOT in project folder)
+        const timestamp = Date.now();
+        const tmpDir = os.tmpdir();
+        backupDir = path.join(tmpDir, `iptv_backup_${timestamp}`);
+
+        if (!fs.existsSync(backupDir)) {
+            fs.mkdirSync(backupDir, { recursive: true });
+        }
+
+        console.log(`[BACKUP] Using temp directory: ${backupDir}`);
+        console.log('[BACKUP] Writing JSON files...');
+
+        // Write each collection to separate JSON file
+        const collections = {
+            users,
+            categories,
+            channels,
+            packages,
+            subscribers,
+            otts,
+            credits
+        };
+
+        for (const [collectionName, data] of Object.entries(collections)) {
+            const filePath = path.join(backupDir, `${collectionName}.json`);
+            fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
+            console.log(`[BACKUP] ✓ ${collectionName}.json (${data.length} records)`);
+        }
+
+        // Create metadata file
+        const metadata = {
+            backupDate: new Date().toISOString(),
+            backupBy: user.name,
+            backupByEmail: user.email,
+            databaseName: 'iptv',
+            totalRecords: {
+                users: users.length,
+                categories: categories.length,
+                channels: channels.length,
+                packages: packages.length,
+                subscribers: subscribers.length,
+                otts: otts.length,
+                credits: credits.length
+            },
+            version: '1.0.0'
+        };
+
+        fs.writeFileSync(
+            path.join(backupDir, 'metadata.json'),
+            JSON.stringify(metadata, null, 2),
+            'utf-8'
+        );
+        console.log('[BACKUP] ✓ metadata.json');
+
+        console.log('[BACKUP] Creating ZIP archive...');
+
+        // Create ZIP file in temp directory
+        zipFilePath = path.join(tmpDir, `iptv_backup_${timestamp}.zip`);
+        const output = fs.createWriteStream(zipFilePath);
+        const archive = archiver('zip', {
+            zlib: { level: 9 }
         });
+
+        // Handle archive completion
+        output.on('close', () => {
+            console.log(`[BACKUP] ✓ ZIP created: ${(archive.pointer() / 1024 / 1024).toFixed(2)} MB`);
+
+            // Send the ZIP file
+            res.setHeader('Content-Type', 'application/zip');
+            res.setHeader('Content-Disposition', `attachment; filename="iptv_backup_${timestamp}.zip"`);
+
+            const fileStream = fs.createReadStream(zipFilePath);
+
+            fileStream.on('end', () => {
+                console.log('[BACKUP] ✓ File sent successfully');
+
+                // Immediate cleanup
+                cleanupBackupFiles(backupDir, zipFilePath);
+            });
+
+            fileStream.on('error', (streamErr) => {
+                console.error('[BACKUP] Stream error:', streamErr);
+                cleanupBackupFiles(backupDir, zipFilePath);
+                if (!res.headersSent) {
+                    res.status(500).json({
+                        success: false,
+                        message: 'Failed to stream backup file'
+                    });
+                }
+            });
+
+            fileStream.pipe(res);
+        });
+
+        archive.on('warning', (warn) => {
+            console.warn('[BACKUP] Archive warning:', warn);
+        });
+
+        archive.on('error', (archiveErr) => {
+            console.error('[BACKUP] Archive error:', archiveErr);
+            cleanupBackupFiles(backupDir, zipFilePath);
+            if (!res.headersSent) {
+                res.status(500).json({
+                    success: false,
+                    message: 'Failed to create backup archive'
+                });
+            }
+        });
+
+        // Pipe archive to output file
+        archive.pipe(output);
+
+        // Add all files from backup directory to archive
+        archive.directory(backupDir, false);
+
+        // Finalize the archive
+        await archive.finalize();
+
     } catch (error) {
         console.error('[BACKUP] Backup export error:', error);
-        res.status(500).json({ success: false, message: 'Failed to export backup' });
+        cleanupBackupFiles(backupDir, zipFilePath);
+        if (!res.headersSent) {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to export backup: ' + error.message
+            });
+        }
     }
 });
+
+// Helper function to clean up backup files
+function cleanupBackupFiles(backupDir, zipFilePath) {
+    setTimeout(() => {
+        try {
+            if (backupDir && fs.existsSync(backupDir)) {
+                fs.rmSync(backupDir, { recursive: true, force: true });
+                console.log('[BACKUP] ✓ Backup directory cleaned');
+            }
+            if (zipFilePath && fs.existsSync(zipFilePath)) {
+                fs.unlinkSync(zipFilePath);
+                console.log('[BACKUP] ✓ ZIP file cleaned');
+            }
+        } catch (cleanupErr) {
+            console.error('[BACKUP] Cleanup error:', cleanupErr);
+        }
+    }, 2000); // 2 seconds delay to ensure download completes
+}
+
+export default router;

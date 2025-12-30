@@ -19,17 +19,22 @@ import {
   Film,
   Target,
   BarChart3,
-  Download, // NEW: Import Download icon
+  Download,
+  TrendingUp,
+  TrendingDown,
+  Wallet,
+  ArrowUpCircle,
+  ArrowDownCircle,
+  Activity,
 } from "lucide-react";
 
 const Dashboard = () => {
   const { user } = useAuth();
-  // user.id is available if set in AuthContext, else fallback to dashboardData?.user?.id
   const navigate = useNavigate();
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [backupLoading, setBackupLoading] = useState(false); // NEW: Backup loading state
+  const [backupLoading, setBackupLoading] = useState(false);
 
   useEffect(() => {
     fetchDashboardData();
@@ -48,22 +53,17 @@ const Dashboard = () => {
     }
   };
 
-  // NEW: Handle database backup export
   const handleBackupExport = async () => {
     try {
       setBackupLoading(true);
       const response = await api.get("/dashboard/backup", {
         responseType: "blob",
-         // Important for file download
       });
 
-      // Create download link
       const url = window.URL.createObjectURL(new Blob([response.data]));
       const link = document.createElement("a");
       link.href = url;
 
-      // Filename is set in backend Content-Disposition header
-      // But fallback to generic name if not available
       const contentDisposition = response.headers["content-disposition"];
       let filename = "iptv_backup.zip";
       if (contentDisposition) {
@@ -80,11 +80,10 @@ const Dashboard = () => {
 
       window.URL.revokeObjectURL(url);
 
-      // Show success feedback
-      alert(`✅ Backup exported successfully!\n📁 File: ${filename}`);
+      alert(`Backup exported successfully!\nFile: ${filename}`);
     } catch (error) {
       console.error("Backup export failed:", error);
-      alert("❌ Failed to export backup. Admin access required.");
+      alert("Failed to export backup. Admin access required.");
     } finally {
       setBackupLoading(false);
     }
@@ -270,6 +269,7 @@ const Dashboard = () => {
   }
 
   const stats = getStatsConfig();
+  const creditStats = dashboardData?.creditStats;
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -285,7 +285,7 @@ const Dashboard = () => {
               <p className="text-blue-200 text-lg">Dashboard Overview</p>
             </div>
 
-            {/* Right Side - Balance, Refresh & Backup (Admin Only) */}
+            {/* Right Side - Balance, Refresh & Backup */}
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
               <div className="text-right">
                 <p className="text-blue-200 text-sm mb-1">Credit</p>
@@ -299,7 +299,6 @@ const Dashboard = () => {
                 </div>
               </div>
 
-              {/* Existing Refresh Button */}
               <button
                 onClick={fetchDashboardData}
                 disabled={refreshing}
@@ -311,7 +310,6 @@ const Dashboard = () => {
                 <span className="text-sm">Refresh</span>
               </button>
 
-              {/* NEW: Backup Export Button - Admin Only */}
               {user.role === "admin" && (
                 <button
                   onClick={handleBackupExport}
@@ -330,8 +328,221 @@ const Dashboard = () => {
         </div>
       </div>
 
-      {/* Stats Cards */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+        {/* Credit Analytics Section */}
+        {creditStats && (
+          <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-200">
+            <div className="flex items-center justify-between mb-6">
+              <div className="flex items-center space-x-3">
+                <div className="p-2 bg-blue-50 rounded-xl">
+                  <Wallet className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-gray-900">
+                    Credit Analytics
+                  </h2>
+                  <p className="text-sm text-gray-600">
+                    Transaction summary and balance overview
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => navigate(`/${user.role}/credit`)}
+                className="px-4 py-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100 transition-all text-sm font-medium"
+              >
+                View All Transactions →
+              </button>
+            </div>
+
+            {/* Credit Stats Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Total Credits Given */}
+              <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="p-2 bg-green-200 rounded-lg">
+                    <ArrowUpCircle className="w-5 h-5 text-green-700" />
+                  </div>
+                  <span className="text-xs font-semibold text-green-700 bg-green-200 px-2 py-1 rounded-full">
+                    +{creditStats.totalCreditsCount || 0}
+                  </span>
+                </div>
+                <p className="text-sm text-green-700 font-medium mb-1">
+                  Total Credits Given
+                </p>
+                <div className="flex items-center space-x-1">
+                  <IndianRupee className="w-5 h-5 text-green-800" />
+                  <p className="text-2xl font-bold text-green-900">
+                    {(creditStats.totalCreditsGiven || 0).toLocaleString(
+                      "en-IN"
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Total Debits Taken */}
+              <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="p-2 bg-blue-200 rounded-lg">
+                    <ArrowDownCircle className="w-5 h-5 text-blue-700" />
+                  </div>
+                  <span className="text-xs font-semibold text-blue-700 bg-blue-200 px-2 py-1 rounded-full">
+                    +{creditStats.totalDebitsCount || 0}
+                  </span>
+                </div>
+                <p className="text-sm text-blue-700 font-medium mb-1">
+                  Total Debits Taken
+                </p>
+                <div className="flex items-center space-x-1">
+                  <IndianRupee className="w-5 h-5 text-blue-800" />
+                  <p className="text-2xl font-bold text-blue-900">
+                    {(creditStats.totalDebitsTaken || 0).toLocaleString(
+                      "en-IN"
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Total Reverse Credits */}
+              <div className="bg-gradient-to-br from-red-50 to-red-100 rounded-xl p-4 border border-red-200">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="p-2 bg-red-200 rounded-lg">
+                    <TrendingDown className="w-5 h-5 text-red-700" />
+                  </div>
+                  <span className="text-xs font-semibold text-red-700 bg-red-200 px-2 py-1 rounded-full">
+                    +{creditStats.totalReverseCreditsCount || 0}
+                  </span>
+                </div>
+                <p className="text-sm text-red-700 font-medium mb-1">
+                  Total Reverse Credits
+                </p>
+                <div className="flex items-center space-x-1">
+                  <IndianRupee className="w-5 h-5 text-red-800" />
+                  <p className="text-2xl font-bold text-red-900">
+                    {(creditStats.totalReverseCredits || 0).toLocaleString(
+                      "en-IN"
+                    )}
+                  </p>
+                </div>
+              </div>
+
+              {/* Net Balance Flow */}
+              <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="p-2 bg-purple-200 rounded-lg">
+                    <Activity className="w-5 h-5 text-purple-700" />
+                  </div>
+                  <span
+                    className={`text-xs font-semibold px-2 py-1 rounded-full ${
+                      (creditStats.netBalanceFlow || 0) >= 0
+                        ? "bg-green-200 text-green-700"
+                        : "bg-red-200 text-red-700"
+                    }`}
+                  >
+                    {(creditStats.netBalanceFlow || 0) >= 0 ? "+" : ""}
+                    {((creditStats.netBalanceFlow || 0) / 1000).toFixed(1)}K
+                  </span>
+                </div>
+                <p className="text-sm text-purple-700 font-medium mb-1">
+                  Net Balance Flow
+                </p>
+                <div className="flex items-center space-x-1">
+                  <IndianRupee className="w-5 h-5 text-purple-800" />
+                  <p className="text-2xl font-bold text-purple-900">
+                    {(creditStats.netBalanceFlow || 0) >= 0 ? "+" : ""}
+                    {Math.abs(creditStats.netBalanceFlow || 0).toLocaleString(
+                      "en-IN"
+                    )}
+                  </p>
+                </div>
+                <p className="text-xs text-purple-600 mt-2">
+                  Credits - (Debits + Reverse)
+                </p>
+              </div>
+            </div>
+
+            {/* Recent Transactions Preview */}
+            {creditStats.recentTransactions &&
+              creditStats.recentTransactions.length > 0 && (
+                <div className="mt-6 pt-6 border-t border-gray-200">
+                  <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                    Recent Transactions
+                  </h3>
+                  <div className="space-y-2">
+                    {creditStats.recentTransactions.map((txn, index) => (
+                      <div
+                        key={index}
+                        className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors"
+                      >
+                        <div className="flex items-center space-x-3">
+                          <div
+                            className={`p-2 rounded-lg ${
+                              txn.type === "Credit"
+                                ? "bg-green-100"
+                                : txn.type === "Debit"
+                                ? "bg-blue-100"
+                                : txn.type === "Self Credit"
+                                ? "bg-purple-100"
+                                : "bg-red-100"
+                            }`}
+                          >
+                            {txn.type === "Credit" ? (
+                              <ArrowUpCircle className="w-4 h-4 text-green-600" />
+                            ) : txn.type === "Debit" ? (
+                              <ArrowDownCircle className="w-4 h-4 text-blue-600" />
+                            ) : txn.type === "Self Credit" ? (
+                              <Wallet className="w-4 h-4 text-purple-600" />
+                            ) : (
+                              <TrendingDown className="w-4 h-4 text-red-600" />
+                            )}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-gray-900">
+                              {txn.type === "Self Credit"
+                                ? "Self Credit"
+                                : `${txn.type} ${
+                                    txn.type === "Credit" ? "to" : "from"
+                                  } ${txn.targetUser?.name || "Unknown"}`}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(txn.createdAt).toLocaleDateString(
+                                "en-IN",
+                                {
+                                  month: "short",
+                                  day: "numeric",
+                                  hour: "2-digit",
+                                  minute: "2-digit",
+                                }
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p
+                            className={`text-sm font-bold ${
+                              txn.type === "Credit"
+                                ? "text-red-600"
+                                : "text-green-600"
+                            }`}
+                          >
+                            {txn.type === "Credit" ? "-" : "+"}₹
+                            {txn.amount.toLocaleString("en-IN")}
+                          </p>
+                          <p className="text-xs text-gray-500">
+                            Balance: ₹
+                            {(txn.senderBalanceAfter || 0).toLocaleString(
+                              "en-IN"
+                            )}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+          </div>
+        )}
+
+        {/* Stats Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
           {stats.map((stat, index) => {
             const IconComponent = stat.icon;
