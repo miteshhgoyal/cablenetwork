@@ -14,7 +14,6 @@ import {
     Alert,
     TextInput,
     Linking,
-    Platform,
     AppState,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -24,14 +23,6 @@ import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import * as Device from 'expo-device';
-
-let TVEventHandler = null;
-try {
-    TVEventHandler = require('react-native').TVEventHandler;
-} catch (e) {
-    TVEventHandler = null;
-}
 
 const { height: windowHeight } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65));
@@ -58,23 +49,11 @@ export default function MoviesScreen() {
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
 
-    // FIXED: Reliable TV Detection with useRef
-    const isTV = useRef(
-        Device.deviceType === Device.DeviceType.TV ||
-        Device.modelName?.toLowerCase().includes('tv') ||
-        Device.deviceName?.toLowerCase().includes('tv') ||
-        Device.brand?.toLowerCase().includes('google') ||
-        Platform.isTV
-    ).current;
-
-    // TV Navigation states
+    // Navigation states (touch-friendly)
     const [focusedGenre, setFocusedGenre] = useState(0);
     const [focusedMovieIndex, setFocusedMovieIndex] = useState(0);
-    const [isGenreFocused, setIsGenreFocused] = useState(true);
-    const [recommendedFocusedIndex, setRecommendedFocusedIndex] = useState(0);
 
     const videoRef = useRef(null);
-    const tvEventHandler = useRef(null);
 
     // Fetch movies
     useEffect(() => {
@@ -83,28 +62,13 @@ export default function MoviesScreen() {
         }
     }, [isAuthenticated]);
 
-    // FIXED: Delayed orientation lock for TV
-    useEffect(() => {
-        const initOrientation = async () => {
-            try {
-                if (!isTV) {
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-                }
-            } catch (error) {
-                console.log('Movies orientation lock failed:', error);
-            }
-        };
-        const timeoutId = setTimeout(initOrientation, 1000); // 1s delay prevents TV crash
-        return () => clearTimeout(timeoutId);
-    }, []);
-
-    // FIXED: Safe auto-start after movies load
+    // Safe auto-start after movies load
     useEffect(() => {
         if (groupedMovies.length > 0 && groupedMovies[0]?.data?.length > 0) {
             const firstMovie = groupedMovies[0].data[0];
             handleMovieChange(firstMovie);
         }
-    }, [groupedMovies.length]); // Safe length dependency
+    }, [groupedMovies.length]);
 
     // AppState refresh
     useEffect(() => {
@@ -116,67 +80,7 @@ export default function MoviesScreen() {
         return () => subscription?.remove();
     }, []);
 
-    // FIXED: Safe TV Remote Handler with proper cleanup
-    useEffect(() => {
-        if (!isTV || !TVEventHandler) return;
-
-        const handler = new TVEventHandler();
-        tvEventHandler.current = handler;
-
-        handler.enable(null, (component, evt) => {
-            console.log('TV Movies Event:', evt);
-
-            if (evt.eventType === 'select') {
-                if (showRecommendations) {
-                    const recommendations = getRecommendedMovies();
-                    if (recommendedFocusedIndex < recommendations.length) {
-                        handleRecommendationSelect(recommendations[recommendedFocusedIndex]);
-                    }
-                    return;
-                }
-
-                if (isGenreFocused) {
-                    setIsGenreFocused(false);
-                    setFocusedMovieIndex(0);
-                    const currentGenre = groupedMovies[focusedGenre];
-                    if (currentGenre?.data[0]) {
-                        debouncedHandleMovieChange(currentGenre.data[0]);
-                    }
-                } else {
-                    const currentGenre = groupedMovies[focusedGenre];
-                    const movie = currentGenre?.data[focusedMovieIndex];
-                    if (movie) {
-                        debouncedHandleMovieChange(movie);
-                    }
-                }
-                return;
-            }
-
-            if (evt.eventType === 'right') handleNavigateRight();
-            else if (evt.eventType === 'left') handleNavigateLeft();
-            else if (evt.eventType === 'down') handleNavigateDown();
-            else if (evt.eventType === 'up') handleNavigateUp();
-            else if (evt.eventType === 'menu') setShowUserMenu(true);
-            else if (evt.eventType === 'back') {
-                if (!isGenreFocused) {
-                    setIsGenreFocused(true);
-                    return;
-                }
-                if (showRecommendations) {
-                    setShowRecommendations(false);
-                    return;
-                }
-            }
-        });
-
-        return () => {
-            if (handler && handler.disable) {
-                handler.disable();
-            }
-            tvEventHandler.current = null;
-        };
-    }, [isGenreFocused, focusedGenre, focusedMovieIndex, groupedMovies, showRecommendations, recommendedFocusedIndex]);
-
+    // Navigation handlers (touch)
     const handleNavigateRight = useCallback(() => {
         const currentGenre = groupedMovies[focusedGenre];
         if (currentGenre && focusedMovieIndex < currentGenre.data.length - 1) {
@@ -196,38 +100,26 @@ export default function MoviesScreen() {
     }, [focusedGenre, focusedMovieIndex, groupedMovies]);
 
     const handleNavigateDown = useCallback(() => {
-        if (isGenreFocused) {
-            if (focusedGenre < groupedMovies.length - 1) {
-                setFocusedGenre(focusedGenre + 1);
-            }
-        } else {
-            if (focusedGenre < groupedMovies.length - 1) {
-                setFocusedGenre(focusedGenre + 1);
-                setFocusedMovieIndex(0);
-                const nextGenre = groupedMovies[focusedGenre + 1];
-                if (nextGenre?.data[0]) {
-                    debouncedHandleMovieChange(nextGenre.data[0]);
-                }
+        if (focusedGenre < groupedMovies.length - 1) {
+            setFocusedGenre(focusedGenre + 1);
+            setFocusedMovieIndex(0);
+            const nextGenre = groupedMovies[focusedGenre + 1];
+            if (nextGenre?.data[0]) {
+                debouncedHandleMovieChange(nextGenre.data[0]);
             }
         }
-    }, [isGenreFocused, focusedGenre, groupedMovies]);
+    }, [focusedGenre, groupedMovies]);
 
     const handleNavigateUp = useCallback(() => {
-        if (isGenreFocused) {
-            if (focusedGenre > 0) {
-                setFocusedGenre(focusedGenre - 1);
-            }
-        } else {
-            if (focusedGenre > 0) {
-                setFocusedGenre(focusedGenre - 1);
-                setFocusedMovieIndex(0);
-                const prevGenre = groupedMovies[focusedGenre - 1];
-                if (prevGenre?.data[0]) {
-                    debouncedHandleMovieChange(prevGenre.data[0]);
-                }
+        if (focusedGenre > 0) {
+            setFocusedGenre(focusedGenre - 1);
+            setFocusedMovieIndex(0);
+            const prevGenre = groupedMovies[focusedGenre - 1];
+            if (prevGenre?.data[0]) {
+                debouncedHandleMovieChange(prevGenre.data[0]);
             }
         }
-    }, [isGenreFocused, focusedGenre, groupedMovies]);
+    }, [focusedGenre, groupedMovies]);
 
     const fetchMovies = async () => {
         try {
@@ -364,12 +256,11 @@ export default function MoviesScreen() {
         }
     }, [selectedMovie, useProxy]);
 
-    // 🔥 BULLETPROOF CLEANUP - Stops ALL video/audio on unmount
+    // 🔥 BULLETPROOF CLEANUP
     useEffect(() => {
         return () => {
             console.log('🔴 MoviesScreen UNMOUNT - Cleaning up video');
 
-            // Stop ALL video playback
             if (videoRef.current) {
                 try {
                     videoRef.current.pauseAsync?.();
@@ -381,7 +272,6 @@ export default function MoviesScreen() {
                 }
             }
 
-            // Reset states
             setSelectedMovie(null);
             setVideoLoading(false);
             setVideoError(false);
@@ -531,7 +421,7 @@ export default function MoviesScreen() {
                         <Text className="text-gray-400 text-center mt-3 px-6 text-base">{errorMessage}</Text>
                         {bothAttemptsFailed ? (
                             <Text className="text-orange-500 text-center mt-6 text-lg font-semibold">
-                                Use remote to switch movies
+                                Tap another movie to continue
                             </Text>
                         ) : (
                             <>
@@ -613,7 +503,6 @@ export default function MoviesScreen() {
         );
     };
 
-    // FIXED: Safe loading states with min-height guarantees
     if (loading) {
         return (
             <View className="flex-1 bg-black items-center justify-center min-h-screen">
@@ -630,30 +519,29 @@ export default function MoviesScreen() {
                 <StatusBar barStyle="light-content" hidden />
                 <Ionicons name="film-outline" size={120} color="#6b7280" />
                 <Text className="text-white text-2xl font-semibold mt-6">No Movies Available</Text>
-                <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchMovies} hasTVPreferredFocus={isTV}>
+                <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchMovies}>
                     <Text className="text-white font-bold text-lg">Refresh Movies</Text>
                 </TouchableOpacity>
             </SafeAreaView>
         );
     }
 
-    // FIXED: Safe layout with min-height guarantees
     return (
         <View className="flex-1 bg-black min-h-screen">
             <StatusBar barStyle="light-content" hidden />
 
-            {/* FIXED: Safe video player container */}
+            {/* Video player container */}
             <View style={{ height: PLAYER_HEIGHT, width: '100%', minHeight: 240 }}>
                 {renderVideoPlayer()}
             </View>
 
-            {/* FIXED: Safe movie browser container */}
+            {/* Movie browser */}
             <View style={{ height: '35%', width: '100%', minHeight: 200 }} className="bg-gray-900">
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {groupedMovies.map((genre, genreIndex) => (
                         <View key={genre.title} className="mb-6">
                             <View className="flex-row items-center justify-between px-6 mb-4">
-                                <Text className={`text-xl font-bold ${isGenreFocused && focusedGenre === genreIndex ? 'text-orange-500' : 'text-white'}`}>
+                                <Text className={`text-xl font-bold ${focusedGenre === genreIndex ? 'text-orange-500' : 'text-white'}`}>
                                     {genre.title}
                                 </Text>
                                 <Text className="text-gray-400 text-base">{genre.data.length} movies</Text>
@@ -678,7 +566,6 @@ export default function MoviesScreen() {
                                                 }`}
                                             style={{ width: 160 }}
                                             onPress={() => debouncedHandleMovieChange(movie)}
-                                            hasTVPreferredFocus={genreIndex === 0 && movieIndex === 0 && isTV}
                                         >
                                             <View className="relative">
                                                 <Image
@@ -726,7 +613,7 @@ export default function MoviesScreen() {
                         </View>
                         <TouchableOpacity
                             onPress={() => setShowRecommendations(false)}
-                            className="p-3 rounded-full bg-gray-800/50 hover:bg-gray-700"
+                            className="p-3 rounded-full bg-gray-800/50"
                         >
                             <Ionicons name="close-circle" size={36} color="#f97316" />
                         </TouchableOpacity>
@@ -744,7 +631,7 @@ export default function MoviesScreen() {
                         }}
                         style={{ maxHeight: 320 }}
                         renderItem={({ item: movie, index }) => {
-                            const isFocused = recommendedFocusedIndex === index;
+                            const isFocused = focusedMovieIndex === index;
                             const isPlaying = selectedMovie?._id === movie._id;
 
                             return (
@@ -758,7 +645,6 @@ export default function MoviesScreen() {
                                         }`}
                                     style={{ width: 220, height: 320 }}
                                     onPress={() => handleRecommendationSelect(movie)}
-                                    hasTVPreferredFocus={index === 0 && isTV}
                                 >
                                     <View className="relative h-64 bg-gradient-to-br from-gray-900 to-gray-800 overflow-hidden">
                                         <Image

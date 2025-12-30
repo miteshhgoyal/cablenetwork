@@ -10,9 +10,9 @@ import {
     StatusBar,
     Alert,
     Linking,
-    Platform,
     Dimensions,
     AppState,
+    FlatList,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Ionicons from '@expo/vector-icons/Ionicons';
@@ -21,14 +21,6 @@ import api from '@/services/api';
 import { Video, ResizeMode } from 'expo-av';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
-import * as Device from 'expo-device';
-
-let TVEventHandler = null;
-try {
-    TVEventHandler = require('react-native').TVEventHandler;
-} catch (e) {
-    TVEventHandler = null;
-}
 
 const { height: windowHeight } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65));
@@ -48,54 +40,29 @@ export default function SeriesScreen() {
     const [videoError, setVideoError] = useState(false);
     const [videoLoading, setVideoLoading] = useState(false);
     const [errorMessage, setErrorMessage] = useState('');
+    const [isPlaying, setIsPlaying] = useState(true);
     const [useProxy, setUseProxy] = useState(true);
     const [proxyAttempted, setProxyAttempted] = useState(false);
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
 
-    // FIXED: Reliable TV Detection with useRef
-    const isTV = useRef(
-        Device.deviceType === Device.DeviceType.TV ||
-        Device.modelName?.toLowerCase().includes('tv') ||
-        Device.deviceName?.toLowerCase().includes('tv') ||
-        Device.brand?.toLowerCase().includes('google') ||
-        Platform.isTV
-    ).current;
-
-    // TV Navigation states
+    // Navigation states (touch-friendly)
     const [focusedGenre, setFocusedGenre] = useState(0);
     const [focusedShowIndex, setFocusedShowIndex] = useState(0);
-    const [isGenreFocused, setIsGenreFocused] = useState(true);
 
     const videoRef = useRef(null);
-    const tvEventHandler = useRef(null);
 
     // Fetch series
     useEffect(() => {
         if (isAuthenticated) fetchSeries();
     }, [isAuthenticated]);
 
-    // FIXED: Delayed orientation lock for TV
-    useEffect(() => {
-        const initOrientation = async () => {
-            try {
-                if (!isTV) {
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-                }
-            } catch (error) {
-                console.log('Series orientation lock failed:', error);
-            }
-        };
-        const timeoutId = setTimeout(initOrientation, 1000); // 1s delay prevents TV crash
-        return () => clearTimeout(timeoutId);
-    }, []);
-
-    // FIXED: Safe auto-start after series load
+    // Safe auto-start after series load
     useEffect(() => {
         if (groupedSeries.length > 0 && groupedSeries[0]?.data?.length > 0) {
             handleShowChange(groupedSeries[0].data[0]);
         }
-    }, [groupedSeries.length]); // Safe length dependency
+    }, [groupedSeries.length]);
 
     // AppState refresh
     useEffect(() => {
@@ -106,109 +73,6 @@ export default function SeriesScreen() {
         });
         return () => subscription?.remove();
     }, []);
-
-    // FIXED: Safe TV Remote Handler with proper cleanup
-    useEffect(() => {
-        if (!isTV || !TVEventHandler) return;
-
-        const handler = new TVEventHandler();
-        tvEventHandler.current = handler;
-
-        handler.enable(null, (component, evt) => {
-            console.log('TV Series Event:', evt);
-
-            // SELECT/OK button
-            if (evt.eventType === 'select') {
-                if (isGenreFocused) {
-                    setIsGenreFocused(false);
-                    setFocusedShowIndex(0);
-                    const currentGenre = groupedSeries[focusedGenre];
-                    if (currentGenre?.data[0]) {
-                        debouncedHandleShowChange(currentGenre.data[0]);
-                    }
-                } else {
-                    const currentGenre = groupedSeries[focusedGenre];
-                    const show = currentGenre?.data[focusedShowIndex];
-                    if (show) {
-                        debouncedHandleShowChange(show);
-                    }
-                }
-                return;
-            }
-
-            // Navigation
-            if (evt.eventType === 'right') handleNavigateRight();
-            else if (evt.eventType === 'left') handleNavigateLeft();
-            else if (evt.eventType === 'down') handleNavigateDown();
-            else if (evt.eventType === 'up') handleNavigateUp();
-            else if (evt.eventType === 'menu') setShowUserMenu(true);
-            else if (evt.eventType === 'back') {
-                if (!isGenreFocused) {
-                    setIsGenreFocused(true);
-                    return;
-                }
-            }
-        });
-
-        return () => {
-            if (handler && handler.disable) {
-                handler.disable();
-            }
-            tvEventHandler.current = null;
-        };
-    }, [isGenreFocused, focusedGenre, focusedShowIndex, groupedSeries]);
-
-    const handleNavigateRight = useCallback(() => {
-        const currentGenre = groupedSeries[focusedGenre];
-        if (currentGenre && focusedShowIndex < currentGenre.data.length - 1) {
-            const nextIndex = focusedShowIndex + 1;
-            setFocusedShowIndex(nextIndex);
-            debouncedHandleShowChange(currentGenre.data[nextIndex]);
-        }
-    }, [focusedGenre, focusedShowIndex, groupedSeries]);
-
-    const handleNavigateLeft = useCallback(() => {
-        if (focusedShowIndex > 0) {
-            const prevIndex = focusedShowIndex - 1;
-            setFocusedShowIndex(prevIndex);
-            const currentGenre = groupedSeries[focusedGenre];
-            debouncedHandleShowChange(currentGenre.data[prevIndex]);
-        }
-    }, [focusedGenre, focusedShowIndex, groupedSeries]);
-
-    const handleNavigateDown = useCallback(() => {
-        if (isGenreFocused) {
-            if (focusedGenre < groupedSeries.length - 1) {
-                setFocusedGenre(focusedGenre + 1);
-            }
-        } else {
-            if (focusedGenre < groupedSeries.length - 1) {
-                setFocusedGenre(focusedGenre + 1);
-                setFocusedShowIndex(0);
-                const nextGenre = groupedSeries[focusedGenre + 1];
-                if (nextGenre?.data[0]) {
-                    debouncedHandleShowChange(nextGenre.data[0]);
-                }
-            }
-        }
-    }, [isGenreFocused, focusedGenre, groupedSeries]);
-
-    const handleNavigateUp = useCallback(() => {
-        if (isGenreFocused) {
-            if (focusedGenre > 0) {
-                setFocusedGenre(focusedGenre - 1);
-            }
-        } else {
-            if (focusedGenre > 0) {
-                setFocusedGenre(focusedGenre - 1);
-                setFocusedShowIndex(0);
-                const prevGenre = groupedSeries[focusedGenre - 1];
-                if (prevGenre?.data[0]) {
-                    debouncedHandleShowChange(prevGenre.data[0]);
-                }
-            }
-        }
-    }, [isGenreFocused, focusedGenre, groupedSeries]);
 
     async function fetchSeries() {
         try {
@@ -232,20 +96,32 @@ export default function SeriesScreen() {
 
     const analyzeStreamUrl = (url) => {
         if (!url) return { type: 'unknown', isValid: false };
-        const u = url.toLowerCase();
-        if (u.includes('youtube.com') || u.includes('youtu.be')) {
-            if (u.includes('live')) return { type: 'youtube-live', isValid: true };
-            if (u.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
-            if (u.includes('playlist') || u.includes('list=')) return { type: 'youtube-playlist', isValid: true };
-            if (u.includes('/c/') || u.includes('/@') || u.includes('/channel/')) return { type: 'youtube-channel', isValid: true };
+        const urlLower = url.toLowerCase();
+
+        if (urlLower.includes('youtube.com') || urlLower.includes('youtu.be')) {
+            if (urlLower.includes('live')) return { type: 'youtube-live', isValid: true };
+            if (urlLower.includes('watch?v=')) return { type: 'youtube-video', isValid: true };
+            if (urlLower.includes('playlist') || urlLower.includes('list=')) return { type: 'youtube-playlist', isValid: true };
+            if (urlLower.includes('/c/') || urlLower.includes('/@') || urlLower.includes('/channel/')) return { type: 'youtube-channel', isValid: true };
             return { type: 'youtube-video', isValid: true };
         }
-        if (u.includes('.m3u8') || u.includes('m3u') || u.includes('chunklist') || u.includes('/hls/')) return { type: 'hls', isValid: true };
-        if (u.includes('.mp4') || url.match(/\\.(mp4|m4v|mov)\\?/)) return { type: 'mp4', isValid: true };
-        if (u.includes('.mkv')) return { type: 'mkv', isValid: true };
-        if (url.match(/:\d{4}/) || url.match(/\/live\//)) return { type: 'iptv', isValid: true };
-        if (u.includes('rtmp://')) return { type: 'rtmp', isValid: true };
+
+        if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
+        if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
+
+        if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
+        if (urlLower.match(/\\.(mp4|m4v|mov)\\?/)) return { type: 'mp4', isValid: true };
+
+        if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
+
+        if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
+        if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
+
+        if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
+
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
+
         return { type: 'unknown', isValid: false };
     };
 
@@ -264,6 +140,13 @@ export default function SeriesScreen() {
         return null;
     };
 
+    const extractPlaylistId = (url) => {
+        if (!url) return null;
+        const playlistRegex = /[?&]list=([a-zA-Z0-9_-]+)/;
+        const match = url.match(playlistRegex);
+        return match ? match[1] : null;
+    };
+
     const getCurrentStreamUrl = (show, proxyEnabled) => {
         if (!show) return null;
         const type = analyzeStreamUrl(show.mediaUrl);
@@ -273,6 +156,13 @@ export default function SeriesScreen() {
         }
 
         const baseUrl = proxyEnabled && show.proxyUrl && serverInfo?.proxyEnabled ? show.proxyUrl : show.mediaUrl;
+
+        console.log('Series Stream Load:', {
+            showName: show.title,
+            streamType: type.type,
+            isProxy: useProxy && !!show.proxyUrl,
+            finalUrl: baseUrl.substring(0, 100) + '...'
+        });
 
         return {
             uri: baseUrl,
@@ -305,16 +195,13 @@ export default function SeriesScreen() {
                 try {
                     await videoRef.current.unloadAsync();
                     await videoRef.current.loadAsync(newUrl, { shouldPlay: true });
-                    setVideoLoading(false);
-                    setVideoError(false);
                 } catch (error) {
                     setVideoError(true);
                     setVideoLoading(false);
                     if (proxyEnabled && show.proxyUrl) {
-                        setUseProxy(false);
                         loadStream(show, false);
                     } else {
-                        setErrorMessage('Unable to load stream. Please try another episode.');
+                        setErrorMessage('No stream available');
                     }
                 }
             }
@@ -324,19 +211,15 @@ export default function SeriesScreen() {
     // Auto load stream when series changes
     useEffect(() => {
         if (selectedSeries) {
-            const type = analyzeStreamUrl(selectedSeries.mediaUrl);
-            if (!type.type.startsWith('youtube')) {
-                loadStream(selectedSeries, useProxy);
-            }
+            loadStream(selectedSeries, true);
         }
-    }, [selectedSeries, useProxy]);
+    }, [selectedSeries]);
 
-    // 🔥 BULLETPROOF CLEANUP - Stops ALL video/audio on unmount
+    // 🔥 BULLETPROOF CLEANUP
     useEffect(() => {
         return () => {
             console.log('🔴 SeriesScreen UNMOUNT - Cleaning up video');
 
-            // Stop ALL video playback
             if (videoRef.current) {
                 try {
                     videoRef.current.pauseAsync?.();
@@ -348,7 +231,6 @@ export default function SeriesScreen() {
                 }
             }
 
-            // Reset states
             setSelectedSeries(null);
             setVideoLoading(false);
             setVideoError(false);
@@ -356,7 +238,7 @@ export default function SeriesScreen() {
         };
     }, []);
 
-    function handleStreamError() {
+    const handleStreamError = () => {
         if (!proxyAttempted && serverInfo?.proxyEnabled) {
             setProxyAttempted(true);
             setUseProxy(!useProxy);
@@ -366,52 +248,39 @@ export default function SeriesScreen() {
             setBothAttemptsFailed(true);
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage('Both proxy and direct stream failed. Please try another show.');
+            setErrorMessage('Unable to load stream with both proxy and direct connection. Please switch to another series.');
         }
-    }
-
-    const renderStreamTypeBadge = (type) => {
-        const badges = {
-            'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
-            'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS Stream' },
-            'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
-            'mkv': { icon: 'film', color: 'bg-purple-600', text: 'MKV' },
-            'iptv': { icon: 'tv', color: 'bg-indigo-600', text: 'IPTV' },
-            'rtmp': { icon: 'cloud-upload', color: 'bg-pink-600', text: 'RTMP' },
-            'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' }
-        };
-        const badge = badges[type] || { icon: 'help-circle', color: 'bg-gray-600', text: 'Unknown' };
-        return (
-            <View className={`${badge.color} px-4 py-2 rounded-full flex-row items-center absolute top-4 right-4 z-10`}>
-                <Ionicons name={badge.icon} size={20} color="white" />
-                <Text className="text-white text-sm font-bold ml-2">{badge.text}</Text>
-            </View>
-        );
     };
 
+    // COMPLETE YouTube Players (ALL types)
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
-            autoplay: true, muted: false, controls: true,
-            playsinline: true, rel: false, modestbranding: true
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true,
         });
+
         useYouTubeEvent(player, 'ready', () => {
             setVideoLoading(false);
             setVideoError(false);
             setBothAttemptsFailed(false);
         });
-        useYouTubeEvent(player, 'error', err => {
+
+        useYouTubeEvent(player, 'error', (error) => {
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Error: ${String(err)}`);
+            setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`);
         });
+
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
-                <YoutubeView player={player} style={{ width: "100%", height: PLAYER_HEIGHT }} />
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
                 {selectedSeries && (
                     <Image
-                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/60x60/FF6B35/FFFFFF?text=IPTV' }}
+                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/60x60/FF6B35/FFFFFF?text=SERIES' }}
                         style={{ position: 'absolute', bottom: 16, right: 16, width: 60, height: 60, opacity: 0.7, zIndex: 10 }}
                         resizeMode="contain"
                     />
@@ -420,7 +289,141 @@ export default function SeriesScreen() {
         );
     };
 
-    function renderVideoPlayer() {
+    const YouTubeLivePlayer = ({ videoId }) => {
+        const player = useYouTubePlayer(videoId, {
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true,
+        });
+
+        useYouTubeEvent(player, 'ready', () => {
+            setVideoLoading(false);
+            setVideoError(false);
+            setBothAttemptsFailed(false);
+        });
+
+        useYouTubeEvent(player, 'error', (error) => {
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`);
+        });
+
+        return (
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
+                <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
+                    <View className="w-2 h-2 bg-white rounded-full mr-2" />
+                    <Text className="text-white text-xs font-bold">LIVE</Text>
+                </View>
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
+                {selectedSeries && (
+                    <Image
+                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/60x60/FF6B35/FFFFFF?text=SERIES' }}
+                        style={{ position: 'absolute', bottom: 16, right: 16, width: 60, height: 60, opacity: 0.7, zIndex: 10 }}
+                        resizeMode="contain"
+                    />
+                )}
+            </View>
+        );
+    };
+
+    const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
+        const player = useYouTubePlayer(videoId, {
+            autoplay: true,
+            muted: false,
+            controls: true,
+            playsinline: true,
+            rel: false,
+            modestbranding: true,
+            loop: true,
+            list: playlistId,
+            listType: 'playlist',
+        });
+
+        useYouTubeEvent(player, 'ready', () => {
+            setVideoLoading(false);
+            setVideoError(false);
+            setBothAttemptsFailed(false);
+        });
+
+        useYouTubeEvent(player, 'error', (error) => {
+            setVideoError(true);
+            setVideoLoading(false);
+            setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`);
+        });
+
+        return (
+            <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
+                <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
+                    <Text className="text-white text-xs font-bold">PLAYLIST</Text>
+                </View>
+                <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
+                {selectedSeries && (
+                    <Image
+                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/60x60/FF6B35/FFFFFF?text=SERIES' }}
+                        style={{ position: 'absolute', bottom: 16, right: 16, width: 60, height: 60, opacity: 0.7, zIndex: 10 }}
+                        resizeMode="contain"
+                    />
+                )}
+            </View>
+        );
+    };
+
+    const YouTubeChannelPlayer = ({ url }) => (
+        <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
+            <Ionicons name="logo-youtube" size={80} color="#ff0000" />
+            <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
+                YouTube Channel Detected
+            </Text>
+            <Text className="text-gray-400 text-sm mt-2 text-center px-6">
+                Please use a specific video or playlist URL
+            </Text>
+            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
+                <Text className="text-white font-semibold">Open in YouTube</Text>
+            </TouchableOpacity>
+            {selectedSeries && (
+                <Image
+                    source={{ uri: selectedSeries.verticalUrl }}
+                    style={{
+                        position: 'absolute',
+                        bottom: 16,
+                        right: 16,
+                        width: 60,
+                        height: 60,
+                        opacity: 0.7,
+                        zIndex: 10,
+                    }}
+                    resizeMode="contain"
+                />
+            )}
+        </View>
+    );
+
+    const renderStreamTypeBadge = (type) => {
+        const badges = {
+            'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
+            'youtube-live': { icon: 'radio', color: 'bg-red-600', text: 'LIVE' },
+            'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
+            'youtube-channel': { icon: 'logo-youtube', color: 'bg-red-500', text: 'Channel' },
+            'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS Stream' },
+            'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
+            'mkv': { icon: 'film', color: 'bg-purple-600', text: 'MKV' },
+            'iptv': { icon: 'tv', color: 'bg-indigo-600', text: 'IPTV' },
+            'rtmp': { icon: 'cloud-upload', color: 'bg-pink-600', text: 'RTMP' },
+            'stream': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
+        };
+        const badge = badges[type] || { icon: 'help-circle', color: 'bg-gray-600', text: 'Unknown' };
+        return (
+            <View className={`${badge.color} px-3 py-1.5 rounded-full flex-row items-center absolute top-3 right-3 z-10`}>
+                <Ionicons name={badge.icon} size={14} color="white" />
+                <Text className="text-white text-xs font-bold ml-1.5">{badge.text}</Text>
+            </View>
+        );
+    };
+
+    const renderVideoPlayer = () => {
         if (!selectedSeries) {
             return (
                 <View className="w-full h-full bg-black items-center justify-center min-h-[240px]">
@@ -437,28 +440,60 @@ export default function SeriesScreen() {
             return (
                 <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                     <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-                    <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid Stream URL</Text>
+                    <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid stream URL</Text>
                     <Text className="text-gray-400 text-center mt-2 px-8 text-base">
-                        {errorMessage || 'URL format not supported'}
+                        {errorMessage || 'The provided URL format is not supported'}
                     </Text>
                 </View>
             );
         }
 
+        // COMPLETE YouTube handling
         if (type === 'youtube-video') {
             const videoId = extractVideoId(selectedSeries.mediaUrl);
             if (!videoId) {
                 return (
                     <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
                         <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-                        <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid YouTube URL</Text>
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
                     </View>
                 );
             }
-            return <>{renderStreamTypeBadge(type)}<YouTubeVideoPlayer videoId={videoId} /></>;
+            return <YouTubeVideoPlayer videoId={videoId} />;
         }
 
-        // Native Video Player for non-YouTube
+        if (type === 'youtube-live') {
+            const videoId = extractVideoId(selectedSeries.mediaUrl);
+            if (!videoId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
+                        <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
+                    </View>
+                );
+            }
+            return <YouTubeLivePlayer videoId={videoId} />;
+        }
+
+        if (type === 'youtube-playlist') {
+            const videoId = extractVideoId(selectedSeries.mediaUrl);
+            const playlistId = extractPlaylistId(selectedSeries.mediaUrl);
+            if (!videoId || !playlistId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
+                        <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
+                    </View>
+                );
+            }
+            return <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />;
+        }
+
+        if (type === 'youtube-channel') {
+            return <YouTubeChannelPlayer url={selectedSeries.mediaUrl} />;
+        }
+
+        // expo-av Player for non-YouTube streams (COMPLETE)
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 {renderStreamTypeBadge(type)}
@@ -466,38 +501,47 @@ export default function SeriesScreen() {
                 {videoLoading && (
                     <View className="absolute inset-0 bg-black items-center justify-center z-20">
                         <ActivityIndicator size="large" color="#f97316" />
-                        <Text className="text-white mt-4 text-lg">Loading {type.toUpperCase()}...</Text>
-                        <Text className="text-gray-400 mt-2 text-sm">
-                            {useProxy ? 'Proxy Connection' : 'Direct Connection'}
+                        <Text className="text-white mt-3 text-sm">Loading {type.toUpperCase()} stream...</Text>
+                        <Text className="text-gray-400 mt-1 text-xs">
+                            {useProxy ? 'Using Proxy Connection' : 'Direct Connection'}
                         </Text>
                     </View>
                 )}
 
                 {videoError && (
-                    <View className="absolute inset-0 bg-black/95 items-center justify-center z-30 px-8">
-                        <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-                        <Text className="text-white text-center mt-6 text-xl font-semibold">Stream Error</Text>
-                        <Text className="text-gray-400 text-center mt-3 px-6 text-base">{errorMessage}</Text>
+                    <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                        <Text className="text-white text-center mt-4 text-lg font-semibold">Stream Error</Text>
+                        <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
+                            {errorMessage || 'Unable to load the stream'}
+                        </Text>
                         {bothAttemptsFailed ? (
-                            <Text className="text-orange-500 text-center mt-6 text-lg font-semibold">
-                                Use remote to switch series
+                            <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
+                                Please switch to another series
                             </Text>
                         ) : (
                             <>
-                                <TouchableOpacity className="mt-6 bg-orange-500 px-8 py-4 rounded-lg"
-                                    onPress={() => { setVideoError(false); setVideoLoading(true); }}>
-                                    <Text className="text-white font-bold text-lg">Retry</Text>
+                                <TouchableOpacity
+                                    className="mt-4 bg-orange-500 px-6 py-3 rounded-lg"
+                                    onPress={() => {
+                                        setVideoError(false);
+                                        setVideoLoading(true);
+                                    }}
+                                >
+                                    <Text className="text-white font-semibold">Retry</Text>
                                 </TouchableOpacity>
                                 {serverInfo?.proxyEnabled && (
-                                    <TouchableOpacity className="mt-4 bg-blue-600 px-8 py-4 rounded-lg"
+                                    <TouchableOpacity
+                                        className="mt-3 bg-blue-600 px-6 py-3 rounded-lg"
                                         onPress={() => {
                                             setUseProxy(!useProxy);
                                             setVideoError(false);
                                             setVideoLoading(true);
                                             setProxyAttempted(true);
-                                        }}>
-                                        <Text className="text-white font-bold text-lg">
-                                            {useProxy ? 'Direct' : 'Proxy'}
+                                        }}
+                                    >
+                                        <Text className="text-white font-semibold">
+                                            {useProxy ? 'Try Direct Connection' : 'Try Proxy Connection'}
                                         </Text>
                                     </TouchableOpacity>
                                 )}
@@ -507,44 +551,58 @@ export default function SeriesScreen() {
                 )}
 
                 <Video
+                    key={currentStreamUrl || 'stream'}
                     ref={videoRef}
-                    source={currentUrl}
-                    rate={1.0} volume={1.0} isMuted={false}
+                    source={getCurrentStreamUrl(selectedSeries, useProxy)}
+                    rate={1.0}
+                    volume={1.0}
+                    isMuted={false}
                     resizeMode={ResizeMode.CONTAIN}
                     shouldPlay
+                    isLooping={false}
                     useNativeControls
                     style={{ width: '100%', height: PLAYER_HEIGHT }}
-                    onLoadStart={() => { setVideoLoading(true); setVideoError(false); }}
-                    onReadyForDisplay={() => setVideoLoading(false)}
+                    onLoad={() => {
+                        setVideoLoading(false);
+                        setVideoError(false);
+                    }}
                     onError={(e) => {
                         setVideoError(true);
                         setVideoLoading(false);
-                        let msg = 'Stream failed to load.';
-                        if (e?.error?.code === -1100) msg = 'Network error.';
-                        else if (e?.error?.domain === 'AVFoundationErrorDomain') msg = 'Unsupported format.';
+                        let msg = 'Failed to load stream.';
+                        if (e?.error?.code === -1100) msg = 'Network error. Check your connection.';
+                        else if (e?.error?.domain === 'AVFoundationErrorDomain')
+                            msg = 'Stream format not supported or unavailable.';
                         setErrorMessage(msg);
-                        if (useProxy && selectedSeries?.proxyUrl) loadStream(selectedSeries, false);
+                        loadStream(selectedSeries, false);
                     }}
+                    onLoadStart={() => setVideoLoading(true)}
                     onPlaybackStatusUpdate={(status) => {
                         if (status.isLoaded) {
                             if (status.isPlaying) {
                                 setVideoLoading(false);
                                 setVideoError(false);
                                 setBothAttemptsFailed(false);
+                            } else if (status.error) {
+                                setVideoError(true);
+                                setVideoLoading(false);
+                                setErrorMessage(`Video Error: ${status.error}. Playback failed`);
                             }
-                        } else if (status.error) {
-                            setVideoError(true);
-                            setVideoLoading(false);
-                            setErrorMessage(`Video Error: ${status.error || 'Playback failed'}`);
                         }
                     }}
                 />
-
-                {/* OnlineIptvHUb Watermark - Always visible */}
                 {selectedSeries && (
                     <Image
-                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/80x80/FF6B35/FFFFFF?text=IPTV' }}
-                        style={{ position: 'absolute', bottom: 20, right: 20, width: 80, height: 80, opacity: 0.7, zIndex: 10 }}
+                        source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/80x80/FF6B35/FFFFFF?text=SERIES' }}
+                        style={{
+                            position: 'absolute',
+                            bottom: 20,
+                            right: 20,
+                            width: 80,
+                            height: 80,
+                            opacity: 0.7,
+                            zIndex: 10,
+                        }}
                         resizeMode="contain"
                     />
                 )}
@@ -557,26 +615,21 @@ export default function SeriesScreen() {
                                 {selectedSeries.title}
                             </Text>
                             <View className="flex-row items-center flex-wrap">
-                                <View className="bg-orange-500 px-4 py-2 rounded-full mr-3 mb-2">
+                                <View className="bg-orange-500 px-3 py-1.5 rounded-full mr-3 mb-2">
                                     <Text className="text-white font-bold text-sm">{selectedSeries.genre?.name}</Text>
                                 </View>
-                                <View className="bg-gray-700 px-4 py-2 rounded-full mr-3 mb-2">
+                                <View className="bg-gray-700 px-3 py-1.5 rounded-full mr-3 mb-2">
                                     <Text className="text-gray-200 font-semibold text-sm">{selectedSeries.language?.name}</Text>
                                 </View>
-                                <View className="bg-gray-700 px-4 py-2 rounded-full mb-2">
+                                <View className="bg-gray-700 px-3 py-1.5 rounded-full mb-2">
                                     <Text className="text-gray-200 font-semibold text-sm">
                                         {selectedSeries.seasonsCount} Season{selectedSeries.seasonsCount > 1 ? 's' : ''}
                                     </Text>
                                 </View>
                             </View>
                         </View>
-                        <View className="flex-row items-center space-x-3">
-                            <TouchableOpacity className="bg-gray-800/80 p-4 rounded-full"
-                                onPress={() => setShowRecommendations(!showRecommendations)}>
-                                <Ionicons name={showRecommendations ? "eye-off" : "eye"} size={28} color="#f97316" />
-                            </TouchableOpacity>
-                            <TouchableOpacity className="bg-gray-800/80 p-4 rounded-full"
-                                onPress={() => setShowUserMenu(true)}>
+                        <View className="flex-row items-center space-x-2">
+                            <TouchableOpacity className="bg-gray-800/80 p-3 rounded-full" onPress={() => setShowUserMenu(true)}>
                                 <Ionicons name="menu" size={28} color="#f97316" />
                             </TouchableOpacity>
                         </View>
@@ -606,7 +659,6 @@ export default function SeriesScreen() {
         []
     );
 
-    // FIXED: Safe loading states with min-height guarantees
     if (loading) {
         return (
             <View className="flex-1 bg-black items-center justify-center min-h-screen">
@@ -623,31 +675,29 @@ export default function SeriesScreen() {
                 <StatusBar barStyle="light-content" hidden />
                 <Ionicons name="play-circle-outline" size={120} color="#6b7280" />
                 <Text className="text-white text-2xl font-semibold mt-6">No Series Available</Text>
-                <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchSeries} hasTVPreferredFocus={isTV}>
+                <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchSeries}>
                     <Text className="text-white font-bold text-lg">Refresh Series</Text>
                 </TouchableOpacity>
             </SafeAreaView>
         );
     }
 
-    // FIXED: Safe layout with min-height guarantees
     return (
         <View className="flex-1 bg-black min-h-screen">
             <StatusBar barStyle="light-content" hidden />
 
-            {/* FIXED: Safe video player container */}
+            {/* Video player container */}
             <View style={{ height: PLAYER_HEIGHT, width: '100%', minHeight: 240 }}>
                 {renderVideoPlayer()}
             </View>
 
-            {/* FIXED: Safe series browser container */}
+            {/* Series browser */}
             <View style={{ height: '35%', width: '100%', minHeight: 200 }} className="bg-gray-900">
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {groupedSeries.map((genre, genreIndex) => (
                         <View key={genre.title} className="mb-6">
                             <View className="flex-row items-center justify-between px-6 mb-4">
-                                <Text className={`text-xl font-bold ${isGenreFocused && focusedGenre === genreIndex ? 'text-orange-500' : 'text-white'
-                                    }`}>
+                                <Text className={`text-xl font-bold ${focusedGenre === genreIndex ? 'text-orange-500' : 'text-white'}`}>
                                     {genre.title}
                                 </Text>
                                 <Text className="text-gray-400 text-base">{genre.data.length} series</Text>
@@ -672,7 +722,6 @@ export default function SeriesScreen() {
                                                 }`}
                                             style={{ width: 160 }}
                                             onPress={() => debouncedHandleShowChange(show)}
-                                            hasTVPreferredFocus={genreIndex === 0 && showIndex === 0 && isTV}
                                         >
                                             <View className="relative">
                                                 <Image
@@ -681,8 +730,7 @@ export default function SeriesScreen() {
                                                     resizeMode="cover"
                                                 />
                                                 <View className="absolute inset-0 items-center justify-center">
-                                                    <View className={`rounded-full p-4 ${isPlaying ? 'bg-orange-500' : 'bg-black/50'
-                                                        }`}>
+                                                    <View className={`rounded-full p-4 ${isPlaying ? 'bg-orange-500' : 'bg-black/50'}`}>
                                                         <Ionicons
                                                             name="play"
                                                             size={isPlaying ? 32 : 24}
@@ -692,12 +740,10 @@ export default function SeriesScreen() {
                                                 </View>
                                             </View>
                                             <View className={`p-3 ${isPlaying ? 'bg-orange-500' : 'bg-gray-800'}`}>
-                                                <Text className={`font-bold text-sm ${isPlaying ? 'text-white' : 'text-gray-100'
-                                                    }`} numberOfLines={2}>
+                                                <Text className={`font-bold text-sm ${isPlaying ? 'text-white' : 'text-gray-100'}`} numberOfLines={2}>
                                                     {show.title}
                                                 </Text>
-                                                <Text className={`text-xs mt-1 ${isPlaying ? 'text-white/80' : 'text-gray-400'
-                                                    }`}>
+                                                <Text className={`text-xs mt-1 ${isPlaying ? 'text-white/80' : 'text-gray-400'}`}>
                                                     {show.genre?.name} • {show.language?.name}
                                                 </Text>
                                             </View>
@@ -713,7 +759,7 @@ export default function SeriesScreen() {
                 </ScrollView>
             </View>
 
-            {/* Enhanced User Menu Modal */}
+            {/* User Menu Modal */}
             <Modal visible={showUserMenu} animationType="slide" transparent onRequestClose={() => setShowUserMenu(false)}>
                 <View className="flex-1 bg-black/80 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
@@ -750,7 +796,10 @@ export default function SeriesScreen() {
                             )}
 
                             <TouchableOpacity className="bg-orange-600 py-6 rounded-2xl items-center mb-6"
-                                onPress={() => { setShowUserMenu(false); fetchSeries(); }}>
+                                onPress={() => {
+                                    setShowUserMenu(false);
+                                    fetchSeries();
+                                }}>
                                 <View className="flex-row items-center">
                                     <Ionicons name="refresh" size={28} color="white" />
                                     <Text className="text-white font-bold text-xl ml-4">Refresh Series</Text>

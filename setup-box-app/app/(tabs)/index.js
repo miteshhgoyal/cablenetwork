@@ -12,7 +12,6 @@ import {
     Alert,
     AppState,
     FlatList,
-    Platform,
     Dimensions,
 } from 'react-native';
 import { useAuth } from '@/context/authContext';
@@ -20,21 +19,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
-import * as Device from 'expo-device';
-
-let TVEventHandler = null;
-try {
-    TVEventHandler = require('react-native').TVEventHandler;
-} catch (e) {
-    TVEventHandler = null;
-}
 
 const { height: windowHeight } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65));
 
 export default function Index() {
-    console.log('Platform.isTV:', Platform.isTV);
-
     const { channels, user, packagesList, serverInfo, logout, refreshChannels, refreshing } = useAuth();
 
     // Core states
@@ -49,23 +38,12 @@ export default function Index() {
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
 
-    // FIXED: Reliable TV Detection with useRef
-    const isTV = useRef(
-        Device.deviceType === Device.DeviceType.TV ||
-        Platform.isTV ||
-        Device.modelName?.toLowerCase().includes('tv') ||
-        Device.deviceName?.toLowerCase().includes('tv') ||
-        Device.brand?.toLowerCase().includes('google')
-    ).current;
-
-    // TV Navigation states
+    // Navigation states
     const [focusedCategory, setFocusedCategory] = useState(0);
     const [focusedChannelIndex, setFocusedChannelIndex] = useState(0);
-    const [isCategoryFocused, setIsCategoryFocused] = useState(true);
     const [channelNumberInput, setChannelNumberInput] = useState('');
 
     const videoRef = useRef(null);
-    const tvEventHandler = useRef(null);
     const channelNumberTimeout = useRef(null);
 
     // Group channels by language
@@ -89,7 +67,7 @@ export default function Index() {
         }));
     }, [channels]);
 
-    // FIXED: Safe auto-start after channels load
+    // Safe auto-start after channels load
     useEffect(() => {
         if (channelsByLanguage.length > 0 && channelsByLanguage[0]?.channels?.length > 0) {
             const firstChannel = channelsByLanguage[0].channels[0];
@@ -97,78 +75,17 @@ export default function Index() {
         }
     }, [channelsByLanguage.length]);
 
-    // FIXED: Delayed orientation lock for TV
+    // AppState listener
     useEffect(() => {
-        const initOrientation = async () => {
-            try {
-                if (!isTV) {
-                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
-                }
-            } catch (error) {
-                console.log('Channels orientation lock failed:', error);
-            }
-        };
-        const timeoutId = setTimeout(initOrientation, 1000); // 1s delay prevents TV crash
-        return () => clearTimeout(timeoutId);
-    }, []);
-
-    // FIXED: Safe TV Remote Handler with proper cleanup
-    useEffect(() => {
-        if (!isTV || !TVEventHandler) return;
-
-        const handler = new TVEventHandler();
-        tvEventHandler.current = handler;
-
-        handler.enable(null, (component, evt) => {
-            console.log('TV Channels Event:', evt);
-
-            // Handle number key input (0-9)
-            if (evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /[0-9]/.test(evt.eventKey)) {
-                handleChannelNumberInput(evt.eventKey);
-                return;
-            }
-
-            // Handle SELECT/OK button
-            if (evt.eventType === 'select') {
-                if (isCategoryFocused) {
-                    setIsCategoryFocused(false);
-                    setFocusedChannelIndex(0);
-                    const currentCategory = channelsByLanguage[focusedCategory];
-                    if (currentCategory?.channels[0]) {
-                        debouncedHandleChannelChange(currentCategory.channels[0]);
-                    }
-                } else {
-                    const currentCategory = channelsByLanguage[focusedCategory];
-                    const channel = currentCategory?.channels[focusedChannelIndex];
-                    if (channel) {
-                        debouncedHandleChannelChange(channel);
-                    }
-                }
-                return;
-            }
-
-            // Navigation
-            if (evt.eventType === 'right') handleNavigateRight();
-            else if (evt.eventType === 'left') handleNavigateLeft();
-            else if (evt.eventType === 'down') handleNavigateDown();
-            else if (evt.eventType === 'up') handleNavigateUp();
-            else if (evt.eventType === 'menu') setShowUserInfo(true);
-            else if (evt.eventType === 'back') {
-                if (!isCategoryFocused) {
-                    setIsCategoryFocused(true);
-                    return;
-                }
+        const subscription = AppState.addEventListener('change', (nextAppState) => {
+            if (nextAppState === 'active') {
+                refreshChannels();
             }
         });
+        return () => subscription?.remove();
+    }, []);
 
-        return () => {
-            if (handler && handler.disable) {
-                handler.disable();
-            }
-            tvEventHandler.current = null;
-        };
-    }, [isCategoryFocused, focusedCategory, focusedChannelIndex, channelsByLanguage]);
-
+    // Navigation handlers
     const handleNavigateRight = useCallback(() => {
         const currentCategory = channelsByLanguage[focusedCategory];
         if (currentCategory && focusedChannelIndex < currentCategory.channels.length - 1) {
@@ -194,38 +111,26 @@ export default function Index() {
     }, [focusedCategory, focusedChannelIndex, channelsByLanguage]);
 
     const handleNavigateDown = useCallback(() => {
-        if (isCategoryFocused) {
-            if (focusedCategory < channelsByLanguage.length - 1) {
-                setFocusedCategory(focusedCategory + 1);
-            }
-        } else {
-            if (focusedCategory < channelsByLanguage.length - 1) {
-                setFocusedCategory(focusedCategory + 1);
-                setFocusedChannelIndex(0);
-                const nextCategory = channelsByLanguage[focusedCategory + 1];
-                if (nextCategory?.channels[0]) {
-                    debouncedHandleChannelChange(nextCategory.channels[0]);
-                }
+        if (focusedCategory < channelsByLanguage.length - 1) {
+            setFocusedCategory(focusedCategory + 1);
+            setFocusedChannelIndex(0);
+            const nextCategory = channelsByLanguage[focusedCategory + 1];
+            if (nextCategory?.channels[0]) {
+                debouncedHandleChannelChange(nextCategory.channels[0]);
             }
         }
-    }, [isCategoryFocused, focusedCategory, channelsByLanguage]);
+    }, [focusedCategory, channelsByLanguage]);
 
     const handleNavigateUp = useCallback(() => {
-        if (isCategoryFocused) {
-            if (focusedCategory > 0) {
-                setFocusedCategory(focusedCategory - 1);
-            }
-        } else {
-            if (focusedCategory > 0) {
-                setFocusedCategory(focusedCategory - 1);
-                setFocusedChannelIndex(0);
-                const prevCategory = channelsByLanguage[focusedCategory - 1];
-                if (prevCategory?.channels[0]) {
-                    debouncedHandleChannelChange(prevCategory.channels[0]);
-                }
+        if (focusedCategory > 0) {
+            setFocusedCategory(focusedCategory - 1);
+            setFocusedChannelIndex(0);
+            const prevCategory = channelsByLanguage[focusedCategory - 1];
+            if (prevCategory?.channels[0]) {
+                debouncedHandleChannelChange(prevCategory.channels[0]);
             }
         }
-    }, [isCategoryFocused, focusedCategory, channelsByLanguage]);
+    }, [focusedCategory, channelsByLanguage]);
 
     const handleChannelNumberInput = useCallback((digit) => {
         setChannelNumberInput(prev => {
@@ -251,23 +156,12 @@ export default function Index() {
             if (chIdx !== -1) {
                 setFocusedCategory(catIdx);
                 setFocusedChannelIndex(chIdx);
-                setIsCategoryFocused(false);
                 debouncedHandleChannelChange(category.channels[chIdx]);
                 return;
             }
         }
         setErrorMessage(`Channel ${lcn} not found`);
     }, [channelsByLanguage]);
-
-    // AppState listener
-    useEffect(() => {
-        const subscription = AppState.addEventListener('change', (nextAppState) => {
-            if (nextAppState === 'active') {
-                refreshChannels();
-            }
-        });
-        return () => subscription?.remove();
-    }, []);
 
     const getUserPackage = () => {
         if (!user?.package || !packagesList) return null;
@@ -304,17 +198,14 @@ export default function Index() {
         if (urlLower.includes('.m3u8') || urlLower.includes('m3u')) return { type: 'hls', isValid: true };
         if (urlLower.includes('chunklist')) return { type: 'hls', isValid: true };
         if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
-
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
         if (urlLower.match(/\\.(mp4|m4v|mov)\\?/)) return { type: 'mp4', isValid: true };
-
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
 
         if (url.match(/:\d{4}/)) return { type: 'iptv', isValid: true };
         if (url.match(/\/live\//)) return { type: 'iptv', isValid: true };
 
         if (urlLower.includes('rtmp://')) return { type: 'rtmp', isValid: true };
-
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
 
         return { type: 'unknown', isValid: false };
@@ -351,13 +242,6 @@ export default function Index() {
         }
 
         const baseUrl = proxyEnabled && channel.proxyUrl && serverInfo?.proxyEnabled ? channel.proxyUrl : channel.url;
-
-        console.log('Stream Load:', {
-            channelName: channel.name,
-            streamType: type.type,
-            isProxy: useProxy && !!channel.proxyUrl,
-            finalUrl: baseUrl.substring(0, 100) + '...'
-        });
 
         return {
             uri: baseUrl,
@@ -410,12 +294,11 @@ export default function Index() {
         }
     }, [selectedChannel]);
 
-    // 🔥 BULLETPROOF CLEANUP - Stops ALL video/audio on unmount
+    // 🔥 BULLETPROOF CLEANUP
     useEffect(() => {
         return () => {
             console.log('🔴 ChannelsScreen UNMOUNT - Cleaning up video');
 
-            // Stop ALL video playback
             if (videoRef.current) {
                 try {
                     videoRef.current.pauseAsync?.();
@@ -427,12 +310,10 @@ export default function Index() {
                 }
             }
 
-            // Clear timeouts
             if (channelNumberTimeout.current) {
                 clearTimeout(channelNumberTimeout.current);
             }
 
-            // Reset states
             setSelectedChannel(null);
             setVideoLoading(false);
             setVideoError(false);
@@ -450,7 +331,7 @@ export default function Index() {
             setBothAttemptsFailed(true);
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage('Unable to load stream with both proxy and direct connection. Please switch to another channel using remote control.');
+            setErrorMessage('Unable to load stream. Please switch to another channel.');
         }
     };
 
@@ -715,7 +596,7 @@ export default function Index() {
             return <YouTubeChannelPlayer url={selectedChannel.url} />;
         }
 
-        // expo-av Player for all non-YouTube streams
+        // expo-av Player for non-YouTube streams
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 {renderStreamTypeBadge(type)}
@@ -739,7 +620,7 @@ export default function Index() {
                         </Text>
                         {bothAttemptsFailed ? (
                             <Text className="text-orange-500 text-center mt-4 text-base font-semibold px-6">
-                                Use remote control to switch channels
+                                Please switch to another channel
                             </Text>
                         ) : (
                             <>
@@ -864,10 +745,6 @@ export default function Index() {
         Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open WhatsApp'));
     };
 
-    const handleCustomLink = (url) => {
-        Linking.openURL(url).catch(() => Alert.alert('Error', 'Unable to open link'));
-    };
-
     if (!user || !channels || channels.length === 0) {
         return (
             <View className="flex-1 bg-black items-center justify-center min-h-screen">
@@ -878,7 +755,6 @@ export default function Index() {
                 <TouchableOpacity
                     className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
                     onPress={refreshChannels}
-                    hasTVPreferredFocus={isTV}
                 >
                     <Text className="text-white font-semibold">Refresh Channels</Text>
                 </TouchableOpacity>
@@ -886,7 +762,6 @@ export default function Index() {
         );
     }
 
-    const userPackage = getUserPackage();
     const daysRemaining = getDaysRemaining();
 
     return (
@@ -929,23 +804,18 @@ export default function Index() {
                 </View>
             )}
 
-            {/* FIXED: Safe video player container */}
+            {/* Video player container */}
             <View style={{ height: PLAYER_HEIGHT, width: '100%', minHeight: 240 }}>
                 {renderVideoPlayer()}
             </View>
 
-            {/* FIXED: Safe channels browser container */}
+            {/* Channels browser */}
             <View style={{ height: '35%', width: '100%', minHeight: 200 }} className="bg-gray-900">
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {channelsByLanguage.map((category, categoryIndex) => (
                         <View key={category.language} className="mb-4">
                             <View className="flex-row items-center justify-between px-6 mb-3">
-                                <Text className={`text-lg font-bold ${isCategoryFocused && focusedCategory === categoryIndex
-                                    ? 'bg-orange-500 px-2 rounded'
-                                    : ''
-                                    }`}>
-                                    {category.language}
-                                </Text>
+                                <Text className="text-white text-lg font-bold">{category.language}</Text>
                                 <Text className="text-gray-500 text-sm">{category.channels.length} channels</Text>
                             </View>
                             <FlatList
@@ -954,24 +824,17 @@ export default function Index() {
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
                                 contentContainerStyle={{ paddingHorizontal: 24 }}
-                                renderItem={({ item: channel, index: channelIndex }) => {
-                                    const isFocused = focusedCategory === categoryIndex && focusedChannelIndex === channelIndex;
+                                renderItem={({ item: channel }) => {
                                     const isPlaying = selectedChannel?.id === channel.id;
                                     return (
                                         <TouchableOpacity
                                             key={channel.id}
-                                            className={`mr-4 rounded-lg p-3 ${isPlaying
-                                                ? 'bg-orange-500'
-                                                : isFocused
-                                                    ? 'bg-gray-700 border-2 border-orange-500'
-                                                    : 'bg-gray-800'
-                                                }`}
+                                            className={`mr-4 rounded-lg p-3 ${isPlaying ? 'bg-orange-500' : 'bg-gray-800'}`}
                                             style={{ width: 140 }}
                                             onPress={() => debouncedHandleChannelChange(channel)}
-                                            hasTVPreferredFocus={categoryIndex === 0 && channelIndex === 0 && isTV}
                                         >
                                             {(() => {
-                                                const thumb = channel.imageUrl || channel.logo || channel.image || channel.thumbnail || channel.poster || channel.thumb || null;
+                                                const thumb = channel.imageUrl || channel.logo || channel.image || null;
                                                 return thumb ? (
                                                     <Image
                                                         source={{ uri: thumb }}
@@ -985,10 +848,8 @@ export default function Index() {
                                                 );
                                             })()}
                                             <View className="flex-row items-center justify-between mb-2">
-                                                <View className={`px-2 py-1 rounded ${isPlaying ? 'bg-white/20' : 'bg-gray-700'
-                                                    }`}>
-                                                    <Text className={`text-xs font-bold ${isPlaying ? 'text-white' : 'text-gray-300'
-                                                        }`}>
+                                                <View className={`px-2 py-1 rounded ${isPlaying ? 'bg-white/20' : 'bg-gray-700'}`}>
+                                                    <Text className={`text-xs font-bold ${isPlaying ? 'text-white' : 'text-gray-300'}`}>
                                                         {channel.lcn}
                                                     </Text>
                                                 </View>
@@ -1028,33 +889,16 @@ export default function Index() {
                                 </Text>
                             </View>
                             <Text className="text-gray-300 text-sm">
-                                {selectedChannel.language?.name} {selectedChannel.genre?.name}
+                                {selectedChannel.language?.name} • {selectedChannel.genre?.name}
                             </Text>
                         </View>
                         <TouchableOpacity
-                            onPress={() => setShowRecommendations(!showRecommendations)}
+                            onPress={() => setShowUserInfo(true)}
                             className="bg-gray-800/80 p-3 rounded-full"
                         >
-                            <Ionicons
-                                name={showRecommendations ? "eye-off" : "eye"}
-                                size={28}
-                                color="#f97316"
-                            />
+                            <Ionicons name="menu" size={28} color="#f97316" />
                         </TouchableOpacity>
                     </View>
-                </View>
-            )}
-
-            {/* Recommendations Section */}
-            {showRecommendations && (
-                <View className="absolute bottom-40 left-0 right-0 bg-black/90 p-4 z-20">
-                    <TouchableOpacity
-                        onPress={() => setShowRecommendations(false)}
-                        className="absolute top-2 right-2 p-2"
-                    >
-                        <Ionicons name="close" size={24} color="white" />
-                    </TouchableOpacity>
-                    <Text className="text-white text-lg font-bold mb-3">Recommended Channels</Text>
                 </View>
             )}
 
@@ -1116,56 +960,11 @@ export default function Index() {
                                     <Text className="text-gray-400">Total Channels</Text>
                                     <Text className="text-white font-semibold">{channels.length}</Text>
                                 </View>
-                                <View className="flex-row justify-between py-2">
-                                    <Text className="text-gray-400">Active Packages</Text>
-                                    <Text className="text-white font-semibold">{user.totalPackages}</Text>
-                                </View>
-                            </View>
-
-                            <View className="bg-gray-800 rounded-xl p-4 mb-4 mt-4">
-                                <View className="flex-row items-center mb-3 pb-3 border-b border-gray-700">
-                                    <View className="bg-blue-500/20 p-2 rounded-full mr-3">
-                                        <Ionicons name="phone-portrait" size={20} color="#3b82f6" />
-                                    </View>
-                                    <Text className="text-white text-base font-semibold">
-                                        Device Information
-                                    </Text>
-                                </View>
-                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                    <Text className="text-gray-400 text-sm">MAC Address</Text>
-                                    <Text className="text-white text-xs font-mono font-semibold">
-                                        {user.macAddress || 'NA'}
-                                    </Text>
-                                </View>
-                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                    <Text className="text-gray-400 text-sm">Device Name</Text>
-                                    <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-                                        {user.deviceName}
-                                    </Text>
-                                </View>
-                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                    <Text className="text-gray-400 text-sm">Model</Text>
-                                    <Text className="text-white text-sm font-semibold" numberOfLines={1}>
-                                        {user.modelName}
-                                    </Text>
-                                </View>
-                                <View className="flex-row justify-between items-center py-2 border-b border-gray-700">
-                                    <Text className="text-gray-400 text-sm">Operating System</Text>
-                                    <Text className="text-white text-sm font-semibold">
-                                        {user.osName} {user.osVersion}
-                                    </Text>
-                                </View>
-                                <View className="flex-row justify-between items-center py-2 border-t border-gray-700">
-                                    <Text className="text-gray-400 text-sm">Device Type</Text>
-                                    <Text className="text-white text-sm font-semibold">
-                                        {user.deviceType}
-                                    </Text>
-                                </View>
                             </View>
 
                             {packagesList && packagesList.length > 0 && (
                                 <View>
-                                    <Text className="text-white text-lg font-bold mb-3">Your Packages</Text>
+                                    <Text className="text-white text-lg font-bold mb-3 mt-4">Your Packages</Text>
                                     {packagesList.map((pkg) => (
                                         <View
                                             key={pkg.id || pkg.name}
@@ -1184,7 +983,7 @@ export default function Index() {
                             )}
 
                             <TouchableOpacity
-                                className="bg-red-600 py-4 rounded-xl items-center mb-4"
+                                className="bg-red-600 py-4 rounded-xl items-center mb-4 mt-4"
                                 onPress={handleLogout}
                             >
                                 <View className="flex-row items-center">
