@@ -20,6 +20,7 @@ import {
   Hash,
   Clock,
   AlertCircle,
+  Info,
 } from "lucide-react";
 
 const Subscribers = () => {
@@ -58,6 +59,80 @@ const Subscribers = () => {
       fetchResellers();
     }
   }, [statusFilter, resellerFilter, filterOption]);
+
+  // Auto-calculate expiry date when packages change
+  useEffect(() => {
+    if (formData.packages.length > 0 && packages.length > 0) {
+      const calculatedExpiry = calculateExpiryDate(formData.packages);
+      if (calculatedExpiry) {
+        setFormData((prev) => ({
+          ...prev,
+          expiryDate: calculatedExpiry,
+        }));
+      }
+    }
+  }, [formData.packages, packages]);
+
+  /**
+   * Calculate expiry date based on the longest duration package
+   * @param {Array} selectedPackageIds - Array of selected package IDs
+   * @returns {string} - ISO date string (YYYY-MM-DD)
+   */
+  const calculateExpiryDate = (selectedPackageIds) => {
+    if (!selectedPackageIds || selectedPackageIds.length === 0) {
+      return "";
+    }
+
+    // Find the maximum duration from selected packages
+    const maxDuration = selectedPackageIds.reduce((max, pkgId) => {
+      const pkg = packages.find((p) => p._id === pkgId);
+      if (pkg && pkg.duration > max) {
+        return pkg.duration;
+      }
+      return max;
+    }, 0);
+
+    if (maxDuration === 0) {
+      return "";
+    }
+
+    // Calculate expiry date from today + max duration
+    const today = new Date();
+    const expiryDate = new Date(
+      today.getTime() + maxDuration * 24 * 60 * 60 * 1000
+    );
+
+    // Format as YYYY-MM-DD for date input
+    return expiryDate.toISOString().split("T")[0];
+  };
+
+  /**
+   * Get package details for display
+   * @param {Array} selectedPackageIds - Array of selected package IDs
+   * @returns {Object} - Package summary information
+   */
+  const getPackageSummary = (selectedPackageIds) => {
+    if (!selectedPackageIds || selectedPackageIds.length === 0) {
+      return { maxDuration: 0, longestPackage: null, totalCost: 0 };
+    }
+
+    let maxDuration = 0;
+    let longestPackage = null;
+    let totalCost = 0;
+
+    selectedPackageIds.forEach((pkgId) => {
+      const pkg = packages.find((p) => p._id === pkgId);
+      if (pkg) {
+        totalCost += pkg.cost || 0;
+        if (pkg.duration > maxDuration) {
+          maxDuration = pkg.duration;
+          longestPackage = pkg;
+        }
+      }
+    });
+
+    return { maxDuration, longestPackage, totalCost };
+  };
 
   const fetchSubscribers = async () => {
     try {
@@ -949,7 +1024,7 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* EDIT MODAL - Same as before but with better styling */}
+      {/* EDIT MODAL - With Auto-Calculate Expiry Date */}
       {showEditModal && selectedSubscriber && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -1033,23 +1108,9 @@ const Subscribers = () => {
                     <option value="Fresh">Fresh</option>
                   </select>
                 </div>
-
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Expiry Date *
-                  </label>
-                  <input
-                    type="date"
-                    value={formData.expiryDate}
-                    onChange={(e) =>
-                      setFormData({ ...formData, expiryDate: e.target.value })
-                    }
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
-                    required
-                  />
-                </div>
               </div>
 
+              {/* Packages Selection Section */}
               <div>
                 <label className="block text-sm font-semibold text-gray-700 mb-3">
                   Packages (Select Multiple) *
@@ -1112,6 +1173,77 @@ const Subscribers = () => {
                     Please select at least one package
                   </p>
                 )}
+              </div>
+
+              {/* Auto-Calculated Expiry Date Display */}
+              {formData.packages.length > 0 && (
+                <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl p-4 border-2 border-blue-300">
+                  <div className="flex items-start space-x-3">
+                    <Info className="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" />
+                    <div className="flex-1">
+                      <h4 className="text-sm font-bold text-blue-900 mb-2">
+                        Auto-Calculated Expiry Date
+                      </h4>
+                      {(() => {
+                        const summary = getPackageSummary(formData.packages);
+                        return (
+                          <div className="space-y-2">
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="bg-white rounded-lg p-2 border border-blue-200">
+                                <p className="text-blue-600 font-semibold mb-1">
+                                  Longest Package
+                                </p>
+                                <p className="text-blue-900 font-bold">
+                                  {summary.longestPackage?.name || "N/A"}
+                                </p>
+                                <p className="text-blue-700">
+                                  {summary.maxDuration} days
+                                </p>
+                              </div>
+                              <div className="bg-white rounded-lg p-2 border border-blue-200">
+                                <p className="text-blue-600 font-semibold mb-1">
+                                  Calculated Expiry
+                                </p>
+                                <p className="text-blue-900 font-bold">
+                                  {formatDate(formData.expiryDate)}
+                                </p>
+                                <p className="text-blue-700">
+                                  From today + {summary.maxDuration}d
+                                </p>
+                              </div>
+                            </div>
+                            <div className="bg-blue-100 rounded-lg p-2 border border-blue-300">
+                              <p className="text-xs text-blue-800">
+                                <strong>Note:</strong> The expiry date is
+                                automatically set to the longest duration among
+                                selected packages ({summary.maxDuration} days
+                                from today).
+                              </p>
+                            </div>
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Expiry Date (Read-Only Display) */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Expiry Date (Auto-Calculated) *
+                </label>
+                <input
+                  type="date"
+                  value={formData.expiryDate}
+                  readOnly
+                  className="w-full px-4 py-3 bg-gray-100 border border-gray-300 rounded-xl focus:outline-none cursor-not-allowed text-gray-700 font-semibold"
+                  title="This field is automatically calculated based on selected packages"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  This date is automatically calculated based on the longest
+                  package duration
+                </p>
               </div>
 
               <div className="flex items-center space-x-3 pt-4">

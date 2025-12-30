@@ -8,7 +8,7 @@ const LOCATION_TASK_NAME = 'background-location-task';
 // Define background task
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
     if (error) {
-        console.error('❌ Location task error:', error);
+        console.error('Location task error:', error);
         return;
     }
 
@@ -23,7 +23,7 @@ TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }) => {
                     longitude: location.coords.longitude
                 });
             } catch (error) {
-                console.error('❌ Failed to send location:', error);
+                console.error('Failed to send location:', error);
             }
         }
     }
@@ -44,10 +44,10 @@ export const requestLocationPermissions = async () => {
         if (backgroundStatus !== 'granted') {
             console.warn('⚠️ Background location permission denied');
             // Still return success if foreground is granted
-        }        
+        }
         return { success: true };
     } catch (error) {
-        console.error('❌ Permission error:', error);
+        console.error('Permission error:', error);
         return { success: false, message: error.message };
     }
 };
@@ -83,10 +83,10 @@ export const startLocationTracking = async () => {
             showsBackgroundLocationIndicator: true
         });
 
-        
+
         return { success: true };
     } catch (error) {
-        console.error('❌ Start tracking error:', error);
+        console.error('Start tracking error:', error);
         return { success: false, message: error.message };
     }
 };
@@ -97,14 +97,14 @@ export const stopLocationTracking = async () => {
 
         if (isTracking) {
             await Location.stopLocationUpdatesAsync(LOCATION_TASK_NAME);
-            
+
         } else {
-            
+
         }
 
         return { success: true };
     } catch (error) {
-        console.error('❌ Stop tracking error:', error);
+        console.error('Stop tracking error:', error);
         return { success: false, message: error.message };
     }
 };
@@ -127,7 +127,7 @@ export const getCurrentLocation = async () => {
             longitude: location.coords.longitude
         };
     } catch (error) {
-        console.error('❌ Get location error:', error);
+        console.error('Get location error:', error);
         return { success: false, message: error.message };
     }
 };

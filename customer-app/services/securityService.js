@@ -28,7 +28,7 @@ export const checkDeviceSecurity = async () => {
                 appVersion
             });
         } catch (error) {
-            console.error('❌ Failed to send security info:', error.message);
+            console.error('Failed to send security info:', error.message);
         }
 
         return {
@@ -39,7 +39,7 @@ export const checkDeviceSecurity = async () => {
             osVersion
         };
     } catch (error) {
-        console.error('❌ Security check error:', error);
+        console.error('Security check error:', error);
         return { success: false, error: error.message };
     }
 };

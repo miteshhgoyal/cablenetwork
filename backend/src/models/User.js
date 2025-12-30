@@ -131,7 +131,7 @@ userSchema.pre('save', async function (next) {
 
         next();
     } catch (error) {
-        console.error('❌ Error generating serial number:', error);
+        console.error('Error generating serial number:', error);
         next(error);
     }
 });

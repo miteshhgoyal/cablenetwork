@@ -7,6 +7,99 @@ import jwt from 'jsonwebtoken';
 const router = express.Router();
 
 // ==========================================
+// HELPER FUNCTIONS
+// ==========================================
+
+/**
+ * Remove expired packages from subscriber
+ * Returns: { hadChanges: boolean, subscriber: updatedSubscriber }
+ */
+const removeExpiredPackages = async (subscriber) => {
+    const now = new Date();
+    let hadChanges = false;
+
+    // If no packages, return early
+    if (!subscriber.packages || subscriber.packages.length === 0) {
+        return { hadChanges: false, subscriber };
+    }
+
+    // Populate packages to get duration info
+    await subscriber.populate('packages', 'duration');
+
+    // Filter packages based on their expiry
+    // We calculate expiry as: current date vs package assignment date + duration
+    const validPackages = [];
+    const expiredPackageNames = [];
+
+    for (const pkg of subscriber.packages) {
+        // Calculate when this package expires
+        // Using createdAt as assignment date, or current date if not available
+        const assignedDate = subscriber.createdAt || now;
+        const packageDuration = pkg.duration || 30; // Default 30 days
+        const packageExpiry = new Date(assignedDate.getTime() + packageDuration * 24 * 60 * 60 * 1000);
+
+        // Check if package has expired
+        if (now > packageExpiry) {
+            expiredPackageNames.push(pkg.name || pkg._id);
+            hadChanges = true;
+        } else {
+            validPackages.push(pkg._id);
+        }
+    }
+
+    // Update packages array if any were removed
+    if (hadChanges) {
+        subscriber.packages = validPackages;
+
+        console.log(`🗑️  Removed ${expiredPackageNames.length} expired package(s) from subscriber ${subscriber.subscriberName}:`, expiredPackageNames);
+
+        // If no packages left, set to Inactive
+        if (validPackages.length === 0) {
+            subscriber.status = 'Inactive';
+            console.log(`Subscriber ${subscriber.subscriberName} set to Inactive - no packages remaining`);
+        }
+
+        // Update primaryPackageId if it was removed
+        if (subscriber.primaryPackageId) {
+            const primaryExists = validPackages.some(pkgId =>
+                pkgId.toString() === subscriber.primaryPackageId.toString()
+            );
+
+            if (!primaryExists) {
+                subscriber.primaryPackageId = validPackages.length > 0 ? validPackages[0] : null;
+                console.log(`🔄 Updated primaryPackageId for subscriber ${subscriber.subscriberName}`);
+            }
+        }
+
+        await subscriber.save();
+    }
+
+    return { hadChanges, subscriber };
+};
+
+const generateProxyUrl = (originalUrl) => {
+    if (!originalUrl) return null;
+    const API_URL = process.env.API_URL || 'http://localhost:8000';
+    const isM3U8 = originalUrl.includes('.m3u8') || originalUrl.includes('m3u');
+    const proxyEndpoint = isM3U8 ? '/api/proxy/m3u8' : '/api/proxy/stream';
+    return `${API_URL}${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
+};
+
+const buildChannelResponse = (channelMap) => {
+    return Array.from(channelMap.values()).map(channel => ({
+        _id: channel._id,
+        name: channel.name,
+        lcn: channel.lcn,
+        imageUrl: channel.imageUrl,
+        url: channel.url,
+        proxyUrl: generateProxyUrl(channel.url),
+        genre: channel.genre,
+        language: channel.language,
+        packageNames: channel.packageNames
+    }));
+};
+
+// ==========================================
 // AUTHENTICATION MIDDLEWARE
 // ==========================================
 const authenticateToken = async (req, res, next) => {
@@ -69,32 +162,6 @@ const authenticateToken = async (req, res, next) => {
 };
 
 // ==========================================
-// HELPER FUNCTIONS
-// ==========================================
-
-const generateProxyUrl = (originalUrl) => {
-    if (!originalUrl) return null;
-    const API_URL = process.env.API_URL || 'http://localhost:8000';
-    const isM3U8 = originalUrl.includes('.m3u8') || originalUrl.includes('m3u');
-    const proxyEndpoint = isM3U8 ? '/api/proxy/m3u8' : '/api/proxy/stream';
-    return `${API_URL}${proxyEndpoint}?url=${encodeURIComponent(originalUrl)}`;
-};
-
-const buildChannelResponse = (channelMap) => {
-    return Array.from(channelMap.values()).map(channel => ({
-        _id: channel._id,
-        name: channel.name,
-        lcn: channel.lcn,
-        imageUrl: channel.imageUrl,
-        url: channel.url,
-        proxyUrl: generateProxyUrl(channel.url),
-        genre: channel.genre,
-        language: channel.language,
-        packageNames: channel.packageNames
-    }));
-};
-
-// ==========================================
 // PUBLIC ROUTES
 // ==========================================
 
@@ -146,6 +213,22 @@ router.post('/login', async (req, res) => {
                 });
             }
 
+            // ✅ CHECK AND REMOVE EXPIRED PACKAGES
+            const { hadChanges } = await removeExpiredPackages(activeSubscriber);
+
+            if (hadChanges) {
+                console.log(`✅ Cleaned expired packages from custom MAC: ${customMacAddress}`);
+            }
+
+            // Check if packages still exist after cleanup
+            if (activeSubscriber.packages.length === 0) {
+                return res.status(403).json({
+                    success: false,
+                    code: 'CUSTOM_MAC_NO_PACKAGES',
+                    message: `Custom MAC has no active packages.\n\nMAC: ${customMac}\n\nAll packages have expired. Please contact admin to renew.`,
+                });
+            }
+
             if (new Date() > new Date(activeSubscriber.expiryDate)) {
                 return res.status(403).json({
                     success: false,
@@ -184,7 +267,7 @@ router.post('/login', async (req, res) => {
             subscriber = activeSubscriber;
             usingCustomMac = true;
 
-            console.log(`Login with custom MAC: ${customMacAddress} from device: ${deviceMac}`);
+            console.log(`✅ Login with custom MAC: ${customMacAddress} from device: ${deviceMac}`);
 
             // ==========================================
             // CASE 2: No Custom MAC - Use Own Device MAC
@@ -209,7 +292,7 @@ router.post('/login', async (req, res) => {
                 });
                 await subscriber.save();
 
-                console.log(`New Fresh subscriber created: ${deviceMac}`);
+                console.log(`✅ New Fresh subscriber created: ${deviceMac}`);
 
                 return res.status(201).json({
                     success: false,
@@ -224,11 +307,18 @@ router.post('/login', async (req, res) => {
                 });
             }
 
+            // ✅ CHECK AND REMOVE EXPIRED PACKAGES FOR EXISTING SUBSCRIBER
+            const { hadChanges } = await removeExpiredPackages(subscriber);
+
+            if (hadChanges) {
+                console.log(`✅ Cleaned expired packages from device MAC: ${deviceMac}`);
+            }
+
             // Auto-activate if packages are assigned to Fresh subscriber
             if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
                 subscriber.status = 'Active';
                 await subscriber.save();
-                console.log(`Auto-activated Fresh subscriber with packages: ${deviceMac}`);
+                console.log(`✅ Auto-activated Fresh subscriber with packages: ${deviceMac}`);
             }
 
             // SUB-CASE B: Device MAC found but is Fresh without packages
@@ -276,12 +366,12 @@ router.post('/login', async (req, res) => {
                 });
             }
 
-            // SUB-CASE E: Check if subscriber has no packages assigned
+            // SUB-CASE E: Check if subscriber has no packages assigned (after expiry cleanup)
             if (!subscriber.packages || subscriber.packages.length === 0) {
                 return res.status(403).json({
                     success: false,
                     code: 'NO_PACKAGES',
-                    message: 'Your device is Active but no packages are assigned. Please contact admin/reseller to assign packages.',
+                    message: 'Your device is Active but no packages are assigned. All packages may have expired. Please contact admin/reseller to assign new packages.',
                     data: {
                         deviceMac: deviceMac,
                         status: subscriber.status,
@@ -299,11 +389,11 @@ router.post('/login', async (req, res) => {
             };
             await subscriber.save();
 
-            console.log(`Login with own device MAC: ${deviceMac}`);
+            console.log(`✅ Login with own device MAC: ${deviceMac}`);
         }
 
         // ==========================================
-        // PROCEED WITH LOGIN
+        // PROCEED WITH LOGIN - BUILD RESPONSE
         // ==========================================
 
         await subscriber.populate({
@@ -409,6 +499,114 @@ router.post('/login', async (req, res) => {
 // ==========================================
 // PROTECTED ROUTES
 // ==========================================
+
+// Check subscription status (called on app launch) - WITH EXPIRY CHECK
+router.get('/check-status', authenticateToken, async (req, res) => {
+    try {
+        let subscriber = await Subscriber.findById(req.user.id)
+            .select('subscriberName status expiryDate macAddress deviceInfo packages createdAt')
+            .populate('packages', 'name duration');
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                code: 'NOT_FOUND',
+                message: 'Subscriber not found'
+            });
+        }
+
+        // ✅ CHECK AND REMOVE EXPIRED PACKAGES
+        const { hadChanges } = await removeExpiredPackages(subscriber);
+
+        if (hadChanges) {
+            console.log(`✅ Check-status: Cleaned expired packages from subscriber ${subscriber.subscriberName}`);
+
+            // Refresh subscriber data after changes
+            subscriber = await Subscriber.findById(req.user.id)
+                .select('subscriberName status expiryDate macAddress deviceInfo packages')
+                .lean();
+        }
+
+        const now = new Date();
+        const expiryDate = new Date(subscriber.expiryDate);
+        const isExpired = now > expiryDate;
+
+        // Auto-activate if Fresh with packages
+        if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
+            await Subscriber.findByIdAndUpdate(req.user.id, { status: 'Active' });
+            subscriber.status = 'Active';
+            console.log(`✅ Auto-activated Fresh subscriber on status check: ${req.user.id}`);
+        }
+
+        if (subscriber.status === 'Fresh') {
+            return res.json({
+                success: false,
+                code: 'FRESH',
+                message: 'Your subscription is Fresh. Please contact admin to assign packages and activate.',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        if (subscriber.status === 'Inactive') {
+            return res.json({
+                success: false,
+                code: 'INACTIVE',
+                message: 'Your subscription is inactive',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        if (isExpired) {
+            return res.json({
+                success: false,
+                code: 'EXPIRED',
+                message: 'Your subscription has expired',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            code: 'ACTIVE',
+            data: {
+                status: subscriber.status,
+                expiryDate: subscriber.expiryDate,
+                subscriberName: subscriber.subscriberName,
+                macAddress: subscriber.macAddress,
+                totalPackages: subscriber.packages?.length || 0,
+                daysRemaining: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
+            }
+        });
+
+    } catch (error) {
+        console.error('Check status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check status'
+        });
+    }
+});
 
 // Refresh channels route
 router.get('/refresh-channels', authenticateToken, async (req, res) => {
@@ -581,7 +779,7 @@ router.post('/update-security-info', authenticateToken, async (req, res) => {
         });
 
         if (isRooted || isVPNActive) {
-            console.warn(`Security Alert: Subscriber ${req.user.id}`, {
+            console.warn(`⚠️ Security Alert: Subscriber ${req.user.id}`, {
                 isRooted,
                 isVPNActive,
                 ip: clientIP
@@ -759,98 +957,6 @@ router.get('/ott/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to fetch content'
-        });
-    }
-});
-
-// Check subscription status (called on app launch)
-router.get('/check-status', authenticateToken, async (req, res) => {
-    try {
-        const subscriber = await Subscriber.findById(req.user.id)
-            .select('subscriberName status expiryDate macAddress deviceInfo packages')
-            .lean();
-
-        if (!subscriber) {
-            return res.status(404).json({
-                success: false,
-                code: 'NOT_FOUND',
-                message: 'Subscriber not found'
-            });
-        }
-
-        const now = new Date();
-        const expiryDate = new Date(subscriber.expiryDate);
-        const isExpired = now > expiryDate;
-
-        // Auto-activate if Fresh with packages
-        if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
-            await Subscriber.findByIdAndUpdate(req.user.id, { status: 'Active' });
-            subscriber.status = 'Active';
-            console.log(`Auto-activated Fresh subscriber on status check: ${req.user.id}`);
-        }
-
-        if (subscriber.status === 'Fresh') {
-            return res.json({
-                success: false,
-                code: 'FRESH',
-                message: 'Your subscription is Fresh. Please contact admin to assign packages and activate.',
-                data: {
-                    status: subscriber.status,
-                    expiryDate: subscriber.expiryDate,
-                    subscriberName: subscriber.subscriberName,
-                    macAddress: subscriber.macAddress,
-                    deviceInfo: subscriber.deviceInfo
-                }
-            });
-        }
-
-        if (subscriber.status === 'Inactive') {
-            return res.json({
-                success: false,
-                code: 'INACTIVE',
-                message: 'Your subscription is inactive',
-                data: {
-                    status: subscriber.status,
-                    expiryDate: subscriber.expiryDate,
-                    subscriberName: subscriber.subscriberName,
-                    macAddress: subscriber.macAddress,
-                    deviceInfo: subscriber.deviceInfo
-                }
-            });
-        }
-
-        if (isExpired) {
-            return res.json({
-                success: false,
-                code: 'EXPIRED',
-                message: 'Your subscription has expired',
-                data: {
-                    status: subscriber.status,
-                    expiryDate: subscriber.expiryDate,
-                    subscriberName: subscriber.subscriberName,
-                    macAddress: subscriber.macAddress,
-                    deviceInfo: subscriber.deviceInfo
-                }
-            });
-        }
-
-        res.json({
-            success: true,
-            code: 'ACTIVE',
-            data: {
-                status: subscriber.status,
-                expiryDate: subscriber.expiryDate,
-                subscriberName: subscriber.subscriberName,
-                macAddress: subscriber.macAddress,
-                daysRemaining: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
-            }
-        });
-
-    } catch (error) {
-        console.error('Check status error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to check status'
         });
     }
 });
