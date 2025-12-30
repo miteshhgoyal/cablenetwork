@@ -186,23 +186,35 @@ export default function ChannelsScreen() {
     const getRecommendedChannels = () => {
         if (!selectedChannel || !channels || channels.length === 0) return [];
         const currentLanguage = selectedChannel.language?.name?.toLowerCase();
+        const currentGenre = selectedChannel.genre?.name?.toLowerCase();
         const currentId = selectedChannel.id;
 
-        return channels
-            .filter(ch => {
-                if (!ch || ch.id === currentId) return false;
-                const lang = ch.language?.name?.toLowerCase();
-                // Match by language first
-                if (currentLanguage && lang === currentLanguage) return true;
-                // Fallback to same genre
-                if (ch.genre?.name?.toLowerCase() === selectedChannel.genre?.name?.toLowerCase()) return true;
-                // Fallback to nearby LCN
-                if (typeof ch.lcn === 'number' && typeof selectedChannel.lcn === 'number') {
-                    return Math.abs(ch.lcn - selectedChannel.lcn) <= 10;
-                }
-                return false;
-            })
-            .slice(0, 15);
+        // First priority: Same language AND genre
+        const sameLanguageGenre = channels.filter(ch => {
+            if (!ch || ch.id === currentId) return false;
+            const lang = ch.language?.name?.toLowerCase();
+            const genre = ch.genre?.name?.toLowerCase();
+            return lang === currentLanguage && genre === currentGenre;
+        });
+
+        // Second priority: Same language, different genre
+        const sameLanguage = channels.filter(ch => {
+            if (!ch || ch.id === currentId) return false;
+            const lang = ch.language?.name?.toLowerCase();
+            const genre = ch.genre?.name?.toLowerCase();
+            return lang === currentLanguage && genre !== currentGenre;
+        });
+
+        // Third priority: Same genre, different language
+        const sameGenre = channels.filter(ch => {
+            if (!ch || ch.id === currentId) return false;
+            const lang = ch.language?.name?.toLowerCase();
+            const genre = ch.genre?.name?.toLowerCase();
+            return genre === currentGenre && lang !== currentLanguage;
+        });
+
+        // Combine and limit to 20
+        return [...sameLanguageGenre, ...sameLanguage, ...sameGenre].slice(0, 20);
     };
 
     const analyzeStreamUrl = url => {
@@ -637,27 +649,6 @@ export default function ChannelsScreen() {
                 </View>
             </View>
 
-            {/* Category Filter Chips */}
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} className="px-4 py-2 bg-gray-900">
-                {categories.map(category => (
-                    <TouchableOpacity
-                        key={category}
-                        className={`px-4 py-2 rounded-full mr-2 ${selectedCategory === category
-                            ? 'bg-orange-500'
-                            : 'bg-gray-800'
-                            }`}
-                        onPress={() => setSelectedCategory(category)}
-                    >
-                        <Text
-                            className={`text-sm font-semibold ${selectedCategory === category ? 'text-white' : 'text-gray-300'
-                                }`}
-                        >
-                            {category}
-                        </Text>
-                    </TouchableOpacity>
-                ))}
-            </ScrollView>
-
             {/* Grouped Channels List */}
             <FlatList
                 data={filteredSections}
@@ -739,21 +730,33 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {/* More Like This - Movies Style */}
+                            {/* More Like This - Improved Recommendations */}
                             {getRecommendedChannels().length > 0 && (
                                 <View className="mt-6">
-                                    <View className="flex-row items-center mb-3">
-                                        <Text className="text-white text-lg font-bold">
-                                            More {selectedChannel?.language?.name} Channels
-                                        </Text>
-                                        <View className="ml-2 bg-orange-500 w-1.5 h-1.5 rounded-full" />
+                                    <View className="flex-row items-center justify-between mb-4">
+                                        <View className="flex-row items-center">
+                                            <Ionicons name="list" size={22} color="#f97316" />
+                                            <Text className="text-white text-lg font-bold ml-2">
+                                                More Like This
+                                            </Text>
+                                        </View>
+                                        <View className="bg-orange-500/20 px-3 py-1.5 rounded-full">
+                                            <Text className="text-orange-500 text-xs font-bold">
+                                                {getRecommendedChannels().length} channels
+                                            </Text>
+                                        </View>
                                     </View>
+
+                                    <Text className="text-gray-400 text-sm mb-3">
+                                        {selectedChannel?.language?.name} • {selectedChannel?.genre?.name}
+                                    </Text>
 
                                     <ScrollView horizontal showsHorizontalScrollIndicator={false}>
                                         {getRecommendedChannels().map(channel => (
                                             <TouchableOpacity
                                                 key={channel.id}
-                                                className="flex-row items-center p-3 bg-gray-800 mb-2 rounded-xl mr-3 active:bg-gray-700"
+                                                className="mr-3"
+                                                style={{ width: 140 }}
                                                 onPress={() => {
                                                     setSelectedChannel(channel);
                                                     setVideoError(false);
@@ -761,29 +764,49 @@ export default function ChannelsScreen() {
                                                     const type = analyzeStreamUrl(channel.url);
                                                     loadStream(channel, !type.type.startsWith('youtube'));
                                                 }}
+                                                activeOpacity={0.7}
                                             >
-                                                <Image
-                                                    source={{ uri: channel.imageUrl }}
-                                                    className="w-16 h-24 rounded-lg bg-gray-700 mr-3"
-                                                    resizeMode="cover"
-                                                />
-                                                <View className="flex-1">
-                                                    <Text className="text-white font-semibold text-base" numberOfLines={2}>
-                                                        {channel.name}
-                                                    </Text>
-                                                    <View className="flex-row items-center mt-1">
-                                                        <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-2">
-                                                            <Text className="text-orange-500 text-xs font-semibold">
-                                                                {channel.genre?.name}
-                                                            </Text>
+                                                <View className="relative">
+                                                    <Image
+                                                        source={{ uri: channel.imageUrl }}
+                                                        className="w-full h-52 rounded-xl bg-gray-800"
+                                                        resizeMode="cover"
+                                                    />
+                                                    <View className="absolute inset-0 items-center justify-center">
+                                                        <View className="bg-black/50 rounded-full p-3">
+                                                            <Ionicons name="play" size={32} color="white" />
                                                         </View>
-                                                        <Text className="text-gray-400 text-xs">
+                                                    </View>
+                                                    {channel.lcn && (
+                                                        <View className="absolute bottom-2 left-2 bg-orange-500/90 px-2 py-1 rounded-lg">
+                                                            <View className="flex-row items-center">
+                                                                <Ionicons name="tv" size={12} color="white" />
+                                                                <Text className="text-white text-xs font-bold ml-1">LCN {channel.lcn}</Text>
+                                                            </View>
+                                                        </View>
+                                                    )}
+                                                    {channel.language?.name === selectedChannel?.language?.name &&
+                                                        channel.genre?.name === selectedChannel?.genre?.name && (
+                                                            <View className="absolute top-2 right-2 bg-green-500/90 px-2 py-1 rounded-lg">
+                                                                <Text className="text-white text-xs font-bold">Match</Text>
+                                                            </View>
+                                                        )}
+                                                </View>
+                                                <Text className="text-white font-semibold mt-2 text-sm" numberOfLines={2}>
+                                                    {channel.name}
+                                                </Text>
+                                                <View className="flex-row items-center mt-1 flex-wrap">
+                                                    <View className="bg-orange-500/20 px-2 py-0.5 rounded mr-1 mb-1">
+                                                        <Text className="text-orange-500 text-xs font-semibold">
+                                                            {channel.genre?.name}
+                                                        </Text>
+                                                    </View>
+                                                    <View className="flex-row items-center">
+                                                        <Ionicons name="language" size={10} color="#9ca3af" />
+                                                        <Text className="text-gray-400 text-xs ml-1">
                                                             {channel.language?.name}
                                                         </Text>
                                                     </View>
-                                                </View>
-                                                <View className="bg-orange-500/20 rounded-full p-2">
-                                                    <Ionicons name="play" size={24} color="#f97316" />
                                                 </View>
                                             </TouchableOpacity>
                                         ))}
