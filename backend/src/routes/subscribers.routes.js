@@ -6,6 +6,28 @@ import Package from '../models/Package.js';
 
 const router = express.Router();
 
+// Move helper to TOP (before routes)
+async function checkSubscriberPermission(userId, subscriber) {
+    const user = await User.findById(userId);
+
+    if (user.role === 'admin') return true;
+
+    if (user.role === 'reseller' && subscriber.resellerId && subscriber.resellerId._id.toString() === userId) {
+        return true;
+    }
+
+    if (user.role === 'distributor') {
+        const distributorResellers = await User.find({
+            role: 'reseller',
+            createdBy: userId
+        });
+        const resellerIds = distributorResellers.map(r => r._id.toString());
+        return subscriber.resellerId && resellerIds.includes(subscriber.resellerId._id.toString());
+    }
+
+    return false;
+}
+
 // GET ALL SUBSCRIBERS
 router.get('/', authenticateToken, async (req, res) => {
     try {
@@ -188,13 +210,15 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-// ACTIVATE SUBSCRIBER
+// ACTIVATE - Populate BEFORE permission check
 router.patch('/:id/activate', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const { expiryDate } = req.body;
 
-        const subscriber = await Subscriber.findById(req.params.id);
+        // Populate resellerId FIRST for permission check
+        const subscriber = await Subscriber.findById(req.params.id)
+            .populate('resellerId', 'name email');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -203,7 +227,6 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check permissions
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -212,19 +235,10 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
             });
         }
 
-        // Always set status to Active when activating
         subscriber.status = 'Active';
-
-        // Set expiry date if provided, otherwise default to 30 days
-        if (expiryDate) {
-            subscriber.expiryDate = new Date(expiryDate);
-        } else {
-            subscriber.expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-        }
-
+        subscriber.expiryDate = expiryDate ? new Date(expiryDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
         await subscriber.save();
 
-        await subscriber.populate('resellerId', 'name email');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
 
@@ -249,7 +263,9 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const { duration } = req.body;
 
+        // Populate resellerId FIRST for permission check
         const subscriber = await Subscriber.findById(req.params.id)
+            .populate('resellerId', 'name email')
             .populate('packages', 'name cost duration')
             .populate('primaryPackageId', 'name cost duration');
 
@@ -260,7 +276,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check permissions
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -269,7 +284,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validate duration
         if (!duration || duration <= 0) {
             return res.status(400).json({
                 success: false,
@@ -277,7 +291,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             });
         }
 
-        // Ensure subscriber has packages
         if (!subscriber.packages || subscriber.packages.length === 0) {
             return res.status(400).json({
                 success: false,
@@ -285,10 +298,8 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             });
         }
 
-        // Calculate renewal cost based on all packages
         const totalPackageCost = subscriber.packages.reduce((sum, pkg) => sum + pkg.cost, 0);
 
-        // Check reseller balance (skip for admin)
         if (subscriber.resellerId && totalPackageCost > 0) {
             const reseller = await User.findById(subscriber.resellerId);
             if (!reseller) {
@@ -305,7 +316,6 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
                 });
             }
 
-            // Atomically deduct balance
             const updatedReseller = await User.findOneAndUpdate(
                 {
                     _id: subscriber.resellerId,
@@ -325,23 +335,16 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             }
         }
 
-        // Always set status to Active when renewing
         subscriber.status = 'Active';
 
-        // Calculate new expiry date
         const currentExpiry = subscriber.expiryDate ? new Date(subscriber.expiryDate) : new Date();
         const now = new Date();
         const baseDate = currentExpiry > now ? currentExpiry : now;
 
         const newExpiryDate = new Date(baseDate.getTime() + duration * 24 * 60 * 60 * 1000);
-
         subscriber.expiryDate = newExpiryDate;
 
         await subscriber.save();
-
-        await subscriber.populate('resellerId', 'name email');
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
 
         const deductedAmount = subscriber.resellerId ? totalPackageCost : 0;
 
@@ -364,15 +367,16 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
     }
 });
 
-// UPDATE SUBSCRIBER
+// UPDATE SUBSCRIBER - Complete date validation fix
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const { subscriberName, macAddress, serialNumber, status, expiryDate, packages } = req.body;
 
+        // Populate resellerId FIRST for permission check
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration')
-            .populate('resellerId');
+            .populate('resellerId', 'name email')
+            .populate('packages', 'name cost duration');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -381,7 +385,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check permissions
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -418,17 +421,31 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validate expiry date
+        // Improved expiry date validation
+        let finalExpiryDate = subscriber.expiryDate;
         if (expiryDate) {
-            const newExpiryDate = new Date(expiryDate);
-            const currentExpiryDate = subscriber.expiryDate ? new Date(subscriber.expiryDate) : null;
+            const newExpiryDate = new Date(expiryDate + 'T23:59:59'); // End of day
+            const now = new Date();
+            const currentExpiryDate = subscriber.expiryDate ? new Date(subscriber.expiryDate) : now;
 
-            if (currentExpiryDate && newExpiryDate < currentExpiryDate) {
+            // Allow ANY future date OR same day (handles auto-calculate edge case)
+            if (newExpiryDate < now) {
                 return res.status(400).json({
                     success: false,
-                    message: 'New expiry date cannot be before the current expiry date'
+                    message: 'Expiry date cannot be in the past'
                 });
             }
+
+            // Only block if significantly earlier than current (allow same day)
+            const timeDiff = currentExpiryDate.getTime() - newExpiryDate.getTime();
+            if (timeDiff > 24 * 60 * 60 * 1000) { // More than 1 day earlier
+                return res.status(400).json({
+                    success: false,
+                    message: 'New expiry date cannot be more than 1 day before current expiry date'
+                });
+            }
+
+            finalExpiryDate = newExpiryDate;
         }
 
         // Calculate cost difference
@@ -493,10 +510,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
         subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
 
-        // Set status logic:
-        // 1. If packages assigned -> Active
-        // 2. If explicitly set -> use provided status
-        // 3. Default to Fresh
         if (packages && packages.length > 0) {
             subscriber.status = 'Active';
         } else if (status) {
@@ -505,10 +518,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             subscriber.status = 'Fresh';
         }
 
-        if (expiryDate) {
-            subscriber.expiryDate = new Date(expiryDate);
-        }
-
+        subscriber.expiryDate = finalExpiryDate;
         subscriber.packages = packages;
 
         if (!subscriber.primaryPackageId || !packages.includes(subscriber.primaryPackageId.toString())) {
@@ -543,7 +553,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
 
-        const subscriber = await Subscriber.findById(req.params.id);
+        const subscriber = await Subscriber.findById(req.params.id)
+            .populate('resellerId', 'name email');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -552,7 +563,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check permissions
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -561,7 +571,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // If admin, allow true deletion
         if (req.user.role === 'admin') {
             await subscriber.deleteOne();
             return res.json({
@@ -570,7 +579,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Dealer/Reseller: Release MAC instead of deleting
         subscriber.status = 'Fresh';
         subscriber.resellerId = null;
         subscriber.expiryDate = null;
@@ -591,27 +599,5 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         });
     }
 });
-
-// Helper function to check subscriber permissions
-async function checkSubscriberPermission(userId, subscriber) {
-    const user = await User.findById(userId);
-
-    if (user.role === 'admin') return true;
-
-    if (user.role === 'reseller' && subscriber.resellerId && subscriber.resellerId._id.toString() === userId) {
-        return true;
-    }
-
-    if (user.role === 'distributor') {
-        const distributorResellers = await User.find({
-            role: 'reseller',
-            createdBy: userId
-        });
-        const resellerIds = distributorResellers.map(r => r._id.toString());
-        return subscriber.resellerId && resellerIds.includes(subscriber.resellerId._id.toString());
-    }
-
-    return false;
-}
 
 export default router;
