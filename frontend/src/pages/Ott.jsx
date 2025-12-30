@@ -1,3 +1,4 @@
+// frontend/src/pages/ott/Ott.jsx
 import React, { useState, useEffect } from "react";
 import api from "../services/api.js";
 import {
@@ -15,6 +16,9 @@ import {
   Download,
   AlertCircle,
   CheckCircle,
+  Lock,
+  Unlock,
+  ShieldOff,
 } from "lucide-react";
 
 const Ott = () => {
@@ -30,6 +34,10 @@ const Ott = () => {
   const [showImportModal, setShowImportModal] = useState(false);
   const [modalMode, setModalMode] = useState("create");
   const [selectedOtt, setSelectedOtt] = useState(null);
+  const [userRole, setUserRole] = useState("user");
+  const [canAccessUrls, setCanAccessUrls] = useState(false);
+  const [allUrlsEnabled, setAllUrlsEnabled] = useState(null);
+  const [urlAccessToggling, setUrlAccessToggling] = useState(null);
   const [formData, setFormData] = useState({
     type: "Movie",
     title: "",
@@ -59,6 +67,8 @@ const Ott = () => {
 
       const response = await api.get(`/ott?${params.toString()}`);
       setOttContent(response.data.data.ottContent);
+      setUserRole(response.data.data.userRole || "user");
+      setCanAccessUrls(response.data.data.canAccessUrls || false);
     } catch (error) {
       console.error("Failed to fetch OTT content:", error);
     } finally {
@@ -76,6 +86,48 @@ const Ott = () => {
     }
   };
 
+  const handleToggleAllUrls = async (enable) => {
+    if (userRole !== "admin") return;
+    setAllUrlsEnabled(enable);
+    try {
+      await api.patch("/ott/toggle-all-urls-access", { enable });
+      fetchOttContent();
+    } catch (error) {
+      alert(error.response?.data?.message || "Failed to toggle all URLs");
+    } finally {
+      setAllUrlsEnabled(null);
+    }
+  };
+
+  const handleToggleUrlAccess = async (ott) => {
+    if (userRole !== "admin") return;
+
+    setUrlAccessToggling(ott._id);
+    try {
+      await api.patch(`/ott/${ott._id}/toggle-urls-access`);
+      fetchOttContent();
+    } catch (error) {
+      console.error("Toggle URL access error:", error);
+      alert(error.response?.data?.message || "Failed to toggle URL access");
+    } finally {
+      setUrlAccessToggling(null);
+    }
+  };
+
+  const canEditUrlFields = () => {
+    if (userRole === "admin") return true;
+    if (userRole === "distributor" && selectedOtt) {
+      return selectedOtt.urlsAccessible;
+    }
+    return false;
+  };
+
+  const shouldShowUrlFields = () => {
+    if (userRole === "admin") return true;
+    if (userRole === "distributor") return true;
+    return canAccessUrls;
+  };
+
   const handleOpenModal = (mode, ott = null) => {
     setModalMode(mode);
     if (mode === "edit" && ott) {
@@ -85,12 +137,13 @@ const Ott = () => {
         title: ott.title,
         genre: ott.genre?._id || "",
         language: ott.language?._id || "",
-        mediaUrl: ott.mediaUrl,
-        horizontalUrl: ott.horizontalUrl,
-        verticalUrl: ott.verticalUrl,
+        mediaUrl: ott.mediaUrl || "",
+        horizontalUrl: ott.horizontalUrl || "",
+        verticalUrl: ott.verticalUrl || "",
         seasonsCount: ott.seasonsCount || "",
       });
     } else {
+      setSelectedOtt(null);
       setFormData({
         type: "Movie",
         title: "",
@@ -379,6 +432,38 @@ const Ott = () => {
                 <Upload className="w-4 h-4" />
                 <span>Import CSV</span>
               </button>
+              {userRole === "admin" && (
+                <button
+                  onClick={() => {
+                    const allDisabled = ottContent.every(
+                      (c) => !c.urlsAccessible
+                    );
+                    handleToggleAllUrls(allDisabled);
+                  }}
+                  disabled={allUrlsEnabled !== null}
+                  className={`flex items-center space-x-2 px-4 py-2 rounded-xl transition-all disabled:opacity-50 ${
+                    ottContent.every((c) => !c.urlsAccessible)
+                      ? "bg-green-600 text-white hover:bg-green-700"
+                      : "bg-red-600 text-white hover:bg-red-700"
+                  }`}
+                  title={
+                    ottContent.every((c) => !c.urlsAccessible)
+                      ? "Enable URL editing for all content"
+                      : "Disable URL editing for all content"
+                  }
+                >
+                  {ottContent.every((c) => !c.urlsAccessible) ? (
+                    <Unlock className="w-4 h-4" />
+                  ) : (
+                    <ShieldOff className="w-4 h-4" />
+                  )}
+                  <span>
+                    {ottContent.every((c) => !c.urlsAccessible)
+                      ? "Enable All URLs"
+                      : "Disable All URLs"}
+                  </span>
+                </button>
+              )}
               <button
                 onClick={() => handleOpenModal("create")}
                 className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all"
@@ -439,6 +524,20 @@ const Ott = () => {
           )}
         </div>
 
+        {/* Access Alert for Non-Admins */}
+        {userRole !== "admin" && !canAccessUrls && (
+          <div className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl flex items-start space-x-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-semibold text-amber-900">Limited Access</h3>
+              <p className="text-sm text-amber-700">
+                You don't have permission to view or edit media URLs and images
+                for this content. Contact your administrator for access.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Grouped Content by Language */}
         {loading ? (
           <div className="flex items-center justify-center py-12">
@@ -482,6 +581,11 @@ const Ott = () => {
                         <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
                           Seasons
                         </th>
+                        {userRole === "admin" && (
+                          <th className="px-6 py-4 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            URL Access
+                          </th>
+                        )}
                         <th className="px-6 py-4 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
                           Actions
                         </th>
@@ -523,23 +627,52 @@ const Ott = () => {
                               ? ott.seasonsCount || 0
                               : "-"}
                           </td>
+                          {userRole === "admin" && (
+                            <td className="px-6 py-4 text-sm">
+                              <button
+                                onClick={() => handleToggleUrlAccess(ott)}
+                                disabled={urlAccessToggling === ott._id}
+                                className={`flex items-center space-x-2 px-3 py-1.5 rounded-lg transition-all ${
+                                  ott.urlsAccessible
+                                    ? "bg-green-100 text-green-700 hover:bg-green-200"
+                                    : "bg-red-100 text-red-700 hover:bg-red-200"
+                                } disabled:opacity-50`}
+                              >
+                                {urlAccessToggling === ott._id ? (
+                                  <Loader className="w-4 h-4 animate-spin" />
+                                ) : ott.urlsAccessible ? (
+                                  <Unlock className="w-4 h-4" />
+                                ) : (
+                                  <Lock className="w-4 h-4" />
+                                )}
+                                <span className="text-xs font-semibold">
+                                  {ott.urlsAccessible ? "Enabled" : "Disabled"}
+                                </span>
+                              </button>
+                            </td>
+                          )}
                           <td className="px-6 py-4 text-sm text-right">
                             <div className="flex items-center justify-end space-x-2">
-                              <button
-                                onClick={() => handleOpenModal("edit", ott)}
-                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                              >
-                                <Edit2 className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedOtt(ott);
-                                  setShowDeleteModal(true);
-                                }}
-                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
+                              {(userRole === "admin" ||
+                                userRole === "distributor") && (
+                                <button
+                                  onClick={() => handleOpenModal("edit", ott)}
+                                  className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all inline-flex items-center justify-center"
+                                >
+                                  <Edit2 className="w-4 h-4" />
+                                </button>
+                              )}
+                              {userRole === "admin" && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedOtt(ott);
+                                    setShowDeleteModal(true);
+                                  }}
+                                  className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all inline-flex items-center justify-center"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -553,7 +686,7 @@ const Ott = () => {
         )}
       </div>
 
-      {/* Add/Edit Modal - Keep existing modal code */}
+      {/* Add/Edit Modal */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -670,56 +803,121 @@ const Ott = () => {
                   </div>
                 )}
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Media URL *
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.mediaUrl}
-                    onChange={(e) =>
-                      setFormData({ ...formData, mediaUrl: e.target.value })
-                    }
-                    placeholder="https://example.com/media"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
+                {shouldShowUrlFields() &&
+                  (userRole === "admin" ||
+                  (userRole === "distributor" &&
+                    selectedOtt &&
+                    selectedOtt.urlsAccessible) ? (
+                    <>
+                      <div className="md:col-span-2">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <label className="block text-sm font-semibold text-gray-700">
+                            Media URL *
+                          </label>
+                          {userRole === "distributor" &&
+                            !canEditUrlFields() && (
+                              <Lock className="w-4 h-4 text-red-500" />
+                            )}
+                        </div>
+                        <input
+                          type="url"
+                          value={formData.mediaUrl}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              mediaUrl: e.target.value,
+                            })
+                          }
+                          placeholder="https://example.com/media"
+                          disabled={!canEditUrlFields()}
+                          className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            !canEditUrlFields()
+                              ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                          required
+                        />
+                      </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Horizontal Poster URL *
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.horizontalUrl}
-                    onChange={(e) =>
-                      setFormData({
-                        ...formData,
-                        horizontalUrl: e.target.value,
-                      })
-                    }
-                    placeholder="https://example.com/horizontal-poster.jpg"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
+                      <div className="md:col-span-2">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <label className="block text-sm font-semibold text-gray-700">
+                            Horizontal Poster URL *
+                          </label>
+                          {userRole === "distributor" &&
+                            !canEditUrlFields() && (
+                              <Lock className="w-4 h-4 text-red-500" />
+                            )}
+                        </div>
+                        <input
+                          type="url"
+                          value={formData.horizontalUrl}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              horizontalUrl: e.target.value,
+                            })
+                          }
+                          placeholder="https://example.com/horizontal-poster.jpg"
+                          disabled={!canEditUrlFields()}
+                          className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            !canEditUrlFields()
+                              ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                          required
+                        />
+                      </div>
 
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Vertical Poster URL *
-                  </label>
-                  <input
-                    type="url"
-                    value={formData.verticalUrl}
-                    onChange={(e) =>
-                      setFormData({ ...formData, verticalUrl: e.target.value })
-                    }
-                    placeholder="https://example.com/vertical-poster.jpg"
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    required
-                  />
-                </div>
+                      <div className="md:col-span-2">
+                        <div className="flex items-center space-x-2 mb-2">
+                          <label className="block text-sm font-semibold text-gray-700">
+                            Vertical Poster URL *
+                          </label>
+                          {userRole === "distributor" &&
+                            !canEditUrlFields() && (
+                              <Lock className="w-4 h-4 text-red-500" />
+                            )}
+                        </div>
+                        <input
+                          type="url"
+                          value={formData.verticalUrl}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              verticalUrl: e.target.value,
+                            })
+                          }
+                          placeholder="https://example.com/vertical-poster.jpg"
+                          disabled={!canEditUrlFields()}
+                          className={`w-full px-4 py-3 border rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent ${
+                            !canEditUrlFields()
+                              ? "bg-gray-100 border-gray-300 text-gray-500 cursor-not-allowed"
+                              : "bg-gray-50 border-gray-200"
+                          }`}
+                          required
+                        />
+                      </div>
+                    </>
+                  ) : (
+                    userRole === "distributor" &&
+                    selectedOtt &&
+                    !selectedOtt.urlsAccessible && (
+                      <div className="md:col-span-2 p-4 bg-red-50 border border-red-200 rounded-xl flex items-start space-x-3">
+                        <Lock className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div>
+                          <h3 className="font-semibold text-red-900">
+                            URL Access Restricted
+                          </h3>
+                          <p className="text-sm text-red-700">
+                            You don't have permission to view or edit media URLs
+                            and images for this content. Contact your
+                            administrator to enable access.
+                          </p>
+                        </div>
+                      </div>
+                    )
+                  ))}
               </div>
 
               <div className="flex items-center space-x-3 pt-4">
@@ -747,11 +945,156 @@ const Ott = () => {
         </div>
       )}
 
-      {/* Keep existing Import Modal and Delete Modal code unchanged */}
       {/* Import Modal */}
       {showImportModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          {/* Keep existing import modal code */}
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-bold text-gray-900">Import CSV</h2>
+              <button
+                onClick={handleCloseImportModal}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-all"
+              >
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-6">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Upload CSV File
+                </label>
+                <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-gray-400 transition-all">
+                  <Upload className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                  <input
+                    type="file"
+                    accept=".csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                    id="csv-upload"
+                  />
+                  <label
+                    htmlFor="csv-upload"
+                    className="cursor-pointer inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-xl hover:bg-blue-700 transition-all font-medium"
+                  >
+                    Choose CSV File
+                  </label>
+                  {importFile && (
+                    <p className="mt-3 text-sm text-gray-600">
+                      Selected: {importFile.name}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {importError && (
+                <div className="p-4 bg-red-50 border border-red-200 rounded-xl">
+                  <div className="flex items-start space-x-3">
+                    <AlertCircle className="w-5 h-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-red-700">{importError}</p>
+                  </div>
+                </div>
+              )}
+
+              {importSuccess && (
+                <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                  <div className="flex items-start space-x-3">
+                    <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+                    <p className="text-sm text-green-700">{importSuccess}</p>
+                  </div>
+                </div>
+              )}
+
+              {importPreview.length > 0 && (
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">
+                      Preview ({importPreview.length} items)
+                    </h3>
+                    <button
+                      onClick={downloadSampleCSV}
+                      className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all text-sm"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Download Sample</span>
+                    </button>
+                  </div>
+                  <div className="overflow-x-auto bg-gray-50 rounded-xl border">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="bg-white border-b">
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Title
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Type
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Genre
+                          </th>
+                          <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                            Language
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreview.slice(0, 5).map((item, index) => (
+                          <tr key={index} className="border-t">
+                            <td className="px-4 py-3 text-sm font-medium text-gray-900 max-w-[200px] truncate">
+                              {item.title}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {item.type}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {genres.find((g) => g._id === item.genre)?.name}
+                            </td>
+                            <td className="px-4 py-3 text-sm text-gray-900">
+                              {
+                                languages.find((l) => l._id === item.language)
+                                  ?.name
+                              }
+                            </td>
+                          </tr>
+                        ))}
+                        {importPreview.length > 5 && (
+                          <tr>
+                            <td
+                              colSpan="4"
+                              className="px-4 py-3 text-center text-sm text-gray-500"
+                            >
+                              ... and {importPreview.length - 5} more items
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              {importPreview.length > 0 && (
+                <div className="flex items-center space-x-3 pt-4">
+                  <button
+                    onClick={handleImportSubmit}
+                    disabled={submitting}
+                    className="flex-1 px-4 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all disabled:opacity-50 font-medium"
+                  >
+                    {submitting
+                      ? "Importing..."
+                      : `Import ${importPreview.length} Items`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCloseImportModal}
+                    className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
 

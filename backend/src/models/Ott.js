@@ -45,6 +45,10 @@ const ottSchema = new mongoose.Schema({
             },
             message: 'Seasons count is required and must be greater than 0 for Web Series'
         }
+    },
+    urlsAccessible: {
+        type: Boolean,
+        default: true
     }
 }, {
     timestamps: true
