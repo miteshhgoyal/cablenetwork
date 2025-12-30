@@ -75,7 +75,7 @@ export const startLocationTracking = async () => {
             timeInterval: 5 * 60 * 1000, // Update every 5 minutes
             distanceInterval: 100, // Update every 100 meters
             foregroundService: {
-                notificationTitle: 'Cable Network Active',
+                notificationTitle: 'Online IPTV Hub',
                 notificationBody: 'Tracking location for service quality',
                 notificationColor: '#f97316'
             },

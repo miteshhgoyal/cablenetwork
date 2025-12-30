@@ -1,4 +1,4 @@
-package com.miteshhq.digitalcablenetwork
+package com.miteshhq.onlineiptvhub
 import expo.modules.splashscreen.SplashScreenManager
 
 import android.os.Build

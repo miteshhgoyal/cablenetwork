@@ -158,7 +158,7 @@ const Login = () => {
                   <h1 className="text-5xl font-bold text-gray-900 mb-4 leading-tight">
                     Welcome Back to
                     <span className="block bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
-                      Digital Cable Network
+                      Online IPTV Hub
                     </span>
                   </h1>
                   <p className="text-lg text-gray-600 leading-relaxed">

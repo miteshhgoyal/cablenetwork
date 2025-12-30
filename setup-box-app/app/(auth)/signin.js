@@ -26,34 +26,34 @@ const Signin = () => {
     const [inactiveMessage, setInactiveMessage] = useState('');
     const router = useRouter();
 
-useEffect(() => {
-  const check = async () => {
-    try {
-      const r1 = await fetch('https://google.com');
-      console.log('FETCH google ok', r1.status);
-    } catch (e) {
-      console.log('FETCH google error', e?.message || e);
-    }
-    try {
-      const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
-      const text = await r2.text();
-      console.log('FETCH health', r2.status, text);
-    } catch (e) {
-      console.log('FETCH health error', e?.message || e);
-    }
-  };
-  check();
-}, []);
+    useEffect(() => {
+        const check = async () => {
+            try {
+                const r1 = await fetch('https://google.com');
+                console.log('FETCH google ok', r1.status);
+            } catch (e) {
+                console.log('FETCH google error', e?.message || e);
+            }
+            try {
+                const r2 = await fetch('https://api.onlineiptvhub.com/api/health');
+                const text = await r2.text();
+                console.log('FETCH health', r2.status, text);
+            } catch (e) {
+                console.log('FETCH health error', e?.message || e);
+            }
+        };
+        check();
+    }, []);
 
-useEffect(() => {
-    if (!isAuthenticated) return;
-    // if (loading) return;
-    if (subscriptionStatus !== 'ACTIVE') return;
+    useEffect(() => {
+        if (!isAuthenticated) return;
+        // if (loading) return;
+        if (subscriptionStatus !== 'ACTIVE') return;
 
-    console.log("Redirect → user authenticated & ACTIVE");
-    router.replace('/(tabs)');
+        console.log("Redirect → user authenticated & ACTIVE");
+        router.replace('/(tabs)');
 
-}, [ isAuthenticated, subscriptionStatus]);
+    }, [isAuthenticated, subscriptionStatus]);
 
     useEffect(() => {
         const getDeviceInfo = async () => {
@@ -102,19 +102,20 @@ useEffect(() => {
             //         customMac: useCustomMac ? customMac.trim() : null
             //     }
             // );
-            const finalDeviceInfo = {...deviceInfo,
+            const finalDeviceInfo = {
+                ...deviceInfo,
                 macAddress: useCustomMac ? customMac.trim() : mac,
                 customMac: useCustomMac ? customMac.trim() : null,
             };
-            console.log(finalDeviceInfo+"→ "+finalCode);
+            console.log(finalDeviceInfo + "→ " + finalCode);
             const result = await login(finalCode.trim(), finalDeviceInfo);
             console.log(result);
             if (result.success) {
-                
-                 setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
-                 setShowCustomMacModal(false);
-                 setCustomMac('');
-                 router.replace('/(tabs)'); 
+
+                setDeviceInfo(prev => ({ ...prev, macAddress: mac }));
+                setShowCustomMacModal(false);
+                setCustomMac('');
+                router.replace('/(tabs)');
             } else {
                 if (result.data?.canUseCustomMac && (result.code === 'MAC_INACTIVE' || result.code === 'SUBSCRIPTION_EXPIRED')) {
                     setInactiveMessage(result.message);
@@ -160,7 +161,7 @@ useEffect(() => {
                             <View className="w-24 h-24 bg-orange-500 rounded-3xl items-center justify-center mb-6 shadow-lg">
                                 <Ionicons name="tv" size={48} color="white" />
                             </View>
-                            <Text className="text-3xl font-bold text-white">Digital Cable Network</Text>
+                            <Text className="text-3xl font-bold text-white">Online IPTV Hub</Text>
                             <Text className="text-gray-400 mt-3 text-center text-base">
                                 Enter your partner code to access channels
                             </Text>
@@ -255,23 +256,23 @@ useEffect(() => {
 
                         {/* Info Cards */}
                         <TouchableOpacity
-                            onPress={() => setShowCustomMacModal(true)  }
-                             disabled={isLoading}
+                            onPress={() => setShowCustomMacModal(true)}
+                            disabled={isLoading}
                             style={{ elevation: 5 }}
                         >
-                        <View className="mt-10">
-                            <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
-                                <View className="flex-row items-center">
-                                    <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
-                                        <Ionicons name="swap-horizontal-outline" size={20} color="#f97316" />
-                                    </View>
-                                    <View className="ml-3 flex-1">
-                                        <Text className="text-white font-semibold text-sm">Custom MAC Support</Text>
-                                        <Text className="text-gray-400 text-xs mt-0.5">Login with another device's active MAC</Text>
+                            <View className="mt-10">
+                                <View className="bg-gray-900 p-4 rounded-xl border border-gray-800">
+                                    <View className="flex-row items-center">
+                                        <View className="w-10 h-10 bg-orange-500/20 rounded-full items-center justify-center">
+                                            <Ionicons name="swap-horizontal-outline" size={20} color="#f97316" />
+                                        </View>
+                                        <View className="ml-3 flex-1">
+                                            <Text className="text-white font-semibold text-sm">Custom MAC Support</Text>
+                                            <Text className="text-gray-400 text-xs mt-0.5">Login with another device's active MAC</Text>
+                                        </View>
                                     </View>
                                 </View>
                             </View>
-                        </View>
                         </TouchableOpacity>
 
                         {/* Footer */}

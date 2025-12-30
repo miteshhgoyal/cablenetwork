@@ -111,7 +111,7 @@ const signin = () => {
                             <View className="w-24 h-24 bg-orange-500 rounded-3xl items-center justify-center mb-6 shadow-lg">
                                 <Ionicons name="tv" size={48} color="white" />
                             </View>
-                            <Text className="text-3xl font-bold text-white">Digital Cable Network</Text>
+                            <Text className="text-3xl font-bold text-white">Online IPTV Hub</Text>
                             <Text className="text-gray-400 mt-3 text-center text-base">
                                 Enter your partner code to access channels
                             </Text>

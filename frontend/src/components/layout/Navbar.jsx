@@ -255,7 +255,7 @@ const Navbar = () => {
                 <LayoutDashboard className="h-5 w-5 text-white" />
               </div>
               <span className="text-xl font-bold bg-gradient-to-r from-gray-900 to-gray-700 bg-clip-text text-transparent hidden sm:block">
-                Digital Cable Network
+                Online IPTV Hub
               </span>
             </Link>
           </div>

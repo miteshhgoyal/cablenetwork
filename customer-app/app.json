@@ -1,11 +1,11 @@
 {
     "expo": {
-        "name": "Digital Cable Network",
-        "slug": "digital-cable-network",
+        "name": "Online IPTV Hub",
+        "slug": "online-iptv-hub",
         "version": "1.0.0",
         "orientation": "portrait",
         "icon": "./assets/icon.png",
-        "scheme": "digitalcablenetwork",
+        "scheme": "onlineiptvhub",
         "userInterfaceStyle": "dark",
         "newArchEnabled": true,
         "splash": {
@@ -15,7 +15,7 @@
         },
         "ios": {
             "supportsTablet": true,
-            "bundleIdentifier": "com.miteshhq.digitalcablenetwork",
+            "bundleIdentifier": "com.miteshhq.onlineiptvhub",
             "infoPlist": {
                 "NSLocalNetworkUsageDescription": "Allow app to access local network for streaming",
                 "NSBonjourServices": [
@@ -35,7 +35,7 @@
                 "foregroundImage": "./assets/icon.png",
                 "backgroundColor": "#ffffff"
             },
-            "package": "com.miteshhq.digitalcablenetwork",
+            "package": "com.miteshhq.onlineiptvhub",
             "versionCode": 1,
             "usesCleartextTraffic": true,
             "networkSecurityConfig": "@xml/network_security_config",
@@ -88,7 +88,7 @@
             [
                 "expo-av",
                 {
-                    "microphonePermission": "Allow Digital Cable Network to access your microphone",
+                    "microphonePermission": "Allow Online IPTV Hub to access your microphone",
                     "audioAmbient": false
                 }
             ],
@@ -101,9 +101,9 @@
             [
                 "expo-location",
                 {
-                    "locationAlwaysAndWhenInUsePermission": "Allow Digital Cable Network to track your location for service quality.",
-                    "locationAlwaysPermission": "Allow Digital Cable Network to track location in background for better service.",
-                    "locationWhenInUsePermission": "Allow Digital Cable Network to use your location while using the app.",
+                    "locationAlwaysAndWhenInUsePermission": "Allow Online IPTV Hub to track your location for service quality.",
+                    "locationAlwaysPermission": "Allow Online IPTV Hub to track location in background for better service.",
+                    "locationWhenInUsePermission": "Allow Online IPTV Hub to use your location while using the app.",
                     "isIosBackgroundLocationEnabled": true,
                     "isAndroidBackgroundLocationEnabled": true,
                     "isAndroidForegroundServiceEnabled": true
