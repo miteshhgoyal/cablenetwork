@@ -1,8 +1,8 @@
-// backend/src/routes/distributors.js
 import express from 'express';
 import { authenticateToken, authorize } from '../middlewares/auth.js';
 import User from '../models/User.js';
 import Package from '../models/Package.js';
+import Subscriber from '../models/Subscriber.js';
 
 const router = express.Router();
 
@@ -40,6 +40,11 @@ router.get('/', authenticateToken, async (req, res) => {
             .populate('packages', 'name cost duration')
             .select('-password')
             .sort({ createdAt: -1 });
+
+        // ✅ Check validity for all distributors + cascade to customers
+        for (let distributor of distributors) {
+            await distributor.checkValidityStatus();
+        }
 
         res.json({
             success: true,
@@ -102,6 +107,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // ✅ Check validity status + cascade to customers
+        await distributor.checkValidityStatus();
+
         // Get resellers count for this distributor
         const resellersCount = await User.countDocuments({
             role: 'reseller',
@@ -138,7 +146,7 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        const { name, email, password, phone, status, balance, packages } = req.body;
+        const { name, email, password, phone, status, balance, packages, validityDate } = req.body;
 
         // Validation - Required fields
         if (!name || !email || !password || !phone) {
@@ -165,6 +173,17 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+        // ✅ Validate validityDate
+        if (validityDate) {
+            const validity = new Date(validityDate);
+            if (isNaN(validity.getTime()) || validity <= new Date()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validity date must be a future date'
+                });
+            }
+        }
+
         // Check if email already exists
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
@@ -183,7 +202,8 @@ router.post('/', authenticateToken, async (req, res) => {
             role: 'distributor',
             status: status || 'Active',
             balance: initialBalance,
-            packages: packages || []
+            packages: packages || [],
+            validityDate: validityDate || null  // ✅ Validity support
         });
 
         await distributor.save();
@@ -214,10 +234,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Update distributor
+// Update distributor (FULL CASCADE)
 router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
     try {
-        const { name, email, password, phone, status, balance, packages } = req.body;
+        const { name, email, password, phone, status, balance, packages, validityDate } = req.body;
 
         // Validation - Required fields
         if (!name || !email || !phone) {
@@ -266,22 +286,52 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             distributor.balance = numBalance;
         }
 
-        // Update fields
+        // ✅ Validate validityDate
+        if (validityDate !== undefined && validityDate !== null && validityDate !== '') {
+            const validity = new Date(validityDate);
+            if (isNaN(validity.getTime()) || validity <= new Date()) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Validity date must be a future date'
+                });
+            }
+            distributor.validityDate = validity;
+        }
+
+        // Update basic fields
         distributor.name = name.trim();
         distributor.email = email.toLowerCase().trim();
         distributor.phone = phone.trim();
         distributor.packages = packages || [];
 
-        // Validate and update status
+        // ✅ PERFECT STATUS CASCADE - Distributor → Resellers → ALL CUSTOMERS
         if (status && ['Active', 'Inactive'].includes(status)) {
+            const oldStatus = distributor.status;
             distributor.status = status;
 
-            // If changing to Inactive, cascade to all resellers
-            if (status === 'Inactive') {
-                await User.updateMany(
-                    { createdBy: req.params.id, role: 'reseller' },
+            // 🎯 MANUAL CASCADE: Inactivate ALL RESSELLERS + CUSTOMERS
+            if (status === 'Inactive' && oldStatus === 'Active') {
+                console.log(`🎯 MANUAL CASCADE: Inactivating resellers + customers for distributor ${distributor.name}`);
+
+                // 1️⃣ Inactivate ALL resellers
+                const resellersUpdated = await User.updateMany(
+                    { createdBy: distributor._id, role: 'reseller' },
                     { status: 'Inactive' }
                 );
+                console.log(`📉 Inactivated ${resellersUpdated.modifiedCount} resellers`);
+
+                // 2️⃣ Get all affected reseller IDs
+                const resellerDocs = await User.find({ createdBy: distributor._id, role: 'reseller' });
+                const resellerIds = resellerDocs.map(r => r._id);
+
+                // 3️⃣ Inactivate ALL CUSTOMERS under those resellers
+                if (resellerIds.length > 0) {
+                    const customersUpdated = await Subscriber.updateMany(
+                        { resellerId: { $in: resellerIds } },
+                        { status: 'Inactive' }  // ✅ Customer app login sees this!
+                    );
+                    console.log(`📉 Inactivated ${customersUpdated.modifiedCount} customers`);
+                }
             }
         }
 
@@ -296,6 +346,9 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
         }
 
         await distributor.save();
+
+        // Auto-validity check (handles validityDate expiry)
+        await distributor.checkValidityStatus();
 
         // Populate before sending
         await distributor.populate('packages', 'name cost duration');
@@ -350,6 +403,18 @@ router.delete('/:id', authenticateToken, async (req, res) => {
                 success: false,
                 message: `Cannot delete distributor with ${resellersCount} active reseller(s)`
             });
+        }
+
+        // ✅ CASCADE: Inactivate ALL CUSTOMERS before deletion (safety)
+        console.log(`🎯 CASCADE: Inactivating customers before deleting distributor ${distributor.name}`);
+        const allResellers = await User.find({ createdBy: distributor._id, role: 'reseller' });
+        const allResellerIds = allResellers.map(r => r._id);
+
+        if (allResellerIds.length > 0) {
+            await Subscriber.updateMany(
+                { resellerId: { $in: allResellerIds } },
+                { status: 'Inactive' }
+            );
         }
 
         await distributor.deleteOne();

@@ -1,4 +1,3 @@
-// frontend/src/pages/distributors/Distributors.jsx
 import React, { useState, useEffect } from "react";
 import api from "../services/api.js";
 import {
@@ -23,6 +22,7 @@ import {
   Shield,
   User,
   Users,
+  Clock,
 } from "lucide-react";
 
 const Distributors = () => {
@@ -46,10 +46,10 @@ const Distributors = () => {
     status: "Active",
     balance: "",
     packages: [],
+    validityDate: "", // NEW: Validity date field
   });
   const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
-
   const MIN_BALANCE = 10000;
 
   useEffect(() => {
@@ -62,7 +62,6 @@ const Distributors = () => {
       setLoading(true);
       const params = new URLSearchParams();
       if (statusFilter) params.append("status", statusFilter);
-
       const response = await api.get(`/distributors?${params.toString()}`);
       setDistributors(response.data.data.distributors);
     } catch (error) {
@@ -94,6 +93,9 @@ const Distributors = () => {
         status: distributor.status,
         balance: distributor.balance || "",
         packages: distributor.packages?.map((p) => p._id) || [],
+        validityDate: distributor.validityDate
+          ? new Date(distributor.validityDate).toISOString().slice(0, 16)
+          : "", // NEW
       });
     } else {
       setFormData({
@@ -104,6 +106,7 @@ const Distributors = () => {
         status: "Active",
         balance: "",
         packages: [],
+        validityDate: "", // NEW
       });
     }
     setShowModal(true);
@@ -127,6 +130,7 @@ const Distributors = () => {
       status: "Active",
       balance: "",
       packages: [],
+      validityDate: "",
     });
   };
 
@@ -156,17 +160,14 @@ const Distributors = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    if (!formData.balance || !validateBalance(formData.balance)) {
-      return;
-    }
+    if (!formData.balance || !validateBalance(formData.balance)) return;
 
     setSubmitting(true);
-
     try {
       const submitData = {
         ...formData,
         balance: parseFloat(formData.balance),
+        validityDate: formData.validityDate || null, // NEW
       };
 
       if (modalMode === "edit" && !submitData.password) {
@@ -180,6 +181,7 @@ const Distributors = () => {
         await api.put(`/distributors/${selectedDistributor._id}`, submitData);
         alert("Distributor updated successfully!");
       }
+
       fetchDistributors();
       handleCloseModal();
     } catch (error) {
@@ -212,7 +214,7 @@ const Distributors = () => {
       distributor.name.toLowerCase().includes(searchLower) ||
       distributor.email.toLowerCase().includes(searchLower) ||
       distributor.phone.toLowerCase().includes(searchLower) ||
-      distributor.serialNumber?.toLowerCase().includes(searchLower)
+      distributor.serialNumber?.toString().includes(searchLower)
     );
   });
 
@@ -231,6 +233,30 @@ const Distributors = () => {
     });
   };
 
+  const formatValidityDate = (date) => {
+    if (!date)
+      return <span className="text-xs text-gray-400 italic">No expiry</span>;
+    const validityDate = new Date(date);
+    const now = new Date();
+    const isExpired = now > validityDate;
+    return (
+      <span
+        className={`text-xs font-medium ${
+          isExpired ? "text-red-600" : "text-orange-600"
+        }`}
+      >
+        {validityDate.toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })}
+        {isExpired && <span className="ml-1">⚠️</span>}
+      </span>
+    );
+  };
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -246,324 +272,322 @@ const Distributors = () => {
                   Distributors Management
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Manage distributor accounts, packages, and balances
+                  Manage distributor accounts, packages, balances, and validity
+                  periods
                 </p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all"
-              >
-                <Filter className="w-4 h-4" />
-                <span>Filters</span>
-              </button>
-              <button
-                onClick={() => handleOpenModal("create")}
-                className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all shadow-md"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Distributor</span>
-              </button>
+            <div>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className="flex items-center space-x-2 px-4 py-2 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all"
+                >
+                  <Filter className="w-4 h-4" />
+                  <span>Filters</span>
+                </button>
+                <button
+                  onClick={() => handleOpenModal("create")}
+                  className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all shadow-md"
+                >
+                  <Plus className="w-4 h-4" />
+                  <span>Add Distributor</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Search and Filters */}
-        <div className="mb-6 space-y-4">
-          <div className="relative">
-            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Search by name, email, phone, or serial number..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          {showFilters && (
-            <div className="bg-white border border-gray-200 rounded-xl p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Status
-                  </label>
-                  <select
-                    value={statusFilter}
-                    onChange={(e) => setStatusFilter(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="">All Status</option>
-                    <option value="Active">Active</option>
-                    <option value="Inactive">Inactive</option>
-                  </select>
-                </div>
-              </div>
-
-              {statusFilter && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <button
-                    onClick={() => setStatusFilter("")}
-                    className="text-sm text-blue-600 hover:text-blue-700 font-medium"
-                  >
-                    Clear all filters
-                  </button>
-                </div>
-              )}
+      <div className="Content">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          {/* Search and Filters */}
+          <div className="mb-6 space-y-4">
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Search by name, email, phone, or serial number..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-white border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
             </div>
-          )}
-        </div>
-
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-blue-600 font-medium mb-1">
-                  Total Distributors
-                </p>
-                <p className="text-3xl font-bold text-blue-900">
-                  {filteredDistributors.length}
-                </p>
-              </div>
-              <Building2 className="w-10 h-10 text-blue-600 opacity-50" />
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-green-600 font-medium mb-1">
-                  Active
-                </p>
-                <p className="text-3xl font-bold text-green-900">
-                  {
-                    filteredDistributors.filter((d) => d.status === "Active")
-                      .length
-                  }
-                </p>
-              </div>
-              <Shield className="w-10 h-10 text-green-600 opacity-50" />
-            </div>
-          </div>
-          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-purple-600 font-medium mb-1">
-                  Total Balance
-                </p>
-                <p className="text-2xl font-bold text-purple-900">
-                  ₹
-                  {filteredDistributors
-                    .reduce((sum, d) => sum + (d.balance || 0), 0)
-                    .toLocaleString("en-IN")}
-                </p>
-              </div>
-              <Wallet className="w-10 h-10 text-purple-600 opacity-50" />
-            </div>
-          </div>
-        </div>
-
-        {/* Table */}
-        {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader className="w-8 h-8 text-blue-600 animate-spin" />
-          </div>
-        ) : (
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      #
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Distributor Info
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Serial Number
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Contact
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Balance
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Packages
-                    </th>
-                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+            {showFilters && (
+              <div className="bg-white border border-gray-200 rounded-xl p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
                       Status
-                    </th>
-                    <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
-                      Actions
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {filteredDistributors.length === 0 ? (
-                    <tr>
-                      <td colSpan="8" className="px-6 py-12 text-center">
-                        <div className="flex flex-col items-center justify-center space-y-2">
-                          <Building2 className="w-12 h-12 text-gray-300" />
-                          <p className="text-gray-500 font-medium">
-                            No distributors found
-                          </p>
-                          <p className="text-sm text-gray-400">
-                            Try adjusting your filters
-                          </p>
-                        </div>
-                      </td>
+                    </label>
+                    <select
+                      value={statusFilter}
+                      onChange={(e) => setStatusFilter(e.target.value)}
+                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">All Status</option>
+                      <option value="Active">Active</option>
+                      <option value="Inactive">Inactive</option>
+                    </select>
+                  </div>
+                </div>
+                {statusFilter && (
+                  <div className="mt-4 pt-4 border-t border-gray-200">
+                    <button
+                      onClick={() => setStatusFilter("")}
+                      className="text-sm text-blue-600 hover:text-blue-700 font-medium"
+                    >
+                      Clear all filters
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-blue-600 font-medium mb-1">
+                    Total Distributors
+                  </p>
+                  <p className="text-3xl font-bold text-blue-900">
+                    {filteredDistributors.length}
+                  </p>
+                </div>
+                <Building2 className="w-10 h-10 text-blue-600 opacity-50" />
+              </div>
+            </div>
+            <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-green-600 font-medium mb-1">
+                    Active
+                  </p>
+                  <p className="text-3xl font-bold text-green-900">
+                    {
+                      filteredDistributors.filter((d) => d.status === "Active")
+                        .length
+                    }
+                  </p>
+                </div>
+                <Shield className="w-10 h-10 text-green-600 opacity-50" />
+              </div>
+            </div>
+            <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-purple-600 font-medium mb-1">
+                    Total Balance
+                  </p>
+                  <p className="text-2xl font-bold text-purple-900">
+                    {filteredDistributors
+                      .reduce((sum, d) => sum + (d.balance || 0), 0)
+                      .toLocaleString("en-IN")}
+                  </p>
+                </div>
+                <Wallet className="w-10 h-10 text-purple-600 opacity-50" />
+              </div>
+            </div>
+          </div>
+
+          {/* Table */}
+          {loading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader className="w-8 h-8 text-blue-600 animate-spin" />
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        #
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Distributor Info
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Serial Number
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Contact
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Balance
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Packages
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Status
+                      </th>
+                      <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Validity
+                      </th>{" "}
+                      {/* NEW */}
+                      <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
+                        Actions
+                      </th>
                     </tr>
-                  ) : (
-                    filteredDistributors.map((distributor, index) => (
-                      <tr
-                        key={distributor._id}
-                        className="hover:bg-blue-50 transition-colors"
-                      >
-                        <td className="px-4 py-4">
-                          <span className="text-sm font-bold text-gray-600">
-                            {index + 1}
-                          </span>
-                        </td>
-
-                        {/* Distributor Info */}
-                        <td className="px-4 py-4">
-                          <div className="flex items-start space-x-3">
-                            <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
-                              {distributor.name.charAt(0).toUpperCase()}
-                            </div>
-                            <div>
-                              <p className="text-sm font-bold text-gray-900">
-                                {distributor.name}
-                              </p>
-                              <div className="flex items-center space-x-1 mt-1">
-                                <Calendar className="w-3 h-3 text-gray-400" />
-                                <p className="text-xs text-gray-500">
-                                  Joined: {formatDate(distributor.createdAt)}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Serial Number */}
-                        <td className="px-4 py-4">
-                          <div className="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg p-2 border border-cyan-200 inline-block">
-                            <div className="flex items-center space-x-1">
-                              <Hash className="w-3 h-3 text-cyan-600" />
-                              <p className="text-sm font-mono font-bold text-cyan-900">
-                                {distributor.serialNumber || "N/A"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Contact */}
-                        <td className="px-4 py-4">
-                          <div className="space-y-1">
-                            <div className="flex items-center space-x-1">
-                              <Mail className="w-3 h-3 text-gray-400" />
-                              <p className="text-xs text-gray-900">
-                                {distributor.email}
-                              </p>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                              <Phone className="w-3 h-3 text-gray-400" />
-                              <p className="text-xs text-gray-600">
-                                {distributor.phone}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Balance */}
-                        <td className="px-4 py-4">
-                          <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-2 border border-green-200 inline-block">
-                            <div className="flex items-center space-x-1">
-                              <Wallet className="w-3 h-3 text-green-600" />
-                              <p className="text-sm font-bold text-green-900">
-                                ₹
-                                {distributor.balance?.toLocaleString("en-IN") ||
-                                  "0"}
-                              </p>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* Packages */}
-                        <td className="px-4 py-4">
-                          {distributor.packages &&
-                          distributor.packages.length > 0 ? (
-                            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200 inline-block">
-                              <div className="flex items-center space-x-1">
-                                <PackageIcon className="w-3 h-3 text-indigo-600" />
-                                <p className="text-sm font-bold text-indigo-900">
-                                  {distributor.packages.length} Package(s)
-                                </p>
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-400 italic">
-                              None
-                            </span>
-                          )}
-                        </td>
-
-                        {/* Status */}
-                        <td className="px-4 py-4">
-                          <span
-                            className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
-                              distributor.status
-                            )}`}
-                          >
-                            {distributor.status}
-                          </span>
-                        </td>
-
-                        {/* Actions */}
-                        <td className="px-4 py-4">
-                          <div className="flex items-center justify-end space-x-1">
-                            <button
-                              onClick={() => handleViewDetails(distributor)}
-                              className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                              title="View Details"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() =>
-                                handleOpenModal("edit", distributor)
-                              }
-                              className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
-                              title="Edit"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedDistributor(distributor);
-                                setShowDeleteModal(true);
-                              }}
-                              className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              title="Delete"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                  </thead>
+                  <tbody className="divide-y divide-gray-200">
+                    {filteredDistributors.length === 0 ? (
+                      <tr>
+                        <td colSpan={9} className="px-6 py-12 text-center">
+                          <div className="flex flex-col items-center justify-center space-y-2">
+                            <Building2 className="w-12 h-12 text-gray-300" />
+                            <p className="text-gray-500 font-medium">
+                              No distributors found
+                            </p>
+                            <p className="text-sm text-gray-400">
+                              Try adjusting your filters...
+                            </p>
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      filteredDistributors.map((distributor, index) => (
+                        <tr
+                          key={distributor._id}
+                          className="hover:bg-blue-50 transition-colors"
+                        >
+                          <td className="px-4 py-4">
+                            <span className="text-sm font-bold text-gray-600">
+                              {index + 1}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-start space-x-3">
+                              <div className="w-10 h-10 bg-gradient-to-br from-purple-500 to-pink-600 rounded-full flex items-center justify-center">
+                                <span className="text-white font-bold text-sm">
+                                  {distributor.name.charAt(0).toUpperCase()}
+                                </span>
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-gray-900">
+                                  {distributor.name}
+                                </p>
+                                <div className="flex items-center space-x-1 mt-1">
+                                  <Calendar className="w-3 h-3 text-gray-400" />
+                                  <p className="text-xs text-gray-500">
+                                    Joined {formatDate(distributor.createdAt)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="bg-gradient-to-r from-cyan-50 to-blue-50 rounded-lg p-2 border border-cyan-200 inline-block">
+                              <div className="flex items-center space-x-1">
+                                <Hash className="w-3 h-3 text-cyan-600" />
+                                <p className="text-sm font-mono font-bold text-cyan-900">
+                                  {distributor.serialNumber || "N/A"}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-1">
+                                <Mail className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs text-gray-900">
+                                  {distributor.email}
+                                </p>
+                              </div>
+                              <div className="flex items-center space-x-1">
+                                <Phone className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs text-gray-600">
+                                  {distributor.phone}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-2 border border-green-200 inline-block">
+                              <div className="flex items-center space-x-1">
+                                <Wallet className="w-3 h-3 text-green-600" />
+                                <p className="text-sm font-bold text-green-900">
+                                  ₹
+                                  {distributor.balance?.toLocaleString(
+                                    "en-IN"
+                                  ) || 0}
+                                </p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4">
+                            {distributor.packages &&
+                            distributor.packages.length > 0 ? (
+                              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200 inline-block">
+                                <div className="flex items-center space-x-1">
+                                  <PackageIcon className="w-3 h-3 text-indigo-600" />
+                                  <p className="text-sm font-bold text-indigo-900">
+                                    {distributor.packages.length} Packages
+                                  </p>
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">
+                                None
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-4 py-4">
+                            <span
+                              className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
+                                distributor.status
+                              )}`}
+                            >
+                              {distributor.status}
+                            </span>
+                          </td>
+                          <td className="px-4 py-4">
+                            {formatValidityDate(distributor.validityDate)}{" "}
+                            {/* NEW */}
+                          </td>
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => handleViewDetails(distributor)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() =>
+                                  handleOpenModal("edit", distributor)
+                                }
+                                className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setSelectedDistributor(distributor);
+                                  setShowDeleteModal(true);
+                                }}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* VIEW MODAL */}
@@ -581,7 +605,6 @@ const Distributors = () => {
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
-
             <div className="p-6 space-y-6">
               {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -634,14 +657,12 @@ const Distributors = () => {
                     Current Balance
                   </p>
                   <p className="text-2xl font-bold text-emerald-900">
-                    ₹
-                    {selectedDistributor.balance?.toLocaleString("en-IN") ||
-                      "0"}
+                    ₹{selectedDistributor.balance?.toLocaleString("en-IN") || 0}
                   </p>
                 </div>
               </div>
 
-              {/* Status & Created Date */}
+              {/* Status & Created Date & Validity */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-xl p-4 border border-pink-200">
                   <p className="text-xs text-pink-600 font-semibold mb-2">
@@ -662,6 +683,12 @@ const Distributors = () => {
                   <p className="text-base font-bold text-yellow-900">
                     {formatDate(selectedDistributor.createdAt)}
                   </p>
+                </div>
+                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
+                  <p className="text-xs text-orange-600 font-semibold mb-2">
+                    Validity Date
+                  </p>
+                  {formatValidityDate(selectedDistributor.validityDate)}
                 </div>
               </div>
 
@@ -722,7 +749,6 @@ const Distributors = () => {
                   </div>
                 )}
             </div>
-
             <div className="px-6 py-4 bg-gray-50 border-t">
               <button
                 onClick={() => setShowViewModal(false)}
@@ -752,13 +778,12 @@ const Distributors = () => {
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
-
             <form onSubmit={handleSubmit} className="p-6 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Name */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Name *
+                    Name
                   </label>
                   <input
                     type="text"
@@ -775,7 +800,7 @@ const Distributors = () => {
                 {/* Email */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Email *
+                    Email
                   </label>
                   <input
                     type="email"
@@ -792,7 +817,8 @@ const Distributors = () => {
                 {/* Password */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Password {modalMode === "create" ? "*" : "(Optional)"}
+                    Password{" "}
+                    {modalMode === "create" ? "(Required)" : "(Optional)"}
                   </label>
                   <div className="relative">
                     <input
@@ -808,7 +834,7 @@ const Distributors = () => {
                       }
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 pr-12"
                       required={modalMode === "create"}
-                      minLength="6"
+                      minLength={6}
                     />
                     <button
                       type="button"
@@ -827,16 +853,15 @@ const Distributors = () => {
                 {/* Phone */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Phone *
+                    Phone
                   </label>
                   <input
                     type="tel"
                     value={formData.phone}
                     onChange={(e) => {
                       const value = e.target.value.replace(/[^0-9]/g, "");
-                      if (value.length <= 10) {
+                      if (value.length <= 10)
                         setFormData({ ...formData, phone: value });
-                      }
                     }}
                     maxLength={10}
                     placeholder="Enter 10-digit phone"
@@ -844,11 +869,13 @@ const Distributors = () => {
                     required
                   />
                 </div>
+              </div>
 
-                {/* Status */}
+              {/* Status */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Status *
+                    Status
                   </label>
                   <select
                     value={formData.status}
@@ -866,7 +893,7 @@ const Distributors = () => {
                 {/* Balance Amount */}
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Balance Amount (₹) *
+                    Balance Amount
                   </label>
                   <input
                     type="number"
@@ -879,8 +906,8 @@ const Distributors = () => {
                         : "border-gray-200 focus:ring-blue-500"
                     }`}
                     required
-                    min="10000"
-                    step="100"
+                    min={10000}
+                    step={100}
                   />
                   {balanceError && (
                     <div className="mt-2 flex items-center space-x-2 text-red-600">
@@ -891,75 +918,94 @@ const Distributors = () => {
                     </div>
                   )}
                 </div>
+              </div>
 
-                {/* Packages */}
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Packages (Optional)
-                  </label>
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
-                    {packages.length === 0 ? (
-                      <p className="text-gray-500 text-sm text-center py-4">
-                        No packages available
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {packages.map((pkg) => (
-                          <label
-                            key={pkg._id}
-                            className="flex items-center space-x-3 p-3 rounded-lg hover:bg-white cursor-pointer transition-all border border-transparent hover:border-blue-200"
-                          >
-                            <div className="relative">
-                              <input
-                                type="checkbox"
-                                checked={formData.packages.includes(pkg._id)}
-                                onChange={() => {
-                                  const newPackages =
-                                    formData.packages.includes(pkg._id)
-                                      ? formData.packages.filter(
-                                          (id) => id !== pkg._id
-                                        )
-                                      : [...formData.packages, pkg._id];
-                                  setFormData({
-                                    ...formData,
-                                    packages: newPackages,
-                                  });
-                                }}
-                                className="sr-only"
-                              />
-                              <div
-                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                                  formData.packages.includes(pkg._id)
-                                    ? "bg-blue-600 border-blue-600"
-                                    : "border-gray-300 hover:border-blue-400"
-                                }`}
-                              >
-                                {formData.packages.includes(pkg._id) && (
-                                  <Check className="w-4 h-4 text-white" />
-                                )}
-                              </div>
+              {/* Validity Date - NEW */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Validity Date (Optional)
+                </label>
+                <input
+                  type="datetime-local"
+                  value={formData.validityDate}
+                  onChange={(e) =>
+                    setFormData({ ...formData, validityDate: e.target.value })
+                  }
+                  className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                />
+                <p className="text-xs text-gray-600 mt-1">
+                  Leave empty for no expiration
+                </p>
+              </div>
+
+              {/* Packages */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                  Packages (Optional)
+                </label>
+                <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                  {packages.length === 0 ? (
+                    <p className="text-gray-500 text-sm text-center py-4">
+                      No packages available
+                    </p>
+                  ) : (
+                    <div className="space-y-2">
+                      {packages.map((pkg) => (
+                        <label
+                          key={pkg._id}
+                          className="flex items-center space-x-3 p-3 rounded-lg hover:bg-white cursor-pointer transition-all border border-transparent hover:border-blue-200"
+                        >
+                          <div className="relative">
+                            <input
+                              type="checkbox"
+                              checked={formData.packages.includes(pkg._id)}
+                              onChange={() => {
+                                const newPackages = formData.packages.includes(
+                                  pkg._id
+                                )
+                                  ? formData.packages.filter(
+                                      (id) => id !== pkg._id
+                                    )
+                                  : [...formData.packages, pkg._id];
+                                setFormData({
+                                  ...formData,
+                                  packages: newPackages,
+                                });
+                              }}
+                              className="sr-only"
+                            />
+                            <div
+                              className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                formData.packages.includes(pkg._id)
+                                  ? "bg-blue-600 border-blue-600"
+                                  : "border-gray-300 hover:border-blue-400"
+                              }`}
+                            >
+                              {formData.packages.includes(pkg._id) && (
+                                <Check className="w-4 h-4 text-white" />
+                              )}
                             </div>
-                            <div className="flex-1">
-                              <span className="text-sm font-semibold text-gray-900">
-                                {pkg.name}
-                              </span>
-                              <span className="text-xs text-gray-500 ml-2">
-                                (₹{pkg.cost} • {pkg.duration} days)
-                              </span>
+                          </div>
+                          <div className="flex-1">
+                            <span className="text-sm font-semibold text-gray-900">
+                              {pkg.name}
+                            </span>
+                            <span className="text-xs text-gray-500 ml-2">
+                              ₹{pkg.cost} / {pkg.duration} days
+                            </span>
+                          </div>
+                          {formData.packages.includes(pkg._id) && (
+                            <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
+                              Selected
                             </div>
-                            {formData.packages.includes(pkg._id) && (
-                              <div className="bg-blue-100 text-blue-600 text-xs font-bold px-2 py-1 rounded">
-                                Selected
-                              </div>
-                            )}
-                          </label>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                          )}
+                        </label>
+                      ))}
+                    </div>
+                  )}
                   {formData.packages.length > 0 && (
                     <p className="text-xs text-gray-600 mt-2">
-                      {formData.packages.length} package(s) selected
+                      {formData.packages.length} packages selected
                     </p>
                   )}
                 </div>
@@ -991,7 +1037,7 @@ const Distributors = () => {
       )}
 
       {/* Delete Modal */}
-      {showDeleteModal && (
+      {showDeleteModal && selectedDistributor && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
             <div className="p-6">
@@ -1002,11 +1048,11 @@ const Distributors = () => {
                 Delete Distributor
               </h2>
               <p className="text-gray-600 text-center mb-6">
-                Are you sure you want to delete "
+                Are you sure you want to delete{" "}
                 <span className="font-semibold">
                   {selectedDistributor?.name}
                 </span>
-                "? This action cannot be undone.
+                ? This action cannot be undone.
               </p>
               <div className="flex items-center space-x-3">
                 <button
