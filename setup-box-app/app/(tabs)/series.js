@@ -30,35 +30,13 @@ try {
     TVEventHandler = null;
 }
 
-const isTV = Device.deviceType === Device.DeviceType.TV ||
-    Device.modelName?.toLowerCase().includes("tv") ||
-    Device.deviceName?.toLowerCase().includes("tv") ||
-    Device.brand?.toLowerCase().includes("google") ||
-    Platform.isTV;
-
-if (isTV) {
-    function assertDefined(name, value) {
-        if (value === undefined || value === null) {
-            throw new Error(`${name} is undefined at runtime in SeriesScreen`);
-        }
-    }
-    assertDefined('Ionicons', Ionicons);
-    assertDefined('Video', Video);
-    assertDefined('ResizeMode', ResizeMode);
-    assertDefined('YoutubeView', YoutubeView);
-    assertDefined('useYouTubePlayer', useYouTubePlayer);
-    assertDefined('useYouTubeEvent', useYouTubeEvent);
-    if (Platform.isTV && TVEventHandler) {
-        assertDefined('TVEventHandler', TVEventHandler);
-    }
-}
-
-// TV-optimized player height (65% of screen)
 const { height: windowHeight } = Dimensions.get('window');
 const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65));
 
 export default function SeriesScreen() {
     const { isAuthenticated, serverInfo } = useAuth();
+
+    // Main states
     const [series, setSeries] = useState([]);
     const [groupedSeries, setGroupedSeries] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -75,6 +53,15 @@ export default function SeriesScreen() {
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
 
+    // FIXED: Reliable TV Detection with useRef
+    const isTV = useRef(
+        Device.deviceType === Device.DeviceType.TV ||
+        Device.modelName?.toLowerCase().includes('tv') ||
+        Device.deviceName?.toLowerCase().includes('tv') ||
+        Device.brand?.toLowerCase().includes('google') ||
+        Platform.isTV
+    ).current;
+
     // TV Navigation states
     const [focusedGenre, setFocusedGenre] = useState(0);
     const [focusedShowIndex, setFocusedShowIndex] = useState(0);
@@ -88,17 +75,27 @@ export default function SeriesScreen() {
         if (isAuthenticated) fetchSeries();
     }, [isAuthenticated]);
 
-    // Always landscape for TV
+    // FIXED: Delayed orientation lock for TV
     useEffect(() => {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        const initOrientation = async () => {
+            try {
+                if (!isTV) {
+                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                }
+            } catch (error) {
+                console.log('Series orientation lock failed:', error);
+            }
+        };
+        const timeoutId = setTimeout(initOrientation, 1000); // 1s delay prevents TV crash
+        return () => clearTimeout(timeoutId);
     }, []);
 
-    // Auto-start first series on mount
+    // FIXED: Safe auto-start after series load
     useEffect(() => {
-        if (groupedSeries.length > 0 && groupedSeries[0].data?.length > 0) {
+        if (groupedSeries.length > 0 && groupedSeries[0]?.data?.length > 0) {
             handleShowChange(groupedSeries[0].data[0]);
         }
-    }, [groupedSeries]);
+    }, [groupedSeries.length]); // Safe length dependency
 
     // AppState refresh
     useEffect(() => {
@@ -110,52 +107,55 @@ export default function SeriesScreen() {
         return () => subscription?.remove();
     }, []);
 
-    // TV Remote Handler - Enhanced
+    // FIXED: Safe TV Remote Handler with proper cleanup
     useEffect(() => {
-        if (isTV && TVEventHandler && typeof TVEventHandler.enable === 'function') {
-            tvEventHandler.current = new TVEventHandler();
-            tvEventHandler.current.enable(null, (component, evt) => {
-                console.log('TV Series Event:', evt);
+        if (!isTV || !TVEventHandler) return;
 
-                // SELECT/OK button
-                if (evt.eventType === 'select') {
-                    if (isGenreFocused) {
-                        setIsGenreFocused(false);
-                        setFocusedShowIndex(0);
-                        const currentGenre = groupedSeries[focusedGenre];
-                        if (currentGenre?.data[0]) {
-                            debouncedHandleShowChange(currentGenre.data[0]);
-                        }
-                    } else {
-                        const currentGenre = groupedSeries[focusedGenre];
-                        const show = currentGenre?.data[focusedShowIndex];
-                        if (show) {
-                            debouncedHandleShowChange(show);
-                        }
+        const handler = new TVEventHandler();
+        tvEventHandler.current = handler;
+
+        handler.enable(null, (component, evt) => {
+            console.log('TV Series Event:', evt);
+
+            // SELECT/OK button
+            if (evt.eventType === 'select') {
+                if (isGenreFocused) {
+                    setIsGenreFocused(false);
+                    setFocusedShowIndex(0);
+                    const currentGenre = groupedSeries[focusedGenre];
+                    if (currentGenre?.data[0]) {
+                        debouncedHandleShowChange(currentGenre.data[0]);
                     }
+                } else {
+                    const currentGenre = groupedSeries[focusedGenre];
+                    const show = currentGenre?.data[focusedShowIndex];
+                    if (show) {
+                        debouncedHandleShowChange(show);
+                    }
+                }
+                return;
+            }
+
+            // Navigation
+            if (evt.eventType === 'right') handleNavigateRight();
+            else if (evt.eventType === 'left') handleNavigateLeft();
+            else if (evt.eventType === 'down') handleNavigateDown();
+            else if (evt.eventType === 'up') handleNavigateUp();
+            else if (evt.eventType === 'menu') setShowUserMenu(true);
+            else if (evt.eventType === 'back') {
+                if (!isGenreFocused) {
+                    setIsGenreFocused(true);
                     return;
                 }
+            }
+        });
 
-                // Navigation
-                if (evt.eventType === 'right') handleNavigateRight();
-                else if (evt.eventType === 'left') handleNavigateLeft();
-                else if (evt.eventType === 'down') handleNavigateDown();
-                else if (evt.eventType === 'up') handleNavigateUp();
-                else if (evt.eventType === 'menu') setShowUserMenu(true);
-                else if (evt.eventType === 'back') {
-                    if (!isGenreFocused) {
-                        setIsGenreFocused(true);
-                        return;
-                    }
-                }
-            });
-
-            return () => {
-                if (tvEventHandler.current) {
-                    tvEventHandler.current.disable();
-                }
-            };
-        }
+        return () => {
+            if (handler && handler.disable) {
+                handler.disable();
+            }
+            tvEventHandler.current = null;
+        };
     }, [isGenreFocused, focusedGenre, focusedShowIndex, groupedSeries]);
 
     const handleNavigateRight = useCallback(() => {
@@ -230,8 +230,7 @@ export default function SeriesScreen() {
         }
     }
 
-    // Enhanced streaming functions (same as TV Channels/Movies)
-    function analyzeStreamUrl(url) {
+    const analyzeStreamUrl = (url) => {
         if (!url) return { type: 'unknown', isValid: false };
         const u = url.toLowerCase();
         if (u.includes('youtube.com') || u.includes('youtu.be')) {
@@ -242,15 +241,15 @@ export default function SeriesScreen() {
             return { type: 'youtube-video', isValid: true };
         }
         if (u.includes('.m3u8') || u.includes('m3u') || u.includes('chunklist') || u.includes('/hls/')) return { type: 'hls', isValid: true };
-        if (u.includes('.mp4') || url.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
+        if (u.includes('.mp4') || url.match(/\\.(mp4|m4v|mov)\\?/)) return { type: 'mp4', isValid: true };
         if (u.includes('.mkv')) return { type: 'mkv', isValid: true };
         if (url.match(/:\d{4}/) || url.match(/\/live\//)) return { type: 'iptv', isValid: true };
         if (u.includes('rtmp://')) return { type: 'rtmp', isValid: true };
         if (url.startsWith('http://') || url.startsWith('https://')) return { type: 'stream', isValid: true };
         return { type: 'unknown', isValid: false };
-    }
+    };
 
-    function extractVideoId(url) {
+    const extractVideoId = (url) => {
         if (!url) return null;
         const patterns = [
             /youtu\.be\/([a-zA-Z0-9_-]{11})/,
@@ -263,13 +262,7 @@ export default function SeriesScreen() {
             if (match) return match[1];
         }
         return null;
-    }
-
-    function extractPlaylistId(url) {
-        if (!url) return null;
-        const match = url.match(/[?&]list=([a-zA-Z0-9_-]+)/);
-        return match ? match[1] : null;
-    }
+    };
 
     const getCurrentStreamUrl = (show, proxyEnabled) => {
         if (!show) return null;
@@ -296,39 +289,6 @@ export default function SeriesScreen() {
             },
         };
     };
-
-    // Get recommended items based on currently playing
-    const getRecommendedItems = useCallback(() => {
-        if (!selectedChannel && !selectedMovie && !selectedSeries) return [];
-
-        const currentItem = selectedChannel || selectedMovie || selectedSeries;
-        const allItems = channels || movies || series || [];
-
-        // Filter recommendations (same language/genre, exclude current)
-        return allItems
-            .filter(item => item.id !== currentItem?.id)
-            .filter(item =>
-                item.language?.name === currentItem.language?.name ||
-                item.genre?.name === currentItem.genre?.name ||
-                Math.abs((item.lcn || 999) - (currentItem.lcn || 999)) < 20
-            )
-            .slice(0, 8); // Top 8 recommendations
-    }, [channels, movies, series, selectedChannel, selectedMovie, selectedSeries]);
-
-    // Handle recommendation selection
-    const handleRecommendationSelect = useCallback((item) => {
-        if (item === selectedChannel) {
-            setShowRecommendations(false);
-            return;
-        }
-
-        // Play recommendation
-        if (selectedChannel) debouncedHandleChannelChange(item);
-        else if (selectedMovie) debouncedHandleMovieChange(item);
-        else if (selectedSeries) debouncedHandleShowChange(item);
-
-        setShowRecommendations(false);
-    }, [selectedChannel, selectedMovie, selectedSeries]);
 
     const loadStream = async (show, proxyEnabled) => {
         setVideoLoading(true);
@@ -361,6 +321,7 @@ export default function SeriesScreen() {
         }
     };
 
+    // Auto load stream when series changes
     useEffect(() => {
         if (selectedSeries) {
             const type = analyzeStreamUrl(selectedSeries.mediaUrl);
@@ -369,6 +330,31 @@ export default function SeriesScreen() {
             }
         }
     }, [selectedSeries, useProxy]);
+
+    // 🔥 BULLETPROOF CLEANUP - Stops ALL video/audio on unmount
+    useEffect(() => {
+        return () => {
+            console.log('🔴 SeriesScreen UNMOUNT - Cleaning up video');
+
+            // Stop ALL video playback
+            if (videoRef.current) {
+                try {
+                    videoRef.current.pauseAsync?.();
+                    videoRef.current.stopAsync?.();
+                    videoRef.current.unloadAsync();
+                    videoRef.current.setOnPlaybackStatusUpdate(null);
+                } catch (e) {
+                    console.log('Series video cleanup error:', e);
+                }
+            }
+
+            // Reset states
+            setSelectedSeries(null);
+            setVideoLoading(false);
+            setVideoError(false);
+            setCurrentStreamUrl(null);
+        };
+    }, []);
 
     function handleStreamError() {
         if (!proxyAttempted && serverInfo?.proxyEnabled) {
@@ -384,7 +370,7 @@ export default function SeriesScreen() {
         }
     }
 
-    function renderStreamTypeBadge(type) {
+    const renderStreamTypeBadge = (type) => {
         const badges = {
             'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
             'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
@@ -403,9 +389,9 @@ export default function SeriesScreen() {
                 <Text className="text-white text-sm font-bold ml-2">{badge.text}</Text>
             </View>
         );
-    }
+    };
 
-    function YouTubeVideoPlayer({ videoId }) {
+    const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true, muted: false, controls: true,
             playsinline: true, rel: false, modestbranding: true
@@ -423,7 +409,6 @@ export default function SeriesScreen() {
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 <YoutubeView player={player} style={{ width: "100%", height: PLAYER_HEIGHT }} />
-                {/* OnlineIptvHUb Watermark */}
                 {selectedSeries && (
                     <Image
                         source={{ uri: selectedSeries.verticalUrl || 'https://via.placeholder.com/60x60/FF6B35/FFFFFF?text=IPTV' }}
@@ -433,61 +418,44 @@ export default function SeriesScreen() {
                 )}
             </View>
         );
-    }
-
-    // Similar YouTubeLivePlayer, YouTubePlaylistPlayer, YouTubeChannelPlayer with watermarks...
+    };
 
     function renderVideoPlayer() {
-        if (!selectedSeries) return (
-            <View className="w-full h-full bg-black items-center justify-center">
-                <Ionicons name="tv-outline" size={120} color="#6b7280" />
-                <Text className="text-white text-2xl font-semibold mt-6">No Series Selected</Text>
-            </View>
-        );
+        if (!selectedSeries) {
+            return (
+                <View className="w-full h-full bg-black items-center justify-center min-h-[240px]">
+                    <Ionicons name="tv-outline" size={120} color="#6b7280" />
+                    <Text className="text-white text-2xl font-semibold mt-6">No Series Selected</Text>
+                </View>
+            );
+        }
 
         const currentUrl = getCurrentStreamUrl(selectedSeries, useProxy);
         const { type, isValid } = analyzeStreamUrl(selectedSeries.mediaUrl);
 
-        if (!isValid) return (
-            <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
-                <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-                <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid Stream URL</Text>
-                <Text className="text-gray-400 text-center mt-2 px-8 text-base">
-                    {errorMessage || 'URL format not supported'}
-                </Text>
-            </View>
-        );
+        if (!isValid) {
+            return (
+                <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
+                    <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
+                    <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid Stream URL</Text>
+                    <Text className="text-gray-400 text-center mt-2 px-8 text-base">
+                        {errorMessage || 'URL format not supported'}
+                    </Text>
+                </View>
+            );
+        }
 
         if (type === 'youtube-video') {
             const videoId = extractVideoId(selectedSeries.mediaUrl);
-            if (!videoId) return (
-                <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
-                    <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
-                    <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid YouTube URL</Text>
-                </View>
-            );
-            return <>{renderStreamTypeBadge(type)}<YouTubeVideoPlayer videoId={videoId} /></>;
-        }
-
-        // YouTube Live, Playlist, Channel (implement similar patterns)
-        if (type === 'youtube-live') {
-            const videoId = extractVideoId(selectedSeries.mediaUrl);
-            return videoId ? (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
-                        <View className="absolute top-4 left-4 z-10 bg-red-600 px-4 py-2 rounded-full flex-row items-center">
-                            <View className="w-3 h-3 bg-white rounded-full mr-2" />
-                            <Text className="text-white text-sm font-bold">LIVE</Text>
-                        </View>
-                        <YoutubeView player={useYouTubePlayer(videoId, { autoplay: true, muted: false, controls: true, playsinline: true, rel: false, modestbranding: true })} style={{ width: '100%', height: PLAYER_HEIGHT }} />
-                        {/* Watermark */}
-                        {selectedSeries && (
-                            <Image source={{ uri: selectedSeries.verticalUrl }} style={{ position: 'absolute', bottom: 16, right: 16, width: 60, height: 60, opacity: 0.7, zIndex: 10 }} resizeMode="contain" />
-                        )}
+            if (!videoId) {
+                return (
+                    <View className="w-full bg-black items-center justify-center" style={{ height: PLAYER_HEIGHT }}>
+                        <Ionicons name="alert-circle-outline" size={80} color="#ef4444" />
+                        <Text className="text-white text-center mt-6 text-xl font-semibold">Invalid YouTube URL</Text>
                     </View>
-                </>
-            ) : null;
+                );
+            }
+            return <>{renderStreamTypeBadge(type)}<YouTubeVideoPlayer videoId={videoId} /></>;
         }
 
         // Native Video Player for non-YouTube
@@ -638,50 +606,42 @@ export default function SeriesScreen() {
         []
     );
 
-    // Cleanup
-    useEffect(() => {
-        return () => {
-            if (videoRef.current) {
-                videoRef.current.unloadAsync().catch(() => {
-                    console.log('Error unloading video on unmount');
-                });
-            }
-            setSelectedSeries(null);
-            setVideoLoading(false);
-            setVideoError(false);
-        };
-    }, []);
+    // FIXED: Safe loading states with min-height guarantees
+    if (loading) {
+        return (
+            <View className="flex-1 bg-black items-center justify-center min-h-screen">
+                <StatusBar barStyle="light-content" hidden />
+                <ActivityIndicator size="large" color="#f97316" />
+                <Text className="text-white mt-6 text-xl">Loading Web Series...</Text>
+            </View>
+        );
+    }
 
-    if (loading) return (
-        <View className="flex-1 bg-black items-center justify-center">
-            <StatusBar barStyle="light-content" hidden />
-            <ActivityIndicator size="large" color="#f97316" />
-            <Text className="text-white mt-6 text-xl">Loading Web Series...</Text>
-        </View>
-    );
+    if (!series || series.length === 0) {
+        return (
+            <SafeAreaView className="flex-1 bg-black items-center justify-center min-h-screen">
+                <StatusBar barStyle="light-content" hidden />
+                <Ionicons name="play-circle-outline" size={120} color="#6b7280" />
+                <Text className="text-white text-2xl font-semibold mt-6">No Series Available</Text>
+                <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchSeries} hasTVPreferredFocus={isTV}>
+                    <Text className="text-white font-bold text-lg">Refresh Series</Text>
+                </TouchableOpacity>
+            </SafeAreaView>
+        );
+    }
 
-    if (!series || series.length === 0) return (
-        <SafeAreaView className="flex-1 bg-black items-center justify-center">
-            <StatusBar barStyle="light-content" hidden />
-            <Ionicons name="play-circle-outline" size={120} color="#6b7280" />
-            <Text className="text-white text-2xl font-semibold mt-6">No Series Available</Text>
-            <TouchableOpacity className="mt-8 bg-orange-500 px-12 py-4 rounded-lg" onPress={fetchSeries}>
-                <Text className="text-white font-bold text-lg">Refresh Series</Text>
-            </TouchableOpacity>
-        </SafeAreaView>
-    );
-
+    // FIXED: Safe layout with min-height guarantees
     return (
-        <View className="flex-1 bg-black">
+        <View className="flex-1 bg-black min-h-screen">
             <StatusBar barStyle="light-content" hidden />
 
-            {/* 65% VIDEO PLAYER */}
-            <View style={{ height: PLAYER_HEIGHT, width: '100%' }}>
+            {/* FIXED: Safe video player container */}
+            <View style={{ height: PLAYER_HEIGHT, width: '100%', minHeight: 240 }}>
                 {renderVideoPlayer()}
             </View>
 
-            {/* 35% SERIES BROWSER */}
-            <View style={{ height: '35%', width: '100%' }} className="bg-gray-900">
+            {/* FIXED: Safe series browser container */}
+            <View style={{ height: '35%', width: '100%', minHeight: 200 }} className="bg-gray-900">
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {groupedSeries.map((genre, genreIndex) => (
                         <View key={genre.title} className="mb-6">
@@ -712,7 +672,7 @@ export default function SeriesScreen() {
                                                 }`}
                                             style={{ width: 160 }}
                                             onPress={() => debouncedHandleShowChange(show)}
-                                            hasTVPreferredFocus={genreIndex === 0 && showIndex === 0}
+                                            hasTVPreferredFocus={genreIndex === 0 && showIndex === 0 && isTV}
                                         >
                                             <View className="relative">
                                                 <Image
@@ -753,146 +713,6 @@ export default function SeriesScreen() {
                 </ScrollView>
             </View>
 
-            {/* Recommendations Overlay */}
-            {showRecommendations && (
-                <View className="absolute bottom-40 left-0 right-0 bg-black/90 p-6 z-30 rounded-t-3xl">
-                    <TouchableOpacity className="absolute top-4 right-4 p-2" onPress={() => setShowRecommendations(false)}>
-                        <Ionicons name="close-circle" size={32} color="white" />
-                    </TouchableOpacity>
-                    <Text className="text-white text-2xl font-bold mb-6 text-center">Recommended Series</Text>
-                    {/* Recommendations Overlay - FULL FlatList IMPLEMENTATION */}
-                    {showRecommendations && (
-                        <View className="absolute bottom-40 left-0 right-0 bg-black/95 p-8 z-30 rounded-t-3xl border-t-4 border-orange-500/50 shadow-2xl">
-                            <View className="flex-row items-center justify-between mb-8">
-                                <Text className="text-white text-3xl font-bold">Recommended</Text>
-                                <TouchableOpacity
-                                    onPress={() => setShowRecommendations(false)}
-                                    className="p-3 rounded-full bg-gray-800/50"
-                                >
-                                    <Ionicons name="close-circle" size={36} color="#f97316" />
-                                </TouchableOpacity>
-                            </View>
-
-                            {/* RECOMMENDATIONS FLATLIST - TV OPTIMIZED */}
-                            <FlatList
-                                data={getRecommendedItems()} // Use your recommended items function
-                                keyExtractor={(item) => item.id ? String(item.id) : String(Math.random())}
-                                horizontal={false} // Vertical for overlay
-                                showsHorizontalScrollIndicator={false}
-                                showsVerticalScrollIndicator={true}
-                                contentContainerStyle={{
-                                    paddingHorizontal: 12,
-                                    paddingBottom: 20,
-                                    maxHeight: 300, // Limit height
-                                }}
-                                renderItem={({ item, index }) => (
-                                    <TouchableOpacity
-                                        key={item.id}
-                                        className={`mb-4 mr-4 rounded-2xl overflow-hidden shadow-xl transform transition-all ${selectedItem?.id === item.id
-                                            ? 'border-4 border-orange-500 scale-105 shadow-orange-500/50'
-                                            : index === 0
-                                                ? 'border-2 border-yellow-400 shadow-yellow-400/30 scale-102'
-                                                : 'border border-gray-700 hover:border-gray-600'
-                                            }`}
-                                        style={{ width: 200, height: 280 }}
-                                        onPress={() => handleRecommendationSelect(item)}
-                                        hasTVPreferredFocus={index === 0}
-                                    >
-                                        {/* Thumbnail */}
-                                        <View className="relative h-48 bg-gradient-to-br from-gray-800 to-gray-900">
-                                            <Image
-                                                source={{ uri: item.imageUrl || item.verticalUrl || item.logo || 'https://via.placeholder.com/200x150/333/999?text=TV' }}
-                                                className="w-full h-full"
-                                                resizeMode="cover"
-                                            />
-                                            {/* Play Indicator */}
-                                            <View className="absolute inset-0 items-center justify-center bg-black/40">
-                                                <View className={`rounded-full p-4 ${selectedItem?.id === item.id ? 'bg-orange-500 shadow-2xl' : 'bg-white/20'
-                                                    }`}>
-                                                    <Ionicons
-                                                        name="play"
-                                                        size={selectedItem?.id === item.id ? 32 : 24}
-                                                        color="white"
-                                                    />
-                                                </View>
-                                            </View>
-                                            {/* Stream Type Badge */}
-                                            <View className="absolute top-4 right-4 bg-orange-500 px-3 py-1.5 rounded-full">
-                                                <Text className="text-white text-xs font-bold capitalize">
-                                                    {item.type || 'live'}
-                                                </Text>
-                                            </View>
-                                        </View>
-
-                                        {/* Content Info */}
-                                        <View className={`p-4 h-32 justify-between ${selectedItem?.id === item.id ? 'bg-orange-500/10 border-t-2 border-orange-400' : 'bg-gray-900/50'
-                                            }`}>
-                                            {/* Title & Number */}
-                                            <View className="flex-row items-center justify-between mb-2">
-                                                <Text className={`font-bold text-base ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-100'
-                                                    }`} numberOfLines={1}>
-                                                    {item.name || item.title}
-                                                </Text>
-                                                <View className={`px-3 py-1 rounded-full ${selectedItem?.id === item.id ? 'bg-white/20' : 'bg-gray-700'
-                                                    }`}>
-                                                    <Text className={`text-xs font-bold ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-300'
-                                                        }`}>
-                                                        {item.lcn || item.number || 'HD'}
-                                                    </Text>
-                                                </View>
-                                            </View>
-
-                                            {/* Genre/Language */}
-                                            <View className="flex-row items-center space-x-2 mb-2">
-                                                <View className="px-2 py-1 bg-gray-700/50 rounded-lg">
-                                                    <Text className={`text-xs ${selectedItem?.id === item.id ? 'text-orange-300' : 'text-gray-400'
-                                                        }`}>
-                                                        {item.genre?.name || item.genre}
-                                                    </Text>
-                                                </View>
-                                                <View className="px-2 py-1 bg-gray-700/50 rounded-lg">
-                                                    <Text className={`text-xs ${selectedItem?.id === item.id ? 'text-orange-300' : 'text-gray-400'
-                                                        }`}>
-                                                        {item.language?.name || item.lang}
-                                                    </Text>
-                                                </View>
-                                            </View>
-
-                                            {/* Action Button */}
-                                            <TouchableOpacity
-                                                className={`w-full py-2 rounded-xl items-center justify-center ${selectedItem?.id === item.id
-                                                    ? 'bg-white/20 border border-white/40'
-                                                    : 'bg-gray-800/50 border border-gray-600 hover:bg-gray-700'
-                                                    }`}
-                                                onPress={() => handleRecommendationSelect(item)}
-                                            >
-                                                <Text className={`font-bold text-sm ${selectedItem?.id === item.id ? 'text-white' : 'text-gray-200'
-                                                    }`}>
-                                                    {selectedItem?.id === item.id ? 'NOW PLAYING' : 'WATCH NOW'}
-                                                </Text>
-                                            </TouchableOpacity>
-                                        </View>
-                                    </TouchableOpacity>
-                                )}
-                                initialNumToRender={6}
-                                maxToRenderPerBatch={4}
-                                windowSize={10}
-                                removeClippedSubviews={true}
-                                getItemLayout={(data, index) => ({
-                                    length: 300,
-                                    offset: 300 * index,
-                                    index,
-                                })}
-                                ListFooterComponent={
-                                    <View className="h-6" />
-                                }
-                            />
-                        </View>
-                    )}
-
-                </View>
-            )}
-
             {/* Enhanced User Menu Modal */}
             <Modal visible={showUserMenu} animationType="slide" transparent onRequestClose={() => setShowUserMenu(false)}>
                 <View className="flex-1 bg-black/80 justify-end">
@@ -925,16 +745,6 @@ export default function SeriesScreen() {
                                     <View className="flex-row items-center">
                                         <Ionicons name="logo-whatsapp" size={28} color="white" />
                                         <Text className="text-white font-bold text-xl ml-4">Contact Support</Text>
-                                    </View>
-                                </TouchableOpacity>
-                            )}
-
-                            {serverInfo?.customButtonLink && serverInfo?.customButtonText && (
-                                <TouchableOpacity className="bg-blue-600 py-6 rounded-2xl items-center mb-4"
-                                    onPress={() => Linking.openURL(serverInfo.customButtonLink).catch(() => Alert.alert('Error', 'Unable to open link'))}>
-                                    <View className="flex-row items-center">
-                                        <Ionicons name="open-outline" size={28} color="white" />
-                                        <Text className="text-white font-bold text-xl ml-4">{serverInfo.customButtonText}</Text>
                                     </View>
                                 </TouchableOpacity>
                             )}

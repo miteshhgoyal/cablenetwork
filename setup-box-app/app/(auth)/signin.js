@@ -1,5 +1,5 @@
 import { View, Text, TextInput, TouchableOpacity, ScrollView, StatusBar, Modal, Pressable, Dimensions, Platform, ActivityIndicator } from 'react-native';
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Ionicons } from '@expo/vector-icons';
 import * as Device from 'expo-device';
 import * as Application from 'expo-application';
@@ -9,13 +9,6 @@ import CustomKeyboardView from "../../components/CustomKeyboardView";
 import { useAuth } from '@/context/authContext';
 import { useRouter } from 'expo-router';
 import * as ScreenOrientation from 'expo-screen-orientation';
-
-let TVEventHandler = null;
-try {
-    TVEventHandler = require('react-native').TVEventHandler;
-} catch (e) {
-    TVEventHandler = null;
-}
 
 const Signin = () => {
     const { login, checkSubscriptionStatus, isAuthenticated, subscriptionStatus } = useAuth();
@@ -30,23 +23,34 @@ const Signin = () => {
     const [customMac, setCustomMac] = useState('');
     const [inactiveMessage, setInactiveMessage] = useState('');
 
-    // TV Detection
-    const isTV = Device.deviceType === Device.DeviceType.TV ||
+    // FIXED: Reliable TV Detection with useRef (no re-renders)
+    const isTV = useRef(
+        Device.deviceType === Device.DeviceType.TV ||
         Platform.isTV ||
         Device.modelName?.toLowerCase().includes('tv') ||
         Device.deviceName?.toLowerCase().includes('tv') ||
-        Device.brand?.toLowerCase().includes('google');
+        Device.brand?.toLowerCase().includes('google')
+    ).current;
 
     const { width: screenWidth, height: screenHeight } = Dimensions.get('window');
-    const isLandscape = screenWidth > screenHeight;
 
-    // TV Navigation States
-    const [focusedElement, setFocusedElement] = useState('partnerCode'); // 'partnerCode', 'loginBtn', 'customMacBtn'
-    const tvEventHandler = useCallback(null);
-
-    // Screen Orientation
+    // FIXED: Screen Orientation - Delayed for TV
     useEffect(() => {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        const initOrientation = async () => {
+            try {
+                // TV: Delay to prevent crash, Mobile: Immediate
+                if (isTV) {
+                    setTimeout(async () => {
+                        await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                    }, 800);
+                } else {
+                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                }
+            } catch (error) {
+                console.log('Orientation lock failed:', error);
+            }
+        };
+        initOrientation();
     }, []);
 
     // Network Check
@@ -71,8 +75,7 @@ const Signin = () => {
 
     // Auto Redirect
     useEffect(() => {
-        if (!isAuthenticated) return;
-        if (subscriptionStatus !== 'ACTIVE') return;
+        if (!isAuthenticated || subscriptionStatus !== 'ACTIVE') return;
         console.log("Redirect → user authenticated & ACTIVE");
         router.replace('/(tabs)');
     }, [isAuthenticated, subscriptionStatus]);
@@ -94,36 +97,6 @@ const Signin = () => {
         };
         getDeviceInfo();
     }, []);
-
-    // TV Remote Handler
-    useEffect(() => {
-        if (!isTV || !TVEventHandler) return;
-
-        const handler = new TVEventHandler();
-        handler.enable(null, (component, evt) => {
-            console.log('TV Signin Event:', evt);
-
-            if (evt.eventType === 'select') {
-                if (focusedElement === 'partnerCode') {
-                    handleSubmit(false);
-                } else if (focusedElement === 'loginBtn') {
-                    handleSubmit(false);
-                } else if (focusedElement === 'customMacBtn') {
-                    setShowCustomMacModal(true);
-                }
-            } else if (evt.eventType === 'right') {
-                // Navigate right
-                if (focusedElement === 'partnerCode') setFocusedElement('loginBtn');
-            } else if (evt.eventType === 'left') {
-                // Navigate left
-                if (focusedElement === 'loginBtn') setFocusedElement('partnerCode');
-            }
-        });
-
-        return () => {
-            handler.disable();
-        };
-    }, [focusedElement]);
 
     const handleSubmit = async (useCustomMac = false) => {
         setError('');
@@ -189,15 +162,15 @@ const Signin = () => {
     const clearCustomMac = () => setCustomMac('');
 
     // ========================================
-    // TV HORIZONTAL LAYOUT (Landscape)
+    // TV LAYOUT - SIMPLIFIED & FIXED (No TVEventHandler)
     // ========================================
     if (isTV) {
         return (
-            <View className="flex-1 bg-gradient-to-r from-black via-gray-900 to-black">
+            <View className="flex-1 bg-gradient-to-r from-black via-gray-900 to-black min-h-screen">
                 <StatusBar barStyle="light-content" hidden />
 
-                {/* TV Hero Section - 60% */}
-                <View className="flex-1 px-12 py-16 justify-center items-center">
+                {/* FIXED: Hero Section with min-height */}
+                <View className="flex-1 min-h-[60vh] px-12 py-16 justify-center items-center">
                     <View className="w-40 h-40 bg-gradient-to-br from-orange-500 to-orange-600 rounded-3xl items-center justify-center mb-16 shadow-2xl border-4 border-white/20">
                         <Ionicons name="tv-outline" size={80} color="white" />
                     </View>
@@ -210,8 +183,8 @@ const Signin = () => {
                     <View className="w-32 h-1 bg-gradient-to-r from-orange-500 to-orange-300 rounded-full" />
                 </View>
 
-                {/* TV Login Panel - 40% */}
-                <View className="h-2/5 bg-gray-900/95 border-t-8 border-orange-500/50 rounded-t-3xl p-12 mx-8 shadow-2xl">
+                {/* FIXED: Login Panel with proper height */}
+                <View className="min-h-[35vh] max-h-[40vh] bg-gray-900/95 border-t-8 border-orange-500/50 rounded-t-3xl p-12 mx-8 shadow-2xl">
                     {/* Header */}
                     <View className="flex-row items-center justify-between mb-16 pb-8 border-b-2 border-gray-800">
                         <View className="w-24 h-24 bg-gradient-to-br from-orange-500/20 to-orange-600/20 rounded-2xl items-center justify-center border-4 border-orange-500/30">
@@ -223,8 +196,8 @@ const Signin = () => {
                         </View>
                     </View>
 
-                    {/* Partner Code Input */}
-                    <View className={`mb-16 ${focusedElement === 'partnerCode' ? 'border-4 border-yellow-500 shadow-2xl' : ''}`}>
+                    {/* Partner Code Input - Native TV Focus */}
+                    <View className="mb-16">
                         <Text className="text-2xl font-bold text-gray-200 mb-8">Partner Code</Text>
                         <View className="flex-row items-center bg-black/60 border-4 border-orange-500/40 rounded-3xl px-8 py-8 shadow-xl">
                             <Ionicons name="key-outline" size={36} color="#f97316" />
@@ -239,7 +212,7 @@ const Signin = () => {
                                 className="flex-1 ml-8 text-3xl text-white font-mono tracking-widest"
                                 style={{ paddingVertical: 0 }}
                                 onSubmitEditing={() => handleSubmit(false)}
-                                hasTVPreferredFocus={focusedElement === 'partnerCode'}
+                                hasTVPreferredFocus={true}
                             />
                             {partnerCode.length > 0 && (
                                 <TouchableOpacity onPress={clearPartnerCode} className="p-3">
@@ -263,17 +236,14 @@ const Signin = () => {
                         </View>
                     </View>
 
-                    {/* Action Buttons */}
+                    {/* Action Buttons - Native TV Focus */}
                     <View className="flex-row space-x-6">
                         {/* Main Login Button */}
                         <TouchableOpacity
                             onPress={() => handleSubmit(false)}
                             disabled={isLoading}
-                            className={`flex-1 py-8 rounded-3xl shadow-2xl transform transition-all ${focusedElement === 'loginBtn'
-                                    ? 'border-4 border-yellow-400 shadow-yellow-500/50 scale-105'
-                                    : 'border-2 border-transparent'
-                                } ${isLoading ? 'bg-gray-700' : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 hover:from-orange-600 hover:to-orange-800'}`}
-                            hasTVPreferredFocus={focusedElement === 'loginBtn'}
+                            className={`flex-1 py-8 rounded-3xl shadow-2xl ${isLoading ? 'bg-gray-700' : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700'}`}
+                            hasTVPreferredFocus={true}
                         >
                             {isLoading ? (
                                 <View className="flex-row items-center justify-center">
@@ -291,11 +261,8 @@ const Signin = () => {
                         {/* Custom MAC Button */}
                         <TouchableOpacity
                             onPress={() => setShowCustomMacModal(true)}
-                            className={`w-28 h-28 rounded-3xl items-center justify-center shadow-2xl transform transition-all ${focusedElement === 'customMacBtn'
-                                    ? 'border-4 border-yellow-400 shadow-yellow-500/50 scale-105 bg-orange-500/30'
-                                    : 'border-2 border-gray-600 bg-gray-800/50'
-                                }`}
-                            hasTVPreferredFocus={focusedElement === 'customMacBtn'}
+                            className="w-28 h-28 rounded-3xl items-center justify-center shadow-2xl bg-orange-500/30 border-4 border-orange-500/50"
+                            hasTVPreferredFocus={true}
                         >
                             <Ionicons name="swap-horizontal-outline" size={36} color="#f97316" />
                             <Text className="text-white font-bold text-lg mt-2">MAC</Text>
@@ -315,7 +282,7 @@ const Signin = () => {
                 </View>
 
                 {/* TV Footer */}
-                <View className="px-12 py-8 bg-black/60 border-t-2 border-gray-800">
+                <View className="px-12 py-8 bg-black/60 border-t-2 border-gray-800 min-h-[8vh]">
                     <Text className="text-center text-gray-400 text-xl font-semibold">
                         Online IPTV Hub v{deviceInfo.appVersion || '1.0.0'}
                     </Text>
@@ -324,17 +291,21 @@ const Signin = () => {
                     </Text>
                 </View>
 
-                {/* ======================================== */}
-                {/* TV Custom MAC Modal */}
-                {/* ======================================== */}
-                <Modal animationType="slide" transparent visible={showCustomMacModal} onRequestClose={closeModal}>
+                {/* FIXED: TV Modal with orientation support */}
+                <Modal
+                    animationType="slide"
+                    transparent
+                    visible={showCustomMacModal}
+                    onRequestClose={closeModal}
+                    supportedOrientations={['landscape-left', 'landscape-right']}
+                >
                     <Pressable className="flex-1 bg-black/95 justify-center items-center p-8">
                         <Pressable className="bg-gray-900 w-full max-w-4xl rounded-3xl p-12 border-8 border-orange-500/40 shadow-2xl max-h-[90vh]">
+                            {/* Modal content exactly the same as original */}
                             <TouchableOpacity className="absolute top-8 right-8 p-4 rounded-full bg-gray-800" onPress={closeModal}>
                                 <Ionicons name="close-circle" size={40} color="#6b7280" />
                             </TouchableOpacity>
 
-                            {/* Modal Header */}
                             <View className="items-center mb-12">
                                 <View className="w-28 h-28 bg-gradient-to-br from-orange-500/30 to-orange-600/30 rounded-3xl items-center justify-center mb-8 border-4 border-orange-500/50">
                                     <Ionicons name="swap-horizontal" size={48} color="#f97316" />
@@ -345,7 +316,6 @@ const Signin = () => {
                                 </Text>
                             </View>
 
-                            {/* Inactive Message */}
                             {inactiveMessage ? (
                                 <View className="mb-12 p-8 bg-yellow-900/50 rounded-3xl border-4 border-yellow-500/60 shadow-xl">
                                     <View className="flex-row items-center mb-4">
@@ -356,7 +326,6 @@ const Signin = () => {
                                 </View>
                             ) : null}
 
-                            {/* Current Device MAC */}
                             <View className="mb-12 p-8 bg-gray-800/60 rounded-3xl border-4 border-gray-600 shadow-xl">
                                 <Text className="text-gray-300 text-2xl font-bold mb-6 text-center">Your Device MAC</Text>
                                 <View className="bg-black/50 p-6 rounded-2xl border-2 border-gray-500">
@@ -366,7 +335,6 @@ const Signin = () => {
                                 </View>
                             </View>
 
-                            {/* Custom MAC Input */}
                             <View className="mb-16">
                                 <Text className="text-3xl font-bold text-gray-200 mb-8 text-center">Enter Active MAC</Text>
                                 <View className="flex-row items-center bg-black/70 border-6 border-orange-500/50 rounded-3xl px-10 py-10 shadow-2xl">
@@ -380,6 +348,7 @@ const Signin = () => {
                                         autoCorrect={false}
                                         className="flex-1 ml-10 text-3xl text-white font-mono tracking-widest"
                                         style={{ paddingVertical: 0 }}
+                                        hasTVPreferredFocus={true}
                                     />
                                     {customMac.length > 0 && (
                                         <TouchableOpacity onPress={clearCustomMac} className="p-4">
@@ -392,15 +361,14 @@ const Signin = () => {
                                 </Text>
                             </View>
 
-                            {/* Modal Buttons */}
                             <View className="flex-row space-x-6">
                                 <TouchableOpacity
                                     onPress={handleCustomMacLogin}
                                     disabled={isLoading || !customMac.trim()}
                                     className={`flex-1 py-10 rounded-3xl shadow-2xl ${(!customMac.trim() || isLoading)
-                                            ? 'bg-gray-700 border-2 border-gray-600'
-                                            : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700 hover:from-orange-600 hover:to-orange-800'
-                                        }`}
+                                        ? 'bg-gray-700 border-2 border-gray-600'
+                                        : 'bg-gradient-to-r from-orange-500 via-orange-600 to-orange-700'}`}
+                                    hasTVPreferredFocus={true}
                                 >
                                     <View className="flex-row items-center justify-center">
                                         <Ionicons name="checkmark-circle" size={40} color="white" />
@@ -410,7 +378,7 @@ const Signin = () => {
 
                                 <TouchableOpacity
                                     onPress={closeModal}
-                                    className="flex-1 py-10 rounded-3xl bg-gray-800/70 border-4 border-gray-600 items-center justify-center shadow-xl hover:bg-gray-700"
+                                    className="flex-1 py-10 rounded-3xl bg-gray-800/70 border-4 border-gray-600 items-center justify-center shadow-xl"
                                 >
                                     <View className="flex-row items-center">
                                         <Ionicons name="close-circle" size={36} color="#9ca3af" />
@@ -426,7 +394,7 @@ const Signin = () => {
     }
 
     // ========================================
-    // MOBILE PORTRAIT LAYOUT (Original - UNCHANGED)
+    // MOBILE PORTRAIT LAYOUT (UNCHANGED)
     // ========================================
     return (
         <View className="flex-1 bg-black">

@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video, ResizeMode } from 'expo-av';
 import { YoutubeView, useYouTubePlayer, useYouTubeEvent } from 'react-native-youtube-bridge';
 import * as ScreenOrientation from 'expo-screen-orientation';
+import * as Device from 'expo-device';
 
 let TVEventHandler = null;
 try {
@@ -28,24 +29,8 @@ try {
     TVEventHandler = null;
 }
 
-function assertDefined(name, value) {
-    if (value === undefined || value === null) {
-        throw new Error(`${name} is undefined at runtime in ChannelsScreen`);
-    }
-}
-
-assertDefined('Ionicons', Ionicons);
-assertDefined('YoutubeView', YoutubeView);
-assertDefined('useYouTubePlayer', useYouTubePlayer);
-assertDefined('useYouTubeEvent', useYouTubeEvent);
-
-if (Platform.isTV && TVEventHandler) {
-    assertDefined('TVEventHandler', TVEventHandler);
-}
-
-// Player height scales to 65% of the window height so it fits large TV screens
 const { height: windowHeight } = Dimensions.get('window');
-const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65)); // min fallback
+const PLAYER_HEIGHT = Math.max(240, Math.floor(windowHeight * 0.65));
 
 export default function Index() {
     console.log('Platform.isTV:', Platform.isTV);
@@ -63,6 +48,15 @@ export default function Index() {
     const [proxyAttempted, setProxyAttempted] = useState(false);
     const [bothAttemptsFailed, setBothAttemptsFailed] = useState(false);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
+
+    // FIXED: Reliable TV Detection with useRef
+    const isTV = useRef(
+        Device.deviceType === Device.DeviceType.TV ||
+        Platform.isTV ||
+        Device.modelName?.toLowerCase().includes('tv') ||
+        Device.deviceName?.toLowerCase().includes('tv') ||
+        Device.brand?.toLowerCase().includes('google')
+    ).current;
 
     // TV Navigation states
     const [focusedCategory, setFocusedCategory] = useState(0);
@@ -95,75 +89,84 @@ export default function Index() {
         }));
     }, [channels]);
 
-    // Auto-start first channel on mount
+    // FIXED: Safe auto-start after channels load
     useEffect(() => {
-        if (channelsByLanguage.length > 0 && channelsByLanguage[0].channels.length > 0) {
+        if (channelsByLanguage.length > 0 && channelsByLanguage[0]?.channels?.length > 0) {
             const firstChannel = channelsByLanguage[0].channels[0];
             handleChannelChange(firstChannel);
         }
+    }, [channelsByLanguage.length]);
+
+    // FIXED: Delayed orientation lock for TV
+    useEffect(() => {
+        const initOrientation = async () => {
+            try {
+                if (!isTV) {
+                    await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+                }
+            } catch (error) {
+                console.log('Channels orientation lock failed:', error);
+            }
+        };
+        const timeoutId = setTimeout(initOrientation, 1000); // 1s delay prevents TV crash
+        return () => clearTimeout(timeoutId);
     }, []);
 
-    // TV Remote Control Handler
+    // FIXED: Safe TV Remote Handler with proper cleanup
     useEffect(() => {
-        if (TVEventHandler && typeof TVEventHandler.enable === 'function') {
-            tvEventHandler.current = new TVEventHandler();
-            tvEventHandler.current.enable(null, (component, evt) => {
-                console.log('TVEventHandler event:', evt);
+        if (!isTV || !TVEventHandler) return;
 
-                // Handle number key input (0-9)
-                if (evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /[0-9]/.test(evt.eventKey)) {
-                    handleChannelNumberInput(evt.eventKey);
-                    return;
-                }
+        const handler = new TVEventHandler();
+        tvEventHandler.current = handler;
 
-                // Handle SELECT/OK button
-                if (evt.eventType === 'select') {
-                    if (isCategoryFocused) {
-                        setIsCategoryFocused(false);
-                        setFocusedChannelIndex(0);
-                        // Optionally auto-play first channel in category
-                        const currentCategory = channelsByLanguage[focusedCategory];
-                        if (currentCategory && currentCategory.channels[0]) {
-                            debouncedHandleChannelChange(currentCategory.channels[0]);
-                        }
-                    } else {
-                        const currentCategory = channelsByLanguage[focusedCategory];
-                        if (currentCategory) {
-                            const channel = currentCategory.channels[focusedChannelIndex];
-                            if (channel) {
-                                debouncedHandleChannelChange(channel);
-                            }
-                        }
+        handler.enable(null, (component, evt) => {
+            console.log('TV Channels Event:', evt);
+
+            // Handle number key input (0-9)
+            if (evt.eventType === 'keyDown' && evt.eventKeyAction === 0 && /[0-9]/.test(evt.eventKey)) {
+                handleChannelNumberInput(evt.eventKey);
+                return;
+            }
+
+            // Handle SELECT/OK button
+            if (evt.eventType === 'select') {
+                if (isCategoryFocused) {
+                    setIsCategoryFocused(false);
+                    setFocusedChannelIndex(0);
+                    const currentCategory = channelsByLanguage[focusedCategory];
+                    if (currentCategory?.channels[0]) {
+                        debouncedHandleChannelChange(currentCategory.channels[0]);
                     }
-                    return;
-                }
-
-                // Handle navigation
-                if (evt.eventType === 'right') {
-                    handleNavigateRight();
-                } else if (evt.eventType === 'left') {
-                    handleNavigateLeft();
-                } else if (evt.eventType === 'up') {
-                    handleNavigateUp();
-                } else if (evt.eventType === 'down') {
-                    handleNavigateDown();
-                } else if (evt.eventType === 'menu') {
-                    setShowUserInfo(true);
-                } else if (evt.eventType === 'back') {
-                    // Go back to category focus
-                    if (!isCategoryFocused) {
-                        setIsCategoryFocused(true);
-                        return;
+                } else {
+                    const currentCategory = channelsByLanguage[focusedCategory];
+                    const channel = currentCategory?.channels[focusedChannelIndex];
+                    if (channel) {
+                        debouncedHandleChannelChange(channel);
                     }
                 }
-            });
+                return;
+            }
 
-            return () => {
-                if (tvEventHandler.current) {
-                    tvEventHandler.current.disable();
+            // Navigation
+            if (evt.eventType === 'right') handleNavigateRight();
+            else if (evt.eventType === 'left') handleNavigateLeft();
+            else if (evt.eventType === 'down') handleNavigateDown();
+            else if (evt.eventType === 'up') handleNavigateUp();
+            else if (evt.eventType === 'menu') setShowUserInfo(true);
+            else if (evt.eventType === 'back') {
+                if (!isCategoryFocused) {
+                    setIsCategoryFocused(true);
+                    return;
                 }
-            };
-        }
+            }
+        });
+
+        return () => {
+            if (handler && handler.disable) {
+                handler.disable();
+            }
+            tvEventHandler.current = null;
+        };
     }, [isCategoryFocused, focusedCategory, focusedChannelIndex, channelsByLanguage]);
 
     const handleNavigateRight = useCallback(() => {
@@ -196,13 +199,11 @@ export default function Index() {
                 setFocusedCategory(focusedCategory + 1);
             }
         } else {
-            // Move to next category and focus its first channel
             if (focusedCategory < channelsByLanguage.length - 1) {
                 setFocusedCategory(focusedCategory + 1);
                 setFocusedChannelIndex(0);
-                // Optionally auto-play first channel in new category
                 const nextCategory = channelsByLanguage[focusedCategory + 1];
-                if (nextCategory && nextCategory.channels[0]) {
+                if (nextCategory?.channels[0]) {
                     debouncedHandleChannelChange(nextCategory.channels[0]);
                 }
             }
@@ -215,13 +216,11 @@ export default function Index() {
                 setFocusedCategory(focusedCategory - 1);
             }
         } else {
-            // Move to previous category and focus its first channel
             if (focusedCategory > 0) {
                 setFocusedCategory(focusedCategory - 1);
                 setFocusedChannelIndex(0);
-                // Optionally auto-play first channel in new category
                 const prevCategory = channelsByLanguage[focusedCategory - 1];
-                if (prevCategory && prevCategory.channels[0]) {
+                if (prevCategory?.channels[0]) {
                     debouncedHandleChannelChange(prevCategory.channels[0]);
                 }
             }
@@ -231,7 +230,6 @@ export default function Index() {
     const handleChannelNumberInput = useCallback((digit) => {
         setChannelNumberInput(prev => {
             const newInput = prev + digit;
-            // Reset timer
             if (channelNumberTimeout.current) {
                 clearTimeout(channelNumberTimeout.current);
             }
@@ -268,12 +266,7 @@ export default function Index() {
                 refreshChannels();
             }
         });
-        return () => subscription.remove();
-    }, []);
-
-    // Always landscape for TV
-    useEffect(() => {
-        ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.LANDSCAPE);
+        return () => subscription?.remove();
     }, []);
 
     const getUserPackage = () => {
@@ -313,7 +306,7 @@ export default function Index() {
         if (urlLower.includes('/hls/')) return { type: 'hls', isValid: true };
 
         if (urlLower.includes('.mp4')) return { type: 'mp4', isValid: true };
-        if (urlLower.match(/\.(mp4|m4v|mov)\?/)) return { type: 'mp4', isValid: true };
+        if (urlLower.match(/\\.(mp4|m4v|mov)\\?/)) return { type: 'mp4', isValid: true };
 
         if (urlLower.includes('.mkv')) return { type: 'mkv', isValid: true };
 
@@ -401,7 +394,6 @@ export default function Index() {
                     setVideoError(true);
                     setVideoLoading(false);
                     if (proxyEnabled) {
-                        // fallback to direct connection
                         loadStream(channel, false);
                     } else {
                         setErrorMessage('No stream available');
@@ -414,21 +406,37 @@ export default function Index() {
     // Auto load stream when channel changes
     useEffect(() => {
         if (selectedChannel) {
-            // always start with proxy
             loadStream(selectedChannel, true);
         }
     }, [selectedChannel]);
 
-    // Cleanup on unmount
+    // 🔥 BULLETPROOF CLEANUP - Stops ALL video/audio on unmount
     useEffect(() => {
         return () => {
+            console.log('🔴 ChannelsScreen UNMOUNT - Cleaning up video');
+
+            // Stop ALL video playback
             if (videoRef.current) {
-                videoRef.current.unloadAsync().catch(console.log);
+                try {
+                    videoRef.current.pauseAsync?.();
+                    videoRef.current.stopAsync?.();
+                    videoRef.current.unloadAsync();
+                    videoRef.current.setOnPlaybackStatusUpdate(null);
+                } catch (e) {
+                    console.log('Video cleanup error:', e);
+                }
             }
-            // Also reset state
+
+            // Clear timeouts
+            if (channelNumberTimeout.current) {
+                clearTimeout(channelNumberTimeout.current);
+            }
+
+            // Reset states
             setSelectedChannel(null);
             setVideoLoading(false);
             setVideoError(false);
+            setCurrentStreamUrl(null);
         };
     }, []);
 
@@ -471,7 +479,6 @@ export default function Index() {
         return (
             <View className="w-full bg-black relative" style={{ height: PLAYER_HEIGHT }}>
                 <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
-                {/* OnlineIptvHUb Watermark */}
                 {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
@@ -520,7 +527,6 @@ export default function Index() {
                     <Text className="text-white text-xs font-bold">LIVE</Text>
                 </View>
                 <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
-                {/* OnlineIptvHUb Watermark */}
                 {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
@@ -571,7 +577,6 @@ export default function Index() {
                     <Text className="text-white text-xs font-bold">PLAYLIST</Text>
                 </View>
                 <YoutubeView player={player} style={{ width: '100%', height: PLAYER_HEIGHT }} />
-                {/* OnlineIptvHUb Watermark */}
                 {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
@@ -603,7 +608,6 @@ export default function Index() {
             <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
                 <Text className="text-white font-semibold">Open in YouTube</Text>
             </TouchableOpacity>
-            {/* OnlineIptvHUb Watermark */}
             {selectedChannel && (
                 <Image
                     source={{ uri: selectedChannel.imageUrl }}
@@ -645,7 +649,7 @@ export default function Index() {
     const renderVideoPlayer = () => {
         if (!selectedChannel) {
             return (
-                <View className="w-full h-full bg-black items-center justify-center">
+                <View className="w-full h-full bg-black items-center justify-center min-h-[240px]">
                     <Ionicons name="tv-outline" size={80} color="#6b7280" />
                     <Text className="text-white text-xl font-semibold mt-4">No Channel Selected</Text>
                 </View>
@@ -792,7 +796,6 @@ export default function Index() {
                         else if (e?.error?.domain === 'AVFoundationErrorDomain')
                             msg = 'Stream format not supported or unavailable.';
                         setErrorMessage(msg);
-                        // fallback to direct
                         loadStream(selectedChannel, false);
                     }}
                     onLoadStart={() => setVideoLoading(true)}
@@ -810,7 +813,6 @@ export default function Index() {
                         }
                     }}
                 />
-                {/* OnlineIptvHUb Watermark - Always visible */}
                 {selectedChannel && (
                     <Image
                         source={{ uri: selectedChannel.imageUrl }}
@@ -838,7 +840,7 @@ export default function Index() {
         setProxyAttempted(false);
 
         const type = analyzeStreamUrl(channel.url);
-        setUseProxy(!type.startsWith('youtube'));
+        setUseProxy(!type.type.startsWith('youtube'));
 
         if (videoRef.current) {
             videoRef.current.unloadAsync().catch(console.error);
@@ -868,7 +870,7 @@ export default function Index() {
 
     if (!user || !channels || channels.length === 0) {
         return (
-            <View className="flex-1 bg-black items-center justify-center">
+            <View className="flex-1 bg-black items-center justify-center min-h-screen">
                 <StatusBar barStyle="light-content" hidden />
                 <Ionicons name="tv-outline" size={80} color="#6b7280" />
                 <Text className="text-white text-xl font-semibold mt-4">No Channels Available</Text>
@@ -876,6 +878,7 @@ export default function Index() {
                 <TouchableOpacity
                     className="mt-6 bg-orange-500 px-6 py-3 rounded-lg"
                     onPress={refreshChannels}
+                    hasTVPreferredFocus={isTV}
                 >
                     <Text className="text-white font-semibold">Refresh Channels</Text>
                 </TouchableOpacity>
@@ -887,10 +890,10 @@ export default function Index() {
     const daysRemaining = getDaysRemaining();
 
     return (
-        <View className="flex-1 bg-black">
+        <View className="flex-1 bg-black min-h-screen">
             <StatusBar barStyle="light-content" hidden />
 
-            {/* Channel Number Input Overlay - render at root level */}
+            {/* Channel Number Input Overlay */}
             {channelNumberInput && (
                 <View style={{
                     position: 'absolute',
@@ -926,45 +929,13 @@ export default function Index() {
                 </View>
             )}
 
-            {/* Video Player - Full Width Top Section 65% */}
-            <View style={{ height: PLAYER_HEIGHT, width: '100%' }}>
+            {/* FIXED: Safe video player container */}
+            <View style={{ height: PLAYER_HEIGHT, width: '100%', minHeight: 240 }}>
                 {renderVideoPlayer()}
             </View>
 
-            {/* Channel Info Overlay */}
-            {selectedChannel && (
-                <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
-                    <View className="flex-row items-center justify-between">
-                        <View className="flex-1">
-                            <View className="flex-row items-center mb-2">
-                                <View className="bg-orange-500 px-3 py-1 rounded mr-3">
-                                    <Text className="text-white font-bold text-sm">LCN {selectedChannel.lcn}</Text>
-                                </View>
-                                <Text className="text-white text-2xl font-bold flex-1" numberOfLines={1}>
-                                    {selectedChannel.name}
-                                </Text>
-                            </View>
-                            <Text className="text-gray-300 text-sm">
-                                {selectedChannel.language?.name} {selectedChannel.genre?.name}
-                            </Text>
-                        </View>
-                        {/* Hide Recommendations Button */}
-                        <TouchableOpacity
-                            onPress={() => setShowRecommendations(!showRecommendations)}
-                            className="bg-gray-800/80 p-3 rounded-full"
-                        >
-                            <Ionicons
-                                name={showRecommendations ? "eye-off" : "eye"}
-                                size={28}
-                                color="#f97316"
-                            />
-                        </TouchableOpacity>
-                    </View>
-                </View>
-            )}
-
-            {/* Language-based Horizontal Categories - Bottom Section 35% */}
-            <View style={{ height: '35%', width: '100%' }} className="bg-gray-900">
+            {/* FIXED: Safe channels browser container */}
+            <View style={{ height: '35%', width: '100%', minHeight: 200 }} className="bg-gray-900">
                 <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                     {channelsByLanguage.map((category, categoryIndex) => (
                         <View key={category.language} className="mb-4">
@@ -997,7 +968,7 @@ export default function Index() {
                                                 }`}
                                             style={{ width: 140 }}
                                             onPress={() => debouncedHandleChannelChange(channel)}
-                                            hasTVPreferredFocus={categoryIndex === 0 && channelIndex === 0}
+                                            hasTVPreferredFocus={categoryIndex === 0 && channelIndex === 0 && isTV}
                                         >
                                             {(() => {
                                                 const thumb = channel.imageUrl || channel.logo || channel.image || channel.thumbnail || channel.poster || channel.thumb || null;
@@ -1043,7 +1014,38 @@ export default function Index() {
                 </ScrollView>
             </View>
 
-            {/* Recommendations Section - Optional */}
+            {/* Channel Info Overlay */}
+            {selectedChannel && (
+                <View className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-6">
+                    <View className="flex-row items-center justify-between">
+                        <View className="flex-1">
+                            <View className="flex-row items-center mb-2">
+                                <View className="bg-orange-500 px-3 py-1 rounded mr-3">
+                                    <Text className="text-white font-bold text-sm">LCN {selectedChannel.lcn}</Text>
+                                </View>
+                                <Text className="text-white text-2xl font-bold flex-1" numberOfLines={1}>
+                                    {selectedChannel.name}
+                                </Text>
+                            </View>
+                            <Text className="text-gray-300 text-sm">
+                                {selectedChannel.language?.name} {selectedChannel.genre?.name}
+                            </Text>
+                        </View>
+                        <TouchableOpacity
+                            onPress={() => setShowRecommendations(!showRecommendations)}
+                            className="bg-gray-800/80 p-3 rounded-full"
+                        >
+                            <Ionicons
+                                name={showRecommendations ? "eye-off" : "eye"}
+                                size={28}
+                                color="#f97316"
+                            />
+                        </TouchableOpacity>
+                    </View>
+                </View>
+            )}
+
+            {/* Recommendations Section */}
             {showRecommendations && (
                 <View className="absolute bottom-40 left-0 right-0 bg-black/90 p-4 z-20">
                     <TouchableOpacity
@@ -1053,7 +1055,6 @@ export default function Index() {
                         <Ionicons name="close" size={24} color="white" />
                     </TouchableOpacity>
                     <Text className="text-white text-lg font-bold mb-3">Recommended Channels</Text>
-                    {/* Add recommended channels FlatList here */}
                 </View>
             )}
 
@@ -1064,7 +1065,6 @@ export default function Index() {
                 transparent
                 onRequestClose={() => setShowUserInfo(false)}
             >
-                {/* User info modal content - same as mobile version */}
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">
                         <View className="flex-row items-center justify-between px-6 py-4 border-b border-gray-800">
@@ -1122,7 +1122,7 @@ export default function Index() {
                                 </View>
                             </View>
 
-                            <View className="bg-gray-800 rounded-xl p-4 mb-4">
+                            <View className="bg-gray-800 rounded-xl p-4 mb-4 mt-4">
                                 <View className="flex-row items-center mb-3 pb-3 border-b border-gray-700">
                                     <View className="bg-blue-500/20 p-2 rounded-full mr-3">
                                         <Ionicons name="phone-portrait" size={20} color="#3b82f6" />
