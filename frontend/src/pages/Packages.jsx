@@ -37,7 +37,7 @@ const Packages = () => {
   });
   const [submitting, setSubmitting] = useState(false);
 
-  const canModify = user?.role == "admin";
+  const canModify = user?.role === "admin";
 
   useEffect(() => {
     fetchPackages();
@@ -160,20 +160,20 @@ const Packages = () => {
     return `${days} Day${days > 1 ? "s" : ""}`;
   };
 
-  // Updated toggleGenre function to auto-select matching channels
+  // ✅ PERFECTED GENRE/CHANNEL AUTO-SELECTION LOGIC
   const toggleGenre = (genreId) => {
     if (formData.genres.includes(genreId)) {
-      // Deselect genre and remove all channels of this genre
+      // Deselect genre and remove ALL channels of this genre
       setFormData({
         ...formData,
         genres: formData.genres.filter((id) => id !== genreId),
         channels: formData.channels.filter((channelId) => {
           const channel = channels.find((c) => c._id === channelId);
-          return !channel || channel.genre?._id !== genreId;
+          return !channel?.genre?._id === genreId; // Keep channels NOT belonging to this genre
         }),
       });
     } else {
-      // Select genre and add all channels of this genre
+      // Select genre and ADD all channels of this genre (without duplicates)
       const matchingChannels = channels
         .filter((channel) => channel.genre?._id === genreId)
         .map((channel) => channel._id);
@@ -182,11 +182,12 @@ const Packages = () => {
         ...formData,
         genres: [...formData.genres, genreId],
         channels: [
+          // Keep existing channels that don't belong to this genre
           ...formData.channels.filter((channelId) => {
-            // Keep existing channels that don't belong to this genre
             const channel = channels.find((c) => c._id === channelId);
-            return !channel || channel.genre?._id !== genreId;
+            return !channel?.genre?._id === genreId;
           }),
+          // Add all channels from this genre
           ...matchingChannels,
         ],
       });
@@ -207,7 +208,6 @@ const Packages = () => {
     }
   };
 
-  // Rest of the component remains exactly the same...
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -354,7 +354,7 @@ const Packages = () => {
         )}
       </div>
 
-      {/* Add/Edit Modal (Only for admin/distributor) */}
+      {/* Add/Edit Modal (Only for admin) */}
       {showModal && canModify && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -425,70 +425,92 @@ const Packages = () => {
                   />
                 </div>
 
-                {/* Genres with Checkmarks */}
+                {/* 🎯 GENRES SECTION - Auto-selects channels */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Genres (Optional)
+                    Genres (Auto-selects all channels)
                   </label>
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                  <div className="bg-emerald-50 border-2 border-emerald-200 rounded-xl p-4 max-h-48 overflow-y-auto">
                     {genres.length === 0 ? (
                       <p className="text-gray-500 text-sm">
                         No genres available
                       </p>
                     ) : (
                       <div className="space-y-2">
-                        {genres.map((genre) => (
-                          <label
-                            key={genre._id}
-                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
-                          >
-                            <div className="relative">
-                              <input
-                                type="checkbox"
-                                checked={formData.genres.includes(genre._id)}
-                                onChange={() => toggleGenre(genre._id)}
-                                className="sr-only"
-                              />
-                              <div
-                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
-                                  formData.genres.includes(genre._id)
-                                    ? "bg-blue-600 border-blue-600"
-                                    : "border-gray-300 hover:border-blue-400"
-                                }`}
-                              >
-                                {formData.genres.includes(genre._id) && (
-                                  <Check className="w-4 h-4 text-white" />
-                                )}
+                        {genres.map((genre) => {
+                          const channelCount = channels.filter(
+                            (c) => c.genre?._id === genre._id
+                          ).length;
+                          return (
+                            <label
+                              key={genre._id}
+                              className="flex items-center justify-between p-3 bg-white rounded-lg hover:shadow-md cursor-pointer transition-all border border-gray-100 hover:border-emerald-300"
+                            >
+                              <div className="flex items-center space-x-3">
+                                <div className="relative">
+                                  <input
+                                    type="checkbox"
+                                    checked={formData.genres.includes(
+                                      genre._id
+                                    )}
+                                    onChange={() => toggleGenre(genre._id)}
+                                    className="sr-only"
+                                  />
+                                  <div
+                                    className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center transition-all shadow-sm ${
+                                      formData.genres.includes(genre._id)
+                                        ? "bg-emerald-500 border-emerald-500"
+                                        : "border-gray-300 hover:border-emerald-400 bg-white"
+                                    }`}
+                                  >
+                                    {formData.genres.includes(genre._id) && (
+                                      <Check className="w-4 h-4 text-white" />
+                                    )}
+                                  </div>
+                                </div>
+                                <div>
+                                  <div className="text-sm font-semibold text-gray-900">
+                                    {genre.name}
+                                  </div>
+                                  <div className="text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                    {channelCount} channels
+                                  </div>
+                                </div>
                               </div>
-                            </div>
-                            <span className="text-sm text-gray-900 font-medium">
-                              {genre.name}
-                            </span>
-                          </label>
-                        ))}
+                            </label>
+                          );
+                        })}
                       </div>
                     )}
                   </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    Tick genre → All {formData.channels.length} channels
+                    auto-selected
+                  </p>
                 </div>
 
-                {/* Channels with Checkmarks */}
+                {/* Channels Section */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Channels (Optional)
+                    Channels ({formData.channels.length})
                   </label>
-                  <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 max-h-60 overflow-y-auto">
+                  <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 max-h-60 overflow-y-auto">
                     {channels.length === 0 ? (
                       <p className="text-gray-500 text-sm">
                         No channels available
                       </p>
                     ) : (
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
                         {channels.map((channel) => (
                           <label
                             key={channel._id}
-                            className="flex items-center space-x-3 p-2 rounded-lg hover:bg-white cursor-pointer transition-colors"
+                            className={`flex items-center space-x-2 p-2 rounded-lg cursor-pointer transition-all border ${
+                              formData.channels.includes(channel._id)
+                                ? "bg-blue-200 border-blue-400"
+                                : "bg-white border-gray-200 hover:border-blue-300 hover:bg-blue-50"
+                            }`}
                           >
-                            <div className="relative">
+                            <div className="relative flex-shrink-0">
                               <input
                                 type="checkbox"
                                 checked={formData.channels.includes(
@@ -498,20 +520,30 @@ const Packages = () => {
                                 className="sr-only"
                               />
                               <div
-                                className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-all ${
+                                className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${
                                   formData.channels.includes(channel._id)
                                     ? "bg-blue-600 border-blue-600"
                                     : "border-gray-300 hover:border-blue-400"
                                 }`}
                               >
                                 {formData.channels.includes(channel._id) && (
-                                  <Check className="w-4 h-4 text-white" />
+                                  <Check className="w-3 h-3 text-white" />
                                 )}
                               </div>
                             </div>
-                            <span className="text-sm text-gray-900 font-medium">
-                              {channel.lcn} - {channel.name}
-                            </span>
+                            <div className="min-w-0 flex-1">
+                              <div className="font-mono text-xs bg-white px-1.5 py-0.5 rounded border border-gray-200">
+                                {channel.lcn}
+                              </div>
+                              <div className="text-xs font-medium text-gray-900 truncate">
+                                {channel.name}
+                              </div>
+                              {channel.genre && (
+                                <div className="text-xs text-gray-500">
+                                  {channel.genre.name}
+                                </div>
+                              )}
+                            </div>
                           </label>
                         ))}
                       </div>
@@ -527,17 +559,28 @@ const Packages = () => {
                     </label>
                     <select
                       value={formData.defaultChannelId}
-                      onChange={e => setFormData({ ...formData, defaultChannelId: e.target.value })}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          defaultChannelId: e.target.value,
+                        })
+                      }
                       className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       required={formData.channels.length > 0}
                       disabled={formData.channels.length === 0}
                     >
-                      <option value="">{formData.channels.length === 0 ? "Select channels first" : "Select default channel"}</option>
-                      {channels.filter(c => formData.channels.includes(c._id)).map(channel => (
-                        <option key={channel._id} value={channel._id}>
-                          {channel.lcn} - {channel.name}
-                        </option>
-                      ))}
+                      <option value="">
+                        {formData.channels.length === 0
+                          ? "Select channels first"
+                          : "Select default channel"}
+                      </option>
+                      {channels
+                        .filter((c) => formData.channels.includes(c._id))
+                        .map((channel) => (
+                          <option key={channel._id} value={channel._id}>
+                            {channel.lcn} - {channel.name}
+                          </option>
+                        ))}
                     </select>
                   </div>
                 )}
@@ -671,7 +714,7 @@ const Packages = () => {
         </div>
       )}
 
-      {/* Delete Modal (Only for admin/distributor) */}
+      {/* Delete Modal (Only for admin) */}
       {showDeleteModal && canModify && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
