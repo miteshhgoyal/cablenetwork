@@ -1,0 +1,102 @@
+name: Build Expo APKs
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      build-customer:
+        description: "Build customer-app APK?"
+        required: false
+        default: false
+        type: boolean
+      build-setupbox:
+        description: "Build setup-box-app APK?"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Cache Expo and dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            customer-app/node_modules
+            setup-box-app/node_modules
+            ~/.expo
+          key: ${{ runner.os }}-expo-${{ hashFiles('**/package-lock.json') }}
+
+      # Build customer-app with auto-generated keystore
+      - name: Build customer-app APK (Signed)
+        if: ${{ inputs.build-customer == 'true' || github.event_name == 'push' }}
+        working-directory: ./customer-app
+        run: |
+          npm ci
+          npx expo prebuild --platform android --clean
+
+          # Generate unique keystore for this build
+          keytool -genkeypair -v -keystore my-release-key.jks -alias my-key-alias \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=BuildAgent, OU=CI, O=GitHub, L=Internet, ST=Web, C=US"
+
+          # Create signing config
+          cat > android/app/gradle.properties << EOF
+          MYAPP_RELEASE_STORE_FILE=my-release-key.jks
+          MYAPP_RELEASE_KEY_ALIAS=my-key-alias
+          MYAPP_RELEASE_STORE_PASSWORD=android
+          MYAPP_RELEASE_KEY_PASSWORD=android
+          EOF
+
+          cd android && ./gradlew assembleRelease
+
+      - name: Upload customer-app APK
+        if: ${{ inputs.build-customer == 'true' || github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: customer-app-release-signed.apk
+          path: customer-app/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
+
+      # Build setup-box-app with auto-generated keystore
+      - name: Build setup-box-app APK (Signed)
+        if: ${{ inputs.build-setupbox == 'true' || github.event_name == 'push' }}
+        working-directory: ./setup-box-app
+        run: |
+          npm ci
+          npx expo prebuild --platform android --clean
+
+          # Generate unique keystore for this build
+          keytool -genkeypair -v -keystore my-release-key.jks -alias my-key-alias \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass android -keypass android \
+            -dname "CN=BuildAgent, OU=CI, O=GitHub, L=Internet, ST=Web, C=US"
+
+          # Create signing config
+          cat > android/app/gradle.properties << EOF
+          MYAPP_RELEASE_STORE_FILE=my-release-key.jks
+          MYAPP_RELEASE_KEY_ALIAS=my-key-alias
+          MYAPP_RELEASE_STORE_PASSWORD=android
+          MYAPP_RELEASE_KEY_PASSWORD=android
+          EOF
+
+          cd android && ./gradlew assembleRelease
+
+      - name: Upload setup-box-app APK
+        if: ${{ inputs.build-setupbox == 'true' || github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: setup-box-app-release-signed.apk
+          path: setup-box-app/android/app/build/outputs/apk/release/app-release.apk
+          retention-days: 30
