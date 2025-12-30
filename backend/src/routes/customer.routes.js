@@ -27,13 +27,11 @@ const removeExpiredPackages = async (subscriber) => {
     await subscriber.populate('packages', 'duration');
 
     // Filter packages based on their expiry
-    // We calculate expiry as: current date vs package assignment date + duration
     const validPackages = [];
     const expiredPackageNames = [];
 
     for (const pkg of subscriber.packages) {
         // Calculate when this package expires
-        // Using createdAt as assignment date, or current date if not available
         const assignedDate = subscriber.createdAt || now;
         const packageDuration = pkg.duration || 30; // Default 30 days
         const packageExpiry = new Date(assignedDate.getTime() + packageDuration * 24 * 60 * 60 * 1000);
@@ -165,7 +163,7 @@ const authenticateToken = async (req, res, next) => {
 // PUBLIC ROUTES
 // ==========================================
 
-// LOGIN ROUTE WITH CUSTOM MAC SUPPORT
+// LOGIN ROUTE WITH CUSTOM MAC SUPPORT + PARTNER CODE SWITCHING
 router.post('/login', async (req, res) => {
     try {
         const { partnerCode, macAddress, deviceName, customMac } = req.body;
@@ -273,13 +271,134 @@ router.post('/login', async (req, res) => {
             // CASE 2: No Custom MAC - Use Own Device MAC
             // ==========================================
         } else {
-            subscriber = await Subscriber.findOne({
-                resellerId: reseller._id,
+            // 🔥 STEP 1: First check if MAC exists ANYWHERE (any reseller)
+            const existingSubscriber = await Subscriber.findOne({
                 serialNumber: deviceMac
             });
 
-            // SUB-CASE A: Device MAC not found - Create Fresh subscriber
-            if (!subscriber) {
+            // 🔥 STEP 2A: MAC exists but under DIFFERENT reseller
+            if (existingSubscriber && existingSubscriber.resellerId.toString() !== reseller._id.toString()) {
+                console.log(`🔄 MAC ${deviceMac} switching from reseller ${existingSubscriber.resellerId} to ${reseller._id}`);
+
+                // Update the subscriber to new reseller
+                existingSubscriber.resellerId = reseller._id;
+
+                // Reset to Fresh status for new reseller
+                existingSubscriber.status = 'Fresh';
+                existingSubscriber.packages = [];
+                existingSubscriber.primaryPackageId = null;
+                existingSubscriber.expiryDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+                await existingSubscriber.save();
+
+                console.log(`✅ MAC ${deviceMac} moved to new partner code ${partnerCode}`);
+
+                return res.status(201).json({
+                    success: false,
+                    code: 'MAC_SWITCHED_PARTNER',
+                    message: `Device switched to new partner code successfully!\n\nYour device is now registered as Fresh under partner code: ${partnerCode}\n\nPlease contact your new reseller/admin to assign packages and activate your account.`,
+                    data: {
+                        deviceMac: deviceMac,
+                        status: 'Fresh',
+                        partnerCode: partnerCode,
+                        switchedFrom: 'Different partner code',
+                        canUseCustomMac: true,
+                        hasPackages: false
+                    }
+                });
+            }
+
+            // 🔥 STEP 2B: MAC exists under SAME reseller
+            if (existingSubscriber && existingSubscriber.resellerId.toString() === reseller._id.toString()) {
+                subscriber = existingSubscriber;
+
+                // ✅ CHECK AND REMOVE EXPIRED PACKAGES FOR EXISTING SUBSCRIBER
+                const { hadChanges } = await removeExpiredPackages(subscriber);
+
+                if (hadChanges) {
+                    console.log(`✅ Cleaned expired packages from device MAC: ${deviceMac}`);
+                }
+
+                // Auto-activate if packages are assigned to Fresh subscriber
+                if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
+                    subscriber.status = 'Active';
+                    await subscriber.save();
+                    console.log(`✅ Auto-activated Fresh subscriber with packages: ${deviceMac}`);
+                }
+
+                // SUB-CASE B: Device MAC found but is Fresh without packages
+                if (subscriber.status === 'Fresh') {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'MAC_FRESH',
+                        message: 'Your device is Fresh. Please contact admin/reseller to assign packages and activate.',
+                        data: {
+                            deviceMac: deviceMac,
+                            status: subscriber.status,
+                            canUseCustomMac: true,
+                            hasPackages: subscriber.packages?.length > 0
+                        }
+                    });
+                }
+
+                // SUB-CASE C: Device MAC found but is Inactive
+                if (subscriber.status === 'Inactive') {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'MAC_INACTIVE',
+                        message: 'Your device is Inactive. Please contact admin/reseller to activate.',
+                        data: {
+                            deviceMac: deviceMac,
+                            status: subscriber.status,
+                            canUseCustomMac: true,
+                            hasPackages: subscriber.packages?.length > 0
+                        }
+                    });
+                }
+
+                // SUB-CASE D: Device MAC Active but Expired
+                if (new Date() > new Date(subscriber.expiryDate)) {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'SUBSCRIPTION_EXPIRED',
+                        message: `Subscription expired on ${new Date(subscriber.expiryDate).toLocaleDateString()}. Please contact admin/reseller to renew.`,
+                        data: {
+                            deviceMac: deviceMac,
+                            status: subscriber.status,
+                            expiryDate: subscriber.expiryDate,
+                            canUseCustomMac: true
+                        }
+                    });
+                }
+
+                // SUB-CASE E: Check if subscriber has no packages assigned (after expiry cleanup)
+                if (!subscriber.packages || subscriber.packages.length === 0) {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'NO_PACKAGES',
+                        message: 'Your device is Active but no packages are assigned. All packages may have expired. Please contact admin/reseller to assign new packages.',
+                        data: {
+                            deviceMac: deviceMac,
+                            status: subscriber.status,
+                            hasPackages: false,
+                            canUseCustomMac: true
+                        }
+                    });
+                }
+
+                // SUB-CASE F: Device MAC Active and Valid
+                subscriber.deviceInfo = {
+                    ...subscriber.deviceInfo,
+                    lastIPAddress: req.ip || req.connection.remoteAddress,
+                    deviceModel: deviceName || subscriber.deviceInfo?.deviceModel,
+                };
+                await subscriber.save();
+
+                console.log(`✅ Login with own device MAC: ${deviceMac}`);
+            }
+
+            // 🔥 STEP 2C: MAC doesn't exist anywhere - Create Fresh subscriber
+            if (!existingSubscriber) {
                 subscriber = new Subscriber({
                     resellerId: reseller._id,
                     subscriberName: deviceName || 'User',
@@ -306,90 +425,6 @@ router.post('/login', async (req, res) => {
                     }
                 });
             }
-
-            // ✅ CHECK AND REMOVE EXPIRED PACKAGES FOR EXISTING SUBSCRIBER
-            const { hadChanges } = await removeExpiredPackages(subscriber);
-
-            if (hadChanges) {
-                console.log(`✅ Cleaned expired packages from device MAC: ${deviceMac}`);
-            }
-
-            // Auto-activate if packages are assigned to Fresh subscriber
-            if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
-                subscriber.status = 'Active';
-                await subscriber.save();
-                console.log(`✅ Auto-activated Fresh subscriber with packages: ${deviceMac}`);
-            }
-
-            // SUB-CASE B: Device MAC found but is Fresh without packages
-            if (subscriber.status === 'Fresh') {
-                return res.status(403).json({
-                    success: false,
-                    code: 'MAC_FRESH',
-                    message: 'Your device is Fresh. Please contact admin/reseller to assign packages and activate.',
-                    data: {
-                        deviceMac: deviceMac,
-                        status: subscriber.status,
-                        canUseCustomMac: true,
-                        hasPackages: subscriber.packages?.length > 0
-                    }
-                });
-            }
-
-            // SUB-CASE C: Device MAC found but is Inactive
-            if (subscriber.status === 'Inactive') {
-                return res.status(403).json({
-                    success: false,
-                    code: 'MAC_INACTIVE',
-                    message: 'Your device is Inactive. Please contact admin/reseller to activate.',
-                    data: {
-                        deviceMac: deviceMac,
-                        status: subscriber.status,
-                        canUseCustomMac: true,
-                        hasPackages: subscriber.packages?.length > 0
-                    }
-                });
-            }
-
-            // SUB-CASE D: Device MAC Active but Expired
-            if (new Date() > new Date(subscriber.expiryDate)) {
-                return res.status(403).json({
-                    success: false,
-                    code: 'SUBSCRIPTION_EXPIRED',
-                    message: `Subscription expired on ${new Date(subscriber.expiryDate).toLocaleDateString()}. Please contact admin/reseller to renew.`,
-                    data: {
-                        deviceMac: deviceMac,
-                        status: subscriber.status,
-                        expiryDate: subscriber.expiryDate,
-                        canUseCustomMac: true
-                    }
-                });
-            }
-
-            // SUB-CASE E: Check if subscriber has no packages assigned (after expiry cleanup)
-            if (!subscriber.packages || subscriber.packages.length === 0) {
-                return res.status(403).json({
-                    success: false,
-                    code: 'NO_PACKAGES',
-                    message: 'Your device is Active but no packages are assigned. All packages may have expired. Please contact admin/reseller to assign new packages.',
-                    data: {
-                        deviceMac: deviceMac,
-                        status: subscriber.status,
-                        hasPackages: false,
-                        canUseCustomMac: true
-                    }
-                });
-            }
-
-            // SUB-CASE F: Device MAC Active and Valid
-            subscriber.deviceInfo = {
-                ...subscriber.deviceInfo,
-                lastIPAddress: req.ip || req.connection.remoteAddress,
-                deviceModel: deviceName || subscriber.deviceInfo?.deviceModel,
-            };
-            await subscriber.save();
-
-            console.log(`✅ Login with own device MAC: ${deviceMac}`);
         }
 
         // ==========================================
