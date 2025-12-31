@@ -33,18 +33,38 @@ const Credit = () => {
   const [selfCreditAmount, setSelfCreditAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
-  // ✅ FIX: Store current user's fresh balance from API
   const [currentUserData, setCurrentUserData] = useState(null);
+
+  // ✅ NEW: State for dynamic capping values from API
+  const [cappingConfig, setCappingConfig] = useState({
+    distributorCapping: 10000,
+    resellerCapping: 1000,
+  });
 
   const canAccess = !!user;
 
   useEffect(() => {
     if (canAccess) {
+      fetchCappingConfig();
       fetchCurrentUserData();
       fetchCredits();
       fetchUsers();
     }
   }, [typeFilter, canAccess]);
+
+  // ✅ NEW: Fetch capping configuration from API
+  const fetchCappingConfig = async () => {
+    try {
+      const response = await api.get("/capping");
+      setCappingConfig({
+        distributorCapping: response.data.data.distributorCapping,
+        resellerCapping: response.data.data.resellerCapping,
+      });
+    } catch (error) {
+      console.error("Failed to fetch capping config:", error);
+      // Keep default values if API fails
+    }
+  };
 
   const fetchCurrentUserData = async () => {
     try {
@@ -52,7 +72,6 @@ const Credit = () => {
       setCurrentUserData(response.data.data.user);
     } catch (error) {
       console.error("Failed to fetch current user:", error);
-      // Fallback to context user if API fails
       setCurrentUserData(user);
     }
   };
@@ -82,7 +101,6 @@ const Credit = () => {
   };
 
   const handleOpenModal = () => {
-    // ✅ Refresh balance before opening modal
     fetchCurrentUserData();
     setFormData({
       type: "Credit",
@@ -104,7 +122,6 @@ const Credit = () => {
   };
 
   const handleOpenSelfCreditModal = () => {
-    // ✅ Refresh balance before opening modal
     fetchCurrentUserData();
     setSelfCreditAmount("");
     setShowSelfCreditModal(true);
@@ -127,9 +144,10 @@ const Credit = () => {
     }
   };
 
+  // ✅ UPDATED: Use dynamic capping from API
   const getCappingAmount = (role) => {
-    if (role === "distributor") return 10000;
-    if (role === "reseller") return 1000;
+    if (role === "distributor") return cappingConfig.distributorCapping;
+    if (role === "reseller") return cappingConfig.resellerCapping;
     return 0;
   };
 
@@ -139,24 +157,20 @@ const Credit = () => {
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return false;
 
-    // ✅ Use fresh balance from API
     if (!currentUserData || currentUserData.balance === undefined) return false;
 
     const senderCapping = getCappingAmount(currentUserData.role);
     const targetCapping = getCappingAmount(selectedUser.role);
 
     if (formData.type === "Credit") {
-      // Credit: Sender gives money to target
       const senderBalanceAfter = currentUserData.balance - amount;
       return senderBalanceAfter >= senderCapping;
     } else if (formData.type === "Debit") {
-      // Debit: Sender takes money from target
       const targetBalanceAfter = selectedUser.balance - amount;
       return (
         selectedUser.balance >= amount && targetBalanceAfter >= targetCapping
       );
     } else if (formData.type === "Reverse Credit") {
-      // Reverse Credit: Sender takes back money from target
       const targetBalanceAfter = selectedUser.balance - amount;
       return (
         selectedUser.balance >= amount && targetBalanceAfter >= targetCapping
@@ -172,7 +186,6 @@ const Credit = () => {
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return null;
 
-    // ✅ Use fresh balance from API
     if (!currentUserData) return null;
 
     const senderCapping = getCappingAmount(currentUserData.role);
@@ -230,7 +243,6 @@ const Credit = () => {
           `🎯 ${targetName}: ₹${targetBalance?.toLocaleString("en-IN")}`
       );
 
-      // ✅ Refresh everything after transaction
       await fetchCurrentUserData();
       await fetchCredits();
       await fetchUsers();
@@ -263,7 +275,6 @@ const Credit = () => {
         )}`
       );
 
-      // ✅ Refresh everything after transaction
       await fetchCurrentUserData();
       await fetchCredits();
       handleCloseSelfCreditModal();
@@ -330,7 +341,6 @@ const Credit = () => {
                 </h1>
                 <p className="text-sm text-gray-600">
                   Your balance: <IndianRupee className="w-4 h-4 inline" />₹
-                  {/* ✅ Use fresh balance from API */}
                   {currentUserData?.balance?.toLocaleString("en-IN") || 0}
                 </p>
               </div>
@@ -687,7 +697,7 @@ const Credit = () => {
                 </div>
               )}
 
-              {/* Balance Preview - ✅ Use fresh balance */}
+              {/* Balance Preview */}
               {formData.amount &&
                 formData.user &&
                 selectedUser &&
@@ -788,7 +798,6 @@ const Credit = () => {
                 />
               </div>
 
-              {/* ✅ Use fresh balance */}
               {selfCreditAmount && currentUserData && (
                 <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
                   <p className="text-xs text-purple-700 font-medium mb-1">
