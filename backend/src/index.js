@@ -18,6 +18,7 @@ import creditRoutes from './routes/credit.routes.js';
 import profileRoutes from './routes/profile.routes.js';
 import customerRoutes from './routes/customer.routes.js';
 import proxyRoutes from './routes/proxy.routes.js';
+import cappingRoutes from './routes/capping.routes.js';
 
 const app = express();
 const PORT = process.env.PORT || 8000;
@@ -51,6 +52,7 @@ app.use('/api/credit', creditRoutes);
 app.use('/api/profile', profileRoutes);
 app.use('/api/customer', customerRoutes);
 app.use('/api/proxy', proxyRoutes);
+app.use('/api/capping', cappingRoutes);
 
 // Health check route
 app.get('/api/health', (req, res) => {

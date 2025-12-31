@@ -22,6 +22,7 @@ const Packages = () => {
   const [channels, setChannels] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [channelSearchTerm, setChannelSearchTerm] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
@@ -70,6 +71,7 @@ const Packages = () => {
 
   const handleOpenModal = (mode, pkg = null) => {
     setModalMode(mode);
+    setChannelSearchTerm("");
     if (mode === "edit" && pkg) {
       setSelectedPackage(pkg);
       setFormData({
@@ -96,6 +98,7 @@ const Packages = () => {
   const handleCloseModal = () => {
     setShowModal(false);
     setSelectedPackage(null);
+    setChannelSearchTerm("");
     setFormData({
       name: "",
       cost: "",
@@ -149,6 +152,15 @@ const Packages = () => {
     pkg.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const filteredChannels = channels.filter((channel) => {
+    const searchLower = channelSearchTerm.toLowerCase();
+    return (
+      channel.name.toLowerCase().includes(searchLower) ||
+      channel.lcn.toString().includes(searchLower) ||
+      channel.genre?.name.toLowerCase().includes(searchLower)
+    );
+  });
+
   const getDurationText = (days) => {
     if (days >= 365) {
       const years = Math.floor(days / 365);
@@ -160,20 +172,17 @@ const Packages = () => {
     return `${days} Day${days > 1 ? "s" : ""}`;
   };
 
-  // ✅ PERFECTED GENRE/CHANNEL AUTO-SELECTION LOGIC
   const toggleGenre = (genreId) => {
     if (formData.genres.includes(genreId)) {
-      // Deselect genre and remove ALL channels of this genre
       setFormData({
         ...formData,
         genres: formData.genres.filter((id) => id !== genreId),
         channels: formData.channels.filter((channelId) => {
           const channel = channels.find((c) => c._id === channelId);
-          return !channel?.genre?._id === genreId; // Keep channels NOT belonging to this genre
+          return channel?.genre?._id !== genreId;
         }),
       });
     } else {
-      // Select genre and ADD all channels of this genre (without duplicates)
       const matchingChannels = channels
         .filter((channel) => channel.genre?._id === genreId)
         .map((channel) => channel._id);
@@ -182,12 +191,10 @@ const Packages = () => {
         ...formData,
         genres: [...formData.genres, genreId],
         channels: [
-          // Keep existing channels that don't belong to this genre
           ...formData.channels.filter((channelId) => {
             const channel = channels.find((c) => c._id === channelId);
-            return !channel?.genre?._id === genreId;
+            return channel?.genre?._id !== genreId;
           }),
-          // Add all channels from this genre
           ...matchingChannels,
         ],
       });
@@ -425,7 +432,7 @@ const Packages = () => {
                   />
                 </div>
 
-                {/* 🎯 GENRES SECTION - Auto-selects channels */}
+                {/* Genres Section */}
                 <div className="md:col-span-2">
                   <label className="block text-sm font-semibold text-gray-700 mb-3">
                     Genres (Auto-selects all channels)
@@ -472,7 +479,7 @@ const Packages = () => {
                                   <div className="text-sm font-semibold text-gray-900">
                                     {genre.name}
                                   </div>
-                                  <div className="text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <div className="text-xs text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full inline-block">
                                     {channelCount} channels
                                   </div>
                                 </div>
@@ -484,24 +491,58 @@ const Packages = () => {
                     )}
                   </div>
                   <p className="text-xs text-gray-500 mt-2">
-                    Tick genre → All {formData.channels.length} channels
-                    auto-selected
+                    Tick genre → All channels auto-selected
                   </p>
                 </div>
 
-                {/* Channels Section */}
+                {/* 🆕 Channels Section with Search */}
                 <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-3">
-                    Channels ({formData.channels.length})
-                  </label>
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-sm font-semibold text-gray-700">
+                      Channels ({formData.channels.length})
+                    </label>
+                    {/* 🆕 Clear search button */}
+                    {channelSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => setChannelSearchTerm("")}
+                        className="text-xs text-blue-600 hover:text-blue-700"
+                      >
+                        Clear search
+                      </button>
+                    )}
+                  </div>
+
+                  {/* 🆕 Channel Search Input */}
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                    <input
+                      type="text"
+                      value={channelSearchTerm}
+                      onChange={(e) => setChannelSearchTerm(e.target.value)}
+                      placeholder="Search by name, LCN, or genre..."
+                      className="w-full pl-10 pr-4 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-sm"
+                    />
+                  </div>
+
                   <div className="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 max-h-60 overflow-y-auto">
-                    {channels.length === 0 ? (
+                    {/* 🆕 Show filtered channels count */}
+                    {channelSearchTerm && (
+                      <p className="text-xs text-blue-700 mb-2">
+                        Found {filteredChannels.length} channel
+                        {filteredChannels.length !== 1 ? "s" : ""}
+                      </p>
+                    )}
+
+                    {filteredChannels.length === 0 ? (
                       <p className="text-gray-500 text-sm">
-                        No channels available
+                        {channelSearchTerm
+                          ? "No channels match your search"
+                          : "No channels available"}
                       </p>
                     ) : (
                       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
-                        {channels.map((channel) => (
+                        {filteredChannels.map((channel) => (
                           <label
                             key={channel._id}
                             className={`flex items-center space-x-2 p-2 rounded-lg cursor-pointer transition-all border ${
@@ -551,7 +592,7 @@ const Packages = () => {
                   </div>
                 </div>
 
-                {/* Default Channel Dropdown (Admin only) */}
+                {/* Default Channel Dropdown */}
                 {user?.role === "admin" && (
                   <div className="md:col-span-2">
                     <label className="block text-sm font-semibold text-gray-700 mb-2">
@@ -611,7 +652,7 @@ const Packages = () => {
         </div>
       )}
 
-      {/* View Details Modal (For all roles) */}
+      {/* View Details Modal */}
       {showViewModal && selectedPackage && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
@@ -714,7 +755,7 @@ const Packages = () => {
         </div>
       )}
 
-      {/* Delete Modal (Only for admin) */}
+      {/* Delete Modal */}
       {showDeleteModal && canModify && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">

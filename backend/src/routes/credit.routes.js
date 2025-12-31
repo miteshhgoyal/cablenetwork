@@ -2,14 +2,18 @@ import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import Credit from '../models/Credit.js';
 import User from '../models/User.js';
+import Capping from '../models/Capping.js';
 
 const router = express.Router();
 
-// Capping amounts
-const CAPPING = {
-    distributor: 10000,
-    reseller: 1000,
-    admin: 0
+// Helper function to get capping amounts
+const getCappingAmounts = async () => {
+    const settings = await Capping.getSettings();
+    return {
+        distributor: settings.distributorCapping,
+        reseller: settings.resellerCapping,
+        admin: 0
+    };
 };
 
 // Get all credit transactions with proper user details
@@ -160,6 +164,9 @@ router.post('/', authenticateToken, async (req, res) => {
             }
         }
 
+        // ✅ Get dynamic capping amounts
+        const CAPPING = await getCappingAmounts();
+
         const senderCapping = CAPPING[currentUser.role] || 0;
         const targetCapping = CAPPING[targetUser.role] || 0;
 
@@ -175,7 +182,7 @@ router.post('/', authenticateToken, async (req, res) => {
             if (senderBalanceAfter < senderCapping) {
                 return res.status(400).json({
                     success: false,
-                    message: `Cannot perform Credit. Your balance will go below capping limit of ₹${senderCapping}`
+                    message: `Cannot perform Credit. Your balance will go below capping limit of ₹${senderCapping.toLocaleString('en-IN')}`
                 });
             }
         } else if (type === 'Debit' || type === 'Reverse Credit') {
@@ -186,14 +193,14 @@ router.post('/', authenticateToken, async (req, res) => {
             if (targetUser.balance < amt) {
                 return res.status(400).json({
                     success: false,
-                    message: `Insufficient balance. ${targetUser.name}'s current balance: ₹${targetUser.balance}`
+                    message: `Insufficient balance. ${targetUser.name}'s current balance: ₹${targetUser.balance.toLocaleString('en-IN')}`
                 });
             }
 
             if (targetBalanceAfter < targetCapping) {
                 return res.status(400).json({
                     success: false,
-                    message: `Cannot perform ${type}. ${targetUser.name}'s balance will go below capping limit of ₹${targetCapping}`
+                    message: `Cannot perform ${type}. ${targetUser.name}'s balance will go below capping limit of ₹${targetCapping.toLocaleString('en-IN')}`
                 });
             }
         }

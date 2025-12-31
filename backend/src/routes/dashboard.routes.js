@@ -1,4 +1,7 @@
-// backend/src/routes/dashboard.js
+// ==========================================
+// BACKEND: dashboard.js (Complete File)
+// ==========================================
+
 import express from 'express';
 import { authenticateToken } from '../middlewares/auth.js';
 import User from '../models/User.js';
@@ -8,8 +11,6 @@ import Package from '../models/Package.js';
 import Subscriber from '../models/Subscriber.js';
 import Ott from '../models/Ott.js';
 import Credit from '../models/Credit.js';
-
-// For backup
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -17,7 +18,6 @@ import archiver from 'archiver';
 
 const router = express.Router();
 
-// Get Dashboard Overview with Role-Based Stats + Credit Analytics
 router.get('/overview', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -45,7 +45,12 @@ router.get('/overview', authenticateToken, async (req, res) => {
             creditStats: null
         };
 
-        // CREDIT ANALYTICS - Calculate based on role
+        // Date calculations for time-based metrics
+        const now = new Date();
+        const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+
+        // CREDIT ANALYTICS
         let creditQuery = {};
 
         if (user.role === 'admin') {
@@ -102,7 +107,6 @@ router.get('/overview', authenticateToken, async (req, res) => {
         });
 
         const netBalanceFlow = totalCreditsGiven - (totalDebitsTaken + totalReverseCredits);
-
         const recentTransactions = credits
             .filter(c => c.senderUser?._id.toString() === userId.toString())
             .slice(0, 5);
@@ -118,9 +122,9 @@ router.get('/overview', authenticateToken, async (req, res) => {
             recentTransactions
         };
 
-        // Role-based stats calculation
+        // ROLE-BASED STATS CALCULATION
         switch (user.role) {
-            case 'admin':
+            case 'admin': {
                 const [
                     totalCategories,
                     totalChannels,
@@ -130,7 +134,11 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     totalDistributors,
                     totalResellers,
                     activeSubscribers,
-                    inactiveSubscribers
+                    inactiveSubscribers,
+                    freshSubscribers,
+                    expiringSoon,
+                    activeDistributors,
+                    activeResellers
                 ] = await Promise.all([
                     Category.countDocuments(),
                     Channel.countDocuments(),
@@ -140,7 +148,26 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     User.countDocuments({ role: 'distributor' }),
                     User.countDocuments({ role: 'reseller' }),
                     Subscriber.countDocuments({ status: 'Active' }),
-                    Subscriber.countDocuments({ status: 'Inactive' })
+                    Subscriber.countDocuments({ status: 'Inactive' }),
+                    Subscriber.countDocuments({
+                        status: 'Fresh',
+                        createdAt: { $gte: sevenDaysAgo }
+                    }),
+                    Subscriber.countDocuments({
+                        endDate: {
+                            $gte: now,
+                            $lte: sevenDaysLater
+                        },
+                        status: 'Active'
+                    }),
+                    User.countDocuments({
+                        role: 'distributor',
+                        status: 'Active'
+                    }),
+                    User.countDocuments({
+                        role: 'reseller',
+                        status: 'Active'
+                    })
                 ]);
 
                 dashboardData.stats = {
@@ -152,17 +179,25 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     totalDistributors,
                     totalResellers,
                     activeSubscribers,
-                    inactiveSubscribers
+                    inactiveSubscribers,
+                    freshSubscribers,
+                    expiringSoon,
+                    activeDistributors,
+                    activeResellers
                 };
                 break;
+            }
 
-            case 'distributor':
+            case 'distributor': {
                 const distributorResellers = await User.find({
                     role: 'reseller',
                     createdBy: userId
                 });
 
                 const resellerIds = distributorResellers.map(r => r._id);
+                const activeResellerIds = distributorResellers
+                    .filter(r => r.status === 'Active')
+                    .map(r => r._id);
 
                 const [
                     distributorCategories,
@@ -170,7 +205,9 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     distributorPackages,
                     distributorOtt,
                     distributorSubscribers,
-                    distributorActiveSubscribers
+                    distributorActiveSubscribers,
+                    freshSubscribers,
+                    expiringSoon
                 ] = await Promise.all([
                     Category.countDocuments(),
                     Channel.countDocuments(),
@@ -182,32 +219,63 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     Subscriber.countDocuments({
                         resellerId: { $in: resellerIds },
                         status: 'Active'
+                    }),
+                    Subscriber.countDocuments({
+                        resellerId: { $in: resellerIds },
+                        status: 'Fresh',
+                        createdAt: { $gte: sevenDaysAgo }
+                    }),
+                    Subscriber.countDocuments({
+                        resellerId: { $in: resellerIds },
+                        endDate: {
+                            $gte: now,
+                            $lte: sevenDaysLater
+                        },
+                        status: 'Active'
                     })
                 ]);
 
                 dashboardData.stats = {
                     totalResellers: distributorResellers.length,
+                    activeResellers: activeResellerIds.length,
                     totalCategories: distributorCategories,
                     totalChannels: distributorChannels,
                     totalPackages: distributorPackages,
                     totalOtt: distributorOtt,
                     totalSubscribers: distributorSubscribers,
                     activeSubscribers: distributorActiveSubscribers,
-                    inactiveSubscribers: distributorSubscribers - distributorActiveSubscribers
+                    inactiveSubscribers: distributorSubscribers - distributorActiveSubscribers,
+                    freshSubscribers,
+                    expiringSoon
                 };
                 break;
+            }
 
-            case 'reseller':
+            case 'reseller': {
                 const [
                     resellerSubscribers,
                     resellerActiveSubscribers,
                     resellerInactiveSubscribers,
-                    resellerFreshSubscribers
+                    resellerFreshSubscribers,
+                    recentlyAdded,
+                    expiringSoon
                 ] = await Promise.all([
                     Subscriber.countDocuments({ resellerId: userId }),
                     Subscriber.countDocuments({ resellerId: userId, status: 'Active' }),
                     Subscriber.countDocuments({ resellerId: userId, status: 'Inactive' }),
-                    Subscriber.countDocuments({ resellerId: userId, status: 'Fresh' })
+                    Subscriber.countDocuments({ resellerId: userId, status: 'Fresh' }),
+                    Subscriber.countDocuments({
+                        resellerId: userId,
+                        createdAt: { $gte: sevenDaysAgo }
+                    }),
+                    Subscriber.countDocuments({
+                        resellerId: userId,
+                        endDate: {
+                            $gte: now,
+                            $lte: sevenDaysLater
+                        },
+                        status: 'Active'
+                    })
                 ]);
 
                 dashboardData.stats = {
@@ -215,11 +283,14 @@ router.get('/overview', authenticateToken, async (req, res) => {
                     activeSubscribers: resellerActiveSubscribers,
                     inactiveSubscribers: resellerInactiveSubscribers,
                     freshSubscribers: resellerFreshSubscribers,
+                    recentlyAdded,
+                    expiringSoon,
                     totalPackages: user.packages?.length || 0,
                     subscriberLimit: user.subscriberLimit || 0,
                     availableSlots: (user.subscriberLimit || 0) - resellerSubscribers
                 };
                 break;
+            }
 
             default:
                 return res.status(403).json({
@@ -242,7 +313,6 @@ router.get('/overview', authenticateToken, async (req, res) => {
     }
 });
 
-// Get Recent Activities (role-based)
 router.get('/activities', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -283,7 +353,6 @@ router.get('/activities', authenticateToken, async (req, res) => {
     }
 });
 
-// Database Backup Route (Admin Only) - Uses OS Temp Directory
 router.get('/backup', authenticateToken, async (req, res) => {
     let backupDir = null;
     let zipFilePath = null;
@@ -311,7 +380,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
 
         console.log('[BACKUP] Fetching all collections...');
 
-        // Fetch all data from all collections
         const [
             users,
             categories,
@@ -333,7 +401,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
         console.log('[BACKUP] Data fetched successfully');
         console.log(`[BACKUP] Collections: Users=${users.length}, Categories=${categories.length}, Channels=${channels.length}, Packages=${packages.length}, Subscribers=${subscribers.length}, OTTs=${otts.length}, Credits=${credits.length}`);
 
-        // Create backup in OS temp directory (NOT in project folder)
         const timestamp = Date.now();
         const tmpDir = os.tmpdir();
         backupDir = path.join(tmpDir, `iptv_backup_${timestamp}`);
@@ -345,7 +412,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
         console.log(`[BACKUP] Using temp directory: ${backupDir}`);
         console.log('[BACKUP] Writing JSON files...');
 
-        // Write each collection to separate JSON file
         const collections = {
             users,
             categories,
@@ -362,7 +428,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
             console.log(`[BACKUP] ✓ ${collectionName}.json (${data.length} records)`);
         }
 
-        // Create metadata file
         const metadata = {
             backupDate: new Date().toISOString(),
             backupBy: user.name,
@@ -389,18 +454,15 @@ router.get('/backup', authenticateToken, async (req, res) => {
 
         console.log('[BACKUP] Creating ZIP archive...');
 
-        // Create ZIP file in temp directory
         zipFilePath = path.join(tmpDir, `iptv_backup_${timestamp}.zip`);
         const output = fs.createWriteStream(zipFilePath);
         const archive = archiver('zip', {
             zlib: { level: 9 }
         });
 
-        // Handle archive completion
         output.on('close', () => {
             console.log(`[BACKUP] ✓ ZIP created: ${(archive.pointer() / 1024 / 1024).toFixed(2)} MB`);
 
-            // Send the ZIP file
             res.setHeader('Content-Type', 'application/zip');
             res.setHeader('Content-Disposition', `attachment; filename="iptv_backup_${timestamp}.zip"`);
 
@@ -408,8 +470,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
 
             fileStream.on('end', () => {
                 console.log('[BACKUP] ✓ File sent successfully');
-
-                // Immediate cleanup
                 cleanupBackupFiles(backupDir, zipFilePath);
             });
 
@@ -442,13 +502,8 @@ router.get('/backup', authenticateToken, async (req, res) => {
             }
         });
 
-        // Pipe archive to output file
         archive.pipe(output);
-
-        // Add all files from backup directory to archive
         archive.directory(backupDir, false);
-
-        // Finalize the archive
         await archive.finalize();
 
     } catch (error) {
@@ -463,7 +518,6 @@ router.get('/backup', authenticateToken, async (req, res) => {
     }
 });
 
-// Helper function to clean up backup files
 function cleanupBackupFiles(backupDir, zipFilePath) {
     setTimeout(() => {
         try {
@@ -478,7 +532,7 @@ function cleanupBackupFiles(backupDir, zipFilePath) {
         } catch (cleanupErr) {
             console.error('[BACKUP] Cleanup error:', cleanupErr);
         }
-    }, 2000); // 2 seconds delay to ensure download completes
+    }, 2000);
 }
 
 export default router;

@@ -23,6 +23,7 @@ import {
   User,
   Users,
   Clock,
+  Settings,
 } from "lucide-react";
 
 const Distributors = () => {
@@ -36,6 +37,8 @@ const Distributors = () => {
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [showViewModal, setShowViewModal] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showCappingModal, setShowCappingModal] = useState(false); // NEW: Capping modal state
+  const [cappingSettings, setCappingSettings] = useState(null); // NEW: Store capping settings
   const [modalMode, setModalMode] = useState("create");
   const [selectedDistributor, setSelectedDistributor] = useState(null);
   const [formData, setFormData] = useState({
@@ -46,7 +49,7 @@ const Distributors = () => {
     status: "Active",
     balance: "",
     packages: [],
-    validityDate: "", // NEW: Validity date field
+    validityDate: "",
   });
   const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -95,7 +98,7 @@ const Distributors = () => {
         packages: distributor.packages?.map((p) => p._id) || [],
         validityDate: distributor.validityDate
           ? new Date(distributor.validityDate).toISOString().slice(0, 16)
-          : "", // NEW
+          : "",
       });
     } else {
       setFormData({
@@ -106,7 +109,7 @@ const Distributors = () => {
         status: "Active",
         balance: "",
         packages: [],
-        validityDate: "", // NEW
+        validityDate: "",
       });
     }
     setShowModal(true);
@@ -167,7 +170,7 @@ const Distributors = () => {
       const submitData = {
         ...formData,
         balance: parseFloat(formData.balance),
-        validityDate: formData.validityDate || null, // NEW
+        validityDate: formData.validityDate || null,
       };
 
       if (modalMode === "edit" && !submitData.password) {
@@ -286,6 +289,7 @@ const Distributors = () => {
                   <Filter className="w-4 h-4" />
                   <span>Filters</span>
                 </button>
+
                 <button
                   onClick={() => handleOpenModal("create")}
                   className="flex items-center space-x-2 px-4 py-2.5 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all shadow-md"
@@ -427,8 +431,7 @@ const Distributors = () => {
                       </th>
                       <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
                         Validity
-                      </th>{" "}
-                      {/* NEW */}
+                      </th>
                       <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
                         Actions
                       </th>
@@ -546,8 +549,7 @@ const Distributors = () => {
                             </span>
                           </td>
                           <td className="px-4 py-4">
-                            {formatValidityDate(distributor.validityDate)}{" "}
-                            {/* NEW */}
+                            {formatValidityDate(distributor.validityDate)}
                           </td>
                           <td className="px-4 py-4">
                             <div className="flex items-center justify-end space-x-1">
@@ -920,7 +922,7 @@ const Distributors = () => {
                 </div>
               </div>
 
-              {/* Validity Date - NEW */}
+              {/* Validity Date */}
               <div className="md:col-span-2">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   Validity Date (Optional)

@@ -33,15 +33,29 @@ const Credit = () => {
   const [selfCreditAmount, setSelfCreditAmount] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [selectedUser, setSelectedUser] = useState(null);
+  // ✅ FIX: Store current user's fresh balance from API
+  const [currentUserData, setCurrentUserData] = useState(null);
 
   const canAccess = !!user;
 
   useEffect(() => {
     if (canAccess) {
+      fetchCurrentUserData();
       fetchCredits();
       fetchUsers();
     }
   }, [typeFilter, canAccess]);
+
+  const fetchCurrentUserData = async () => {
+    try {
+      const response = await api.get("/auth/me");
+      setCurrentUserData(response.data.data.user);
+    } catch (error) {
+      console.error("Failed to fetch current user:", error);
+      // Fallback to context user if API fails
+      setCurrentUserData(user);
+    }
+  };
 
   const fetchCredits = async () => {
     try {
@@ -68,6 +82,8 @@ const Credit = () => {
   };
 
   const handleOpenModal = () => {
+    // ✅ Refresh balance before opening modal
+    fetchCurrentUserData();
     setFormData({
       type: "Credit",
       amount: "",
@@ -88,6 +104,8 @@ const Credit = () => {
   };
 
   const handleOpenSelfCreditModal = () => {
+    // ✅ Refresh balance before opening modal
+    fetchCurrentUserData();
     setSelfCreditAmount("");
     setShowSelfCreditModal(true);
   };
@@ -121,14 +139,15 @@ const Credit = () => {
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return false;
 
-    if (!user || user.balance === undefined) return false;
+    // ✅ Use fresh balance from API
+    if (!currentUserData || currentUserData.balance === undefined) return false;
 
-    const senderCapping = getCappingAmount(user.role);
+    const senderCapping = getCappingAmount(currentUserData.role);
     const targetCapping = getCappingAmount(selectedUser.role);
 
     if (formData.type === "Credit") {
       // Credit: Sender gives money to target
-      const senderBalanceAfter = user.balance - amount;
+      const senderBalanceAfter = currentUserData.balance - amount;
       return senderBalanceAfter >= senderCapping;
     } else if (formData.type === "Debit") {
       // Debit: Sender takes money from target
@@ -153,13 +172,22 @@ const Credit = () => {
     const amount = parseFloat(formData.amount);
     if (isNaN(amount) || amount <= 0) return null;
 
-    const senderCapping = getCappingAmount(user.role);
+    // ✅ Use fresh balance from API
+    if (!currentUserData) return null;
+
+    const senderCapping = getCappingAmount(currentUserData.role);
     const targetCapping = getCappingAmount(selectedUser.role);
 
     if (formData.type === "Credit") {
-      const senderBalanceAfter = user.balance - amount;
+      const senderBalanceAfter = currentUserData.balance - amount;
       if (senderBalanceAfter < senderCapping) {
-        return `⚠️ Your balance will go below capping limit of ₹${senderCapping.toLocaleString(
+        return `⚠️ Your balance (₹${currentUserData.balance.toLocaleString(
+          "en-IN"
+        )}) minus ₹${amount.toLocaleString(
+          "en-IN"
+        )} will be ₹${senderBalanceAfter.toLocaleString(
+          "en-IN"
+        )}, which is below your capping limit of ₹${senderCapping.toLocaleString(
           "en-IN"
         )}. Cannot perform Credit.`;
       }
@@ -202,10 +230,11 @@ const Credit = () => {
           `🎯 ${targetName}: ₹${targetBalance?.toLocaleString("en-IN")}`
       );
 
-      fetchCredits();
-      fetchUsers();
+      // ✅ Refresh everything after transaction
+      await fetchCurrentUserData();
+      await fetchCredits();
+      await fetchUsers();
       handleCloseModal();
-      window.location.reload();
     } catch (error) {
       console.error("Submit error:", error);
       alert(error.response?.data?.message || "Operation failed");
@@ -222,6 +251,7 @@ const Credit = () => {
       const amount = parseFloat(selfCreditAmount);
       if (isNaN(amount) || amount <= 0) {
         alert("Please enter a valid amount");
+        setSubmitting(false);
         return;
       }
 
@@ -233,9 +263,10 @@ const Credit = () => {
         )}`
       );
 
-      fetchCredits();
+      // ✅ Refresh everything after transaction
+      await fetchCurrentUserData();
+      await fetchCredits();
       handleCloseSelfCreditModal();
-      window.location.reload();
     } catch (error) {
       console.error("Self credit error:", error);
       alert(error.response?.data?.message || "Self credit failed");
@@ -299,7 +330,8 @@ const Credit = () => {
                 </h1>
                 <p className="text-sm text-gray-600">
                   Your balance: <IndianRupee className="w-4 h-4 inline" />₹
-                  {user?.balance?.toLocaleString("en-IN") || 0}
+                  {/* ✅ Use fresh balance from API */}
+                  {currentUserData?.balance?.toLocaleString("en-IN") || 0}
                 </p>
               </div>
             </div>
@@ -655,35 +687,40 @@ const Credit = () => {
                 </div>
               )}
 
-              {/* Balance Preview */}
-              {formData.amount && formData.user && selectedUser && (
-                <div className="grid grid-cols-2 gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                  <div>
-                    <p className="text-xs text-emerald-700 font-medium">
-                      Your Balance After
-                    </p>
-                    <p className="font-bold text-sm text-emerald-900">
-                      <IndianRupee className="w-4 h-4 inline mr-1" />₹
-                      {(formData.type === "Credit"
-                        ? user?.balance - parseFloat(formData.amount)
-                        : user?.balance + parseFloat(formData.amount)
-                      ).toLocaleString("en-IN")}
-                    </p>
+              {/* Balance Preview - ✅ Use fresh balance */}
+              {formData.amount &&
+                formData.user &&
+                selectedUser &&
+                currentUserData && (
+                  <div className="grid grid-cols-2 gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                    <div>
+                      <p className="text-xs text-emerald-700 font-medium">
+                        Your Balance After
+                      </p>
+                      <p className="font-bold text-sm text-emerald-900">
+                        <IndianRupee className="w-4 h-4 inline mr-1" />₹
+                        {(formData.type === "Credit"
+                          ? currentUserData.balance -
+                            parseFloat(formData.amount)
+                          : currentUserData.balance +
+                            parseFloat(formData.amount)
+                        ).toLocaleString("en-IN")}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-emerald-700 font-medium">
+                        {selectedUser.name}'s Balance
+                      </p>
+                      <p className="font-bold text-sm text-emerald-900">
+                        <IndianRupee className="w-4 h-4 inline mr-1" />₹
+                        {(formData.type === "Credit"
+                          ? selectedUser.balance + parseFloat(formData.amount)
+                          : selectedUser.balance - parseFloat(formData.amount)
+                        ).toLocaleString("en-IN")}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="text-xs text-emerald-700 font-medium">
-                      {selectedUser.name}'s Balance
-                    </p>
-                    <p className="font-bold text-sm text-emerald-900">
-                      <IndianRupee className="w-4 h-4 inline mr-1" />₹
-                      {(formData.type === "Credit"
-                        ? selectedUser.balance + parseFloat(formData.amount)
-                        : selectedUser.balance - parseFloat(formData.amount)
-                      ).toLocaleString("en-IN")}
-                    </p>
-                  </div>
-                </div>
-              )}
+                )}
 
               <div className="flex items-center space-x-3 pt-4">
                 <button
@@ -751,7 +788,8 @@ const Credit = () => {
                 />
               </div>
 
-              {selfCreditAmount && (
+              {/* ✅ Use fresh balance */}
+              {selfCreditAmount && currentUserData && (
                 <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl">
                   <p className="text-xs text-purple-700 font-medium mb-1">
                     New Balance After Credit
@@ -759,7 +797,7 @@ const Credit = () => {
                   <p className="font-bold text-lg text-purple-900">
                     <IndianRupee className="w-4 h-4 inline mr-1" />₹
                     {(
-                      user?.balance + parseFloat(selfCreditAmount)
+                      currentUserData.balance + parseFloat(selfCreditAmount)
                     ).toLocaleString("en-IN")}
                   </p>
                 </div>
