@@ -189,22 +189,22 @@ router.post('/login', async (req, res) => {
         }
 
         // Check if reseller is inactive
-        if (reseller.status !== 'Active') {
-            return res.status(403).json({
-                success: false,
-                code: 'RESELLER_INACTIVE',
-                message: `Your reseller account is inactive. Please contact your reseller or admin to reactivate the account.`
-            });
-        }
+        // if (reseller.status !== 'Active') {
+        //     return res.status(403).json({
+        //         success: false,
+        //         code: 'RESELLER_INACTIVE',
+        //         message: `Your reseller account is inactive. Please contact your reseller or admin to reactivate the account.`
+        //     });
+        // }
 
-        // Check if parent distributor is inactive
-        if (reseller.createdBy && reseller.createdBy.status !== 'Active') {
-            return res.status(403).json({
-                success: false,
-                code: 'DISTRIBUTOR_INACTIVE',
-                message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
-            });
-        }
+        // // Check if parent distributor is inactive
+        // if (reseller.createdBy && reseller.createdBy.status !== 'Active') {
+        //     return res.status(403).json({
+        //         success: false,
+        //         code: 'DISTRIBUTOR_INACTIVE',
+        //         message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
+        //     });
+        // }
 
         const deviceMac = macAddress.trim().toLowerCase();
         let subscriber;
