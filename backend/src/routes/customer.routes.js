@@ -188,6 +188,24 @@ router.post('/login', async (req, res) => {
             });
         }
 
+        // Check if reseller is inactive
+        if (reseller.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                code: 'RESELLER_INACTIVE',
+                message: `Your reseller account is inactive. Please contact your reseller or admin to reactivate the account.`
+            });
+        }
+
+        // Check if parent distributor is inactive
+        if (reseller.createdBy && reseller.createdBy.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                code: 'DISTRIBUTOR_INACTIVE',
+                message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
+            });
+        }
+
         const deviceMac = macAddress.trim().toLowerCase();
         let subscriber;
         let usingCustomMac = false;
@@ -548,6 +566,37 @@ router.get('/check-status', authenticateToken, async (req, res) => {
                 code: 'NOT_FOUND',
                 message: 'Subscriber not found'
             });
+        }
+
+        // Check if reseller is inactive
+        if (subscriber.resellerId && subscriber.resellerId.status !== 'Active') {
+            return res.json({
+                success: false,
+                code: 'RESELLER_INACTIVE',
+                message: 'Your reseller account is inactive. Please contact your reseller or admin.',
+                data: {
+                    status: 'Inactive',
+                    subscriberName: subscriber.subscriberName
+                }
+            });
+        }
+
+        // Check if distributor is inactive (fetch from reseller's createdBy)
+        if (subscriber.resellerId) {
+            const resellerWithDistributor = await User.findById(subscriber.resellerId._id)
+                .populate('createdBy', 'status name');
+
+            if (resellerWithDistributor.createdBy && resellerWithDistributor.createdBy.status !== 'Active') {
+                return res.json({
+                    success: false,
+                    code: 'DISTRIBUTOR_INACTIVE',
+                    message: `The distributor account for your reseller is inactive. Please contact admin.`,
+                    data: {
+                        status: 'Inactive',
+                        subscriberName: subscriber.subscriberName
+                    }
+                });
+            }
         }
 
         // ✅ CHECK AND REMOVE EXPIRED PACKAGES

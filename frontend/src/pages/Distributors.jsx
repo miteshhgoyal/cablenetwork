@@ -893,7 +893,7 @@ const Distributors = () => {
                 </div>
 
                 {/* Balance Amount */}
-                <div>
+                {/* <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Balance Amount
                   </label>
@@ -919,7 +919,7 @@ const Distributors = () => {
                       </span>
                     </div>
                   )}
-                </div>
+                </div> */}
               </div>
 
               {/* Validity Date */}

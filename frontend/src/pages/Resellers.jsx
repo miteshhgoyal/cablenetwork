@@ -885,7 +885,7 @@ const Resellers = () => {
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
-                <div>
+                {/* <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Balance Amount
                   </label>
@@ -911,7 +911,7 @@ const Resellers = () => {
                       </span>
                     </div>
                   )}
-                </div>
+                </div> */}
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
