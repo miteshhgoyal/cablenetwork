@@ -177,9 +177,10 @@ router.post('/login', async (req, res) => {
 
         const reseller = await User.findOne({
             partnerCode: partnerCode.trim(),
-            role: 'reseller',
-            status: 'Active'
-        }).populate('packages');
+            role: 'reseller'
+        })
+            .populate('packages')
+            .populate('createdBy', 'status name');
 
         if (!reseller) {
             return res.status(404).json({
@@ -188,23 +189,25 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Check if reseller is inactive
-        // if (reseller.status !== 'Active') {
-        //     return res.status(403).json({
-        //         success: false,
-        //         code: 'RESELLER_INACTIVE',
-        //         message: `Your reseller account is inactive. Please contact your reseller or admin to reactivate the account.`
-        //     });
-        // }
+        // Verify reseller is Active
+        if (reseller.status !== 'Active') {
+            return res.status(403).json({
+                success: false,
+                code: 'RESELLER_INACTIVE',
+                message: `Your reseller account is inactive. Please contact your reseller or admin to reactivate the account.`
+            });
+        }
 
-        // // Check if parent distributor is inactive
-        // if (reseller.createdBy && reseller.createdBy.status !== 'Active') {
-        //     return res.status(403).json({
-        //         success: false,
-        //         code: 'DISTRIBUTOR_INACTIVE',
-        //         message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
-        //     });
-        // }
+        // Verify parent distributor is Active (if reseller has a distributor)
+        if (reseller.createdBy) {
+            if (reseller.createdBy.status !== 'Active') {
+                return res.status(403).json({
+                    success: false,
+                    code: 'DISTRIBUTOR_INACTIVE',
+                    message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
+                });
+            }
+        }
 
         const deviceMac = macAddress.trim().toLowerCase();
         let subscriber;
@@ -557,8 +560,9 @@ router.post('/login', async (req, res) => {
 router.get('/check-status', authenticateToken, async (req, res) => {
     try {
         let subscriber = await Subscriber.findById(req.user.id)
-            .select('subscriberName status expiryDate macAddress deviceInfo packages createdAt')
-            .populate('packages', 'name duration');
+            .select('subscriberName status expiryDate macAddress deviceInfo packages createdAt resellerId')
+            .populate('packages', 'name duration')
+            .populate('resellerId', 'status name partnerCode'); 
 
         if (!subscriber) {
             return res.status(404).json({
@@ -568,42 +572,42 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if reseller is inactive
-        // if (subscriber.resellerId && subscriber.resellerId.status !== 'Active') {
-        //     return res.json({
-        //         success: false,
-        //         code: 'RESELLER_INACTIVE',
-        //         message: 'Your reseller account is inactive. Please contact your reseller or admin.',
-        //         data: {
-        //             status: 'Inactive',
-        //             subscriberName: subscriber.subscriberName
-        //         }
-        //     });
-        // }
+        // Verify reseller is Active
+        if (subscriber.resellerId && subscriber.resellerId.status !== 'Active') {
+            return res.json({
+                success: false,
+                code: 'RESELLER_INACTIVE',
+                message: 'Your reseller account is inactive. Please contact your reseller or admin.',
+                data: {
+                    status: 'Inactive',
+                    subscriberName: subscriber.subscriberName
+                }
+            });
+        }
 
-        // // Check if distributor is inactive (fetch from reseller's createdBy)
-        // if (subscriber.resellerId) {
-        //     const resellerWithDistributor = await User.findById(subscriber.resellerId._id)
-        //         .populate('createdBy', 'status name');
+        // Verify distributor is Active (fetch from reseller's createdBy)
+        if (subscriber.resellerId) {
+            const resellerWithDistributor = await User.findById(subscriber.resellerId._id)
+                .populate('createdBy', 'status name');
 
-        //     if (resellerWithDistributor.createdBy && resellerWithDistributor.createdBy.status !== 'Active') {
-        //         return res.json({
-        //             success: false,
-        //             code: 'DISTRIBUTOR_INACTIVE',
-        //             message: `The distributor account for your reseller is inactive. Please contact admin.`,
-        //             data: {
-        //                 status: 'Inactive',
-        //                 subscriberName: subscriber.subscriberName
-        //             }
-        //         });
-        //     }
-        // }
+            if (resellerWithDistributor && resellerWithDistributor.createdBy && resellerWithDistributor.createdBy.status !== 'Active') {
+                return res.json({
+                    success: false,
+                    code: 'DISTRIBUTOR_INACTIVE',
+                    message: `The distributor account for your reseller is inactive. Please contact admin.`,
+                    data: {
+                        status: 'Inactive',
+                        subscriberName: subscriber.subscriberName
+                    }
+                });
+            }
+        }
 
-        // ✅ CHECK AND REMOVE EXPIRED PACKAGES
+        // CHECK AND REMOVE EXPIRED PACKAGES
         const { hadChanges } = await removeExpiredPackages(subscriber);
 
         if (hadChanges) {
-            console.log(`✅ Check-status: Cleaned expired packages from subscriber ${subscriber.subscriberName}`);
+            console.log(`Check-status: Cleaned expired packages from subscriber ${subscriber.subscriberName}`);
 
             // Refresh subscriber data after changes
             subscriber = await Subscriber.findById(req.user.id)
