@@ -1,24 +1,22 @@
 // app/_layout.js
 import React, { useEffect, useState } from 'react';
 import { Stack, useSegments, useRouter } from 'expo-router';
-import { StatusBar, View, ActivityIndicator, Text } from 'react-native';
+import { StatusBar, View, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { AuthProvider, useAuth } from '@/context/authContext';
-import { Calendar, CheckCircle2, AlertCircle } from 'lucide-react-native';
+import { Calendar, CheckCircle2, AlertCircle, XCircle } from 'lucide-react-native';
 import './globals.css';
 
 function MainLayout() {
-    const { isAuthenticated, loading, subscriptionStatus, checkSubscriptionStatus, user } = useAuth();
+    const { isAuthenticated, loading, subscriptionStatus, checkSubscriptionStatus, user, logout } = useAuth();
     const segments = useSegments();
     const router = useRouter();
     const [checking, setChecking] = useState(false);
     const [showSplash, setShowSplash] = useState(true);
     const [statusChecked, setStatusChecked] = useState(false);
 
-    // ✅ Step 1: Check subscription status FIRST when authenticated
     useEffect(() => {
         const checkStatus = async () => {
             if (!loading && isAuthenticated && !statusChecked) {
-
                 setChecking(true);
                 await checkSubscriptionStatus();
                 setChecking(false);
@@ -28,63 +26,36 @@ function MainLayout() {
         checkStatus();
     }, [isAuthenticated, loading, statusChecked]);
 
-    // ✅ Step 2: Show splash UNTIL status is checked
     useEffect(() => {
         if (!loading && isAuthenticated && statusChecked) {
-            const timer = setTimeout(() => {
-
-                setShowSplash(false);
-            }, 2000); // Show for 2 seconds after status check
+            const timer = setTimeout(() => setShowSplash(false), 2000);
             return () => clearTimeout(timer);
         } else if (!loading && !isAuthenticated) {
             setShowSplash(false);
         }
-    }, [loading, isAuthenticated, statusChecked, subscriptionStatus]);
+    }, [loading, isAuthenticated, statusChecked]);
 
-    // ✅ Step 3: Navigate based on status
     useEffect(() => {
-        if (loading || checking || showSplash) {
-
-            return;
-        }
-
+        if (loading || checking || showSplash) return;
         handleNavigation();
     }, [isAuthenticated, loading, subscriptionStatus, checking, showSplash]);
 
     const handleNavigation = () => {
         const inAuthGroup = segments[0] === '(auth)';
-        const inTabsGroup = segments[0] === '(tabs)';
         const currentRoute = segments.join('/');
 
-
-
-        // CASE 1: Not authenticated -> Sign in
         if (!isAuthenticated) {
             if (!inAuthGroup && currentRoute !== '(auth)/signin') {
-
                 setTimeout(() => router.replace('/(auth)/signin'), 100);
             }
             return;
         }
 
-        // CASE 2: EXPIRED or INACTIVE -> Expired page
-        if (subscriptionStatus === 'EXPIRED' || subscriptionStatus === 'INACTIVE') {
-            if (segments[1] !== 'expired') {
-                // setTimeout(() => router.replace('/(tabs)/expired'), 100);
-            }
-            return;
-        }
-
-        // CASE 3: ACTIVE -> Tabs
         if (subscriptionStatus === 'ACTIVE') {
-            if (inAuthGroup || currentRoute === '' || currentRoute === 'index' || segments[1] === 'expired') {
-
+            if (inAuthGroup || currentRoute === '' || currentRoute === 'index') {
                 setTimeout(() => router.replace('/(tabs)'), 100);
             }
-            return;
         }
-
-
     };
 
     const formatDate = (dateString) => {
@@ -100,21 +71,101 @@ function MainLayout() {
         if (!user?.expiryDate) return null;
         const now = new Date();
         const expiry = new Date(user.expiryDate);
-        const days = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-        return days;
+        return Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
     };
 
-    // ✅ SPLASH SCREEN - Show while loading, checking, or splash duration
-    if (loading || checking || showSplash) {
+    const getStatusInfo = () => {
         const daysRemaining = getDaysRemaining();
         const isExpiring = daysRemaining !== null && daysRemaining < 7 && daysRemaining > 0;
         const isExpired = daysRemaining !== null && daysRemaining <= 0;
+
+        let config = {
+            icon: CheckCircle2,
+            color: '#3b82f6',
+            bgColor: 'bg-blue-500/20',
+            text: 'Active',
+            message: ''
+        };
+
+        switch (subscriptionStatus) {
+            case 'EXPIRED':
+                config = {
+                    icon: XCircle,
+                    color: '#ef4444',
+                    bgColor: 'bg-red-500/20',
+                    text: 'Expired',
+                    message: 'Your subscription has expired. Please contact your reseller or admin to renew.'
+                };
+                break;
+            case 'INACTIVE':
+                config = {
+                    icon: AlertCircle,
+                    color: '#f59e0b',
+                    bgColor: 'bg-amber-500/20',
+                    text: 'Inactive',
+                    message: 'Your account is inactive. Please contact admin to activate your subscription.'
+                };
+                break;
+            case 'FRESH':
+                config = {
+                    icon: AlertCircle,
+                    color: '#3b82f6',
+                    bgColor: 'bg-blue-500/20',
+                    text: 'Pending',
+                    message: 'Device registered successfully. Please contact admin to assign packages and activate your account.'
+                };
+                break;
+            case 'RESELLER_INACTIVE':
+                config = {
+                    icon: XCircle,
+                    color: '#ef4444',
+                    bgColor: 'bg-red-500/20',
+                    text: 'Service Unavailable',
+                    message: 'Your reseller account is inactive. Services are temporarily unavailable.'
+                };
+                break;
+            case 'DISTRIBUTOR_INACTIVE':
+                config = {
+                    icon: XCircle,
+                    color: '#ef4444',
+                    bgColor: 'bg-red-500/20',
+                    text: 'Service Unavailable',
+                    message: 'The distributor account is inactive. Services are temporarily unavailable.'
+                };
+                break;
+            case 'NO_PACKAGES':
+                config = {
+                    icon: AlertCircle,
+                    color: '#f97316',
+                    bgColor: 'bg-orange-500/20',
+                    text: 'No Packages',
+                    message: 'No active packages assigned. All packages may have expired. Please contact admin.'
+                };
+                break;
+            case 'ACTIVE':
+                config = {
+                    icon: CheckCircle2,
+                    color: isExpiring ? '#f97316' : '#22c55e',
+                    bgColor: isExpiring ? 'bg-orange-500/20' : 'bg-green-500/20',
+                    text: isExpiring ? 'Expiring Soon' : 'Active',
+                    message: ''
+                };
+                break;
+        }
+
+        return { ...config, isExpired, isExpiring, daysRemaining };
+    };
+
+    const isBlockedState = isAuthenticated && statusChecked && subscriptionStatus !== 'ACTIVE' && !loading && !checking && !showSplash;
+
+    if (loading || checking || showSplash || isBlockedState) {
+        const statusInfo = getStatusInfo();
+        const StatusIcon = statusInfo.icon;
 
         return (
             <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }}>
                 <StatusBar barStyle="light-content" backgroundColor="#000" />
 
-                {/* App Logo/Name */}
                 <View className="items-center mb-12">
                     <View className="bg-orange-500 w-20 h-20 rounded-2xl items-center justify-center mb-4">
                         <Text className="text-white text-3xl font-bold">TV</Text>
@@ -122,81 +173,92 @@ function MainLayout() {
                     <Text className="text-white text-2xl font-bold">IPTV Player</Text>
                 </View>
 
-                {/* Loading Spinner */}
-                <ActivityIndicator size="large" color="#f97316" />
+                {(loading || checking) && <ActivityIndicator size="large" color="#f97316" />}
 
-                {/* Expiry Info Card - Show if user data exists and status checked */}
-                {user && user.expiryDate && statusChecked && (
-                    <View className="mt-8 mx-8 bg-gray-900 rounded-2xl p-5 border border-gray-800 w-80">
-                        {/* User Name */}
-                        <View className="flex-row items-center mb-4 pb-4 border-b border-gray-800">
-                            <View className={`p-2 rounded-full mr-3 ${isExpired ? 'bg-red-500/20' : 'bg-blue-500/20'}`}>
-                                {isExpired ? (
-                                    <AlertCircle size={20} color="#ef4444" />
-                                ) : (
-                                    <CheckCircle2 size={20} color="#3b82f6" />
+                {user && statusChecked && (
+                    <View className="mt-8 mx-8 bg-gray-900 rounded-2xl p-5 border border-gray-800" style={{ width: 320 }}>
+                        <View className="items-center mb-4 pb-4 border-b border-gray-800">
+                            <View className={`${statusInfo.bgColor} w-20 h-20 rounded-full items-center justify-center mb-3`}>
+                                <StatusIcon size={40} color={statusInfo.color} />
+                            </View>
+                            <Text className="text-white font-semibold text-lg mb-1">
+                                {user.name || user.subscriberName || 'User'}
+                            </Text>
+                            <View className={`px-4 py-1.5 rounded-full ${statusInfo.bgColor}`}>
+                                <Text className="text-xs font-semibold" style={{ color: statusInfo.color }}>
+                                    {statusInfo.text.toUpperCase()}
+                                </Text>
+                            </View>
+                        </View>
+
+                        {user.expiryDate && (
+                            <View className="flex-row items-center justify-between mb-4 pb-4 border-b border-gray-800">
+                                <View className="flex-row items-center flex-1">
+                                    <Calendar size={18} color="#9ca3af" style={{ marginRight: 8 }} />
+                                    <View>
+                                        <Text className="text-gray-400 text-xs mb-1">
+                                            {statusInfo.isExpired ? 'Expired On' : 'Expires On'}
+                                        </Text>
+                                        <Text className="text-white font-medium text-sm">
+                                            {formatDate(user.expiryDate)}
+                                        </Text>
+                                    </View>
+                                </View>
+                                {statusInfo.daysRemaining !== null && !statusInfo.isExpired && (
+                                    <View className={`px-3 py-1.5 rounded-full ${statusInfo.isExpiring ? 'bg-red-500/20' : 'bg-green-500/20'
+                                        }`}>
+                                        <Text className={`text-xs font-bold ${statusInfo.isExpiring ? 'text-red-500' : 'text-green-500'
+                                            }`}>
+                                            {statusInfo.daysRemaining} days
+                                        </Text>
+                                    </View>
                                 )}
                             </View>
-                            <View className="flex-1">
-                                <Text className="text-gray-400 text-xs mb-1">Welcome back</Text>
-                                <Text className="text-white font-semibold text-base">
-                                    {user.name || user.subscriberName || 'User'}
+                        )}
+
+                        {isBlockedState && statusInfo.message && (
+                            <View className="mb-4">
+                                <Text className="text-gray-300 text-sm text-center leading-5">
+                                    {statusInfo.message}
                                 </Text>
                             </View>
-                        </View>
+                        )}
 
-                        {/* Expiry Date */}
-                        <View className="flex-row items-center justify-between">
-                            <View className="flex-row items-center flex-1">
-                                <View className={`p-2 rounded-full mr-3 ${isExpired || isExpiring ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
-                                    <Calendar size={20} color={isExpired || isExpiring ? '#ef4444' : '#22c55e'} />
-                                </View>
-                                <View>
-                                    <Text className="text-gray-400 text-xs mb-1">
-                                        {isExpired ? 'Expired' : 'Expires On'}
+                        {isBlockedState && (
+                            <View>
+                                <TouchableOpacity
+                                    className="bg-orange-500 rounded-xl py-3 mb-2"
+                                    onPress={async () => {
+                                        setChecking(true);
+                                        await checkSubscriptionStatus();
+                                        setChecking(false);
+                                    }}
+                                    disabled={checking}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text className="text-white text-center font-semibold text-sm">
+                                        {checking ? 'Checking...' : 'Refresh Status'}
                                     </Text>
-                                    <Text className="text-white font-semibold text-sm">
-                                        {formatDate(user.expiryDate)}
+                                </TouchableOpacity>
+                                <TouchableOpacity
+                                    className="bg-gray-800 rounded-xl py-3 border border-gray-700"
+                                    onPress={logout}
+                                    activeOpacity={0.8}
+                                >
+                                    <Text className="text-red-500 text-center font-semibold text-sm">
+                                        Logout
                                     </Text>
-                                </View>
-                            </View>
-
-                            {/* Days Badge */}
-                            {daysRemaining !== null && !isExpired && (
-                                <View className={`px-3 py-1.5 rounded-full ${isExpiring ? 'bg-red-500/20' : 'bg-green-500/20'}`}>
-                                    <Text className={`text-xs font-bold ${isExpiring ? 'text-red-500' : 'text-green-500'}`}>
-                                        {daysRemaining} days
-                                    </Text>
-                                </View>
-                            )}
-
-                            {isExpired && (
-                                <View className="px-3 py-1.5 rounded-full bg-red-500/20">
-                                    <Text className="text-xs font-bold text-red-500">EXPIRED</Text>
-                                </View>
-                            )}
-                        </View>
-
-                        {/* Status Message */}
-                        {subscriptionStatus && (
-                            <View className="mt-4 pt-4 border-t border-gray-800">
-                                <Text className={`text-center text-sm font-semibold ${subscriptionStatus === 'ACTIVE' ? 'text-green-500' :
-                                    subscriptionStatus === 'EXPIRED' ? 'text-red-500' :
-                                        'text-yellow-500'
-                                    }`}>
-                                    {subscriptionStatus === 'ACTIVE' && '✓ Active Subscription'}
-                                    {subscriptionStatus === 'EXPIRED' && '✕ Subscription Expired'}
-                                    {subscriptionStatus === 'INACTIVE' && '⚠ Subscription Inactive'}
-                                </Text>
+                                </TouchableOpacity>
                             </View>
                         )}
                     </View>
                 )}
 
-                {/* Loading Text */}
-                <Text className="text-gray-500 text-sm mt-6">
-                    {loading ? 'Loading...' : checking ? 'Verifying subscription...' : 'Welcome!'}
-                </Text>
+                {(loading || (checking && !isBlockedState)) && (
+                    <Text className="text-gray-500 text-sm mt-6">
+                        {loading ? 'Loading...' : 'Verifying subscription...'}
+                    </Text>
+                )}
             </View>
         );
     }

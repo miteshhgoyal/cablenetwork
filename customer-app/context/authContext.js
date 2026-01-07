@@ -45,54 +45,35 @@ export const AuthProvider = ({ children }) => {
                 const parsedUser = JSON.parse(savedUser);
                 setUser(parsedUser);
                 setIsAuthenticated(true);
-
-                // Set API token
                 api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
 
-                // ✅ Load cached data (show immediately for faster UX)
                 const savedChannels = await AsyncStorage.getItem('channels');
                 const savedPackages = await AsyncStorage.getItem('packagesList');
-                const savedServerInfo = await AsyncStorage.getItem('serverInfo'); // ✅ ADD THIS LINE
+                const savedServerInfo = await AsyncStorage.getItem('serverInfo');
 
-                if (savedChannels) {
-                    setChannels(JSON.parse(savedChannels));
-                }
-                if (savedPackages) {
-                    setPackagesList(JSON.parse(savedPackages));
-                }
-                // ✅ ADD THIS BLOCK
+                if (savedChannels) setChannels(JSON.parse(savedChannels));
+                if (savedPackages) setPackagesList(JSON.parse(savedPackages));
                 if (savedServerInfo) {
                     setServerInfo(JSON.parse(savedServerInfo));
                 } else {
-                    // ✅ Set default serverInfo if not in storage
                     setServerInfo({
                         proxyEnabled: true,
                         apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
                     });
                 }
 
-                refreshChannels().then((result) => {
-                    if (result?.success) {
-
-                    } else {
-
-                    }
-                }).catch((error) => {
-
-                });
-
+                refreshChannels().catch(console.error);
             } else {
                 setIsAuthenticated(false);
                 setSubscriptionStatus(null);
-                // ✅ Set default serverInfo even when not authenticated
                 setServerInfo({
                     proxyEnabled: true,
                     apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
                 });
             }
         } catch (error) {
+            console.error('Auth check error:', error);
             setIsAuthenticated(false);
-            // ✅ Set default serverInfo on error
             setServerInfo({
                 proxyEnabled: true,
                 apiUrl: process.env.EXPO_PUBLIC_API_URL || 'http://localhost:8000'
@@ -117,41 +98,39 @@ export const AuthProvider = ({ children }) => {
             if (response.data.success && response.data.code === 'ACTIVE') {
                 setSubscriptionStatus('ACTIVE');
 
-                // ✅ UPDATE USER DATA WITH LATEST FROM DB
                 const updatedUserData = response.data.data;
                 const currentUser = await AsyncStorage.getItem('user');
                 const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
-                // ✅ Merge - preserve device info from local storage
                 const mergedUser = {
-                    ...parsedUser, // Keep local device info
+                    ...parsedUser,
                     expiryDate: updatedUserData.expiryDate,
                     subscriberName: updatedUserData.subscriberName,
                     status: updatedUserData.status,
                     daysRemaining: updatedUserData.daysRemaining,
-                    macAddress: updatedUserData.macAddress || parsedUser.macAddress // ✅ Use from DB if available
+                    totalPackages: updatedUserData.totalPackages,
+                    macAddress: updatedUserData.macAddress || parsedUser.macAddress
                 };
 
-                // Update state and storage
                 setUser(mergedUser);
                 await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
 
                 return { valid: true, data: updatedUserData };
             } else {
-                // EXPIRED or INACTIVE from API response
-                setSubscriptionStatus(response.data.code);
+                const statusCode = response.data.code;
+                setSubscriptionStatus(statusCode);
 
-                // ✅ UPDATE USER DATA EVEN IF EXPIRED
-                const expiredUserData = response.data.data;
+                const userData = response.data.data;
                 const currentUser = await AsyncStorage.getItem('user');
                 const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
                 const mergedUser = {
-                    ...parsedUser, // Keep local device info
-                    expiryDate: expiredUserData.expiryDate,
-                    subscriberName: expiredUserData.subscriberName,
-                    status: expiredUserData.status,
-                    macAddress: expiredUserData.macAddress || parsedUser.macAddress // ✅ Use from DB if available
+                    ...parsedUser,
+                    expiryDate: userData?.expiryDate || parsedUser.expiryDate,
+                    subscriberName: userData?.subscriberName || parsedUser.subscriberName,
+                    status: userData?.status || statusCode,
+                    totalPackages: userData?.totalPackages,
+                    macAddress: userData?.macAddress || parsedUser.macAddress
                 };
 
                 setUser(mergedUser);
@@ -159,27 +138,21 @@ export const AuthProvider = ({ children }) => {
 
                 return {
                     valid: false,
-                    code: response.data.code,
-                    data: expiredUserData
+                    code: statusCode,
+                    message: response.data.message,
+                    data: userData
                 };
             }
         } catch (error) {
+            console.error('Status check error:', error);
 
-
-            // ✅ CRITICAL FIX: Handle 403/401 as EXPIRED, DON'T LOGOUT
             if (error.response?.status === 403 || error.response?.status === 401) {
-
-
-                // Try to extract status from error response
                 const errorData = error.response?.data;
-                const status = errorData?.code || 'EXPIRED';
+                const statusCode = errorData?.code || 'EXPIRED';
                 const userData = errorData?.data;
 
+                setSubscriptionStatus(statusCode);
 
-
-                setSubscriptionStatus(status);
-
-                // Update user data if available in error response
                 if (userData) {
                     const currentUser = await AsyncStorage.getItem('user');
                     const parsedUser = currentUser ? JSON.parse(currentUser) : {};
@@ -188,7 +161,8 @@ export const AuthProvider = ({ children }) => {
                         ...parsedUser,
                         expiryDate: userData.expiryDate || parsedUser.expiryDate,
                         subscriberName: userData.subscriberName || parsedUser.subscriberName,
-                        status: userData.status || 'Expired',
+                        status: userData.status || statusCode,
+                        totalPackages: userData.totalPackages,
                         macAddress: userData.macAddress || parsedUser.macAddress
                     };
 
@@ -196,15 +170,13 @@ export const AuthProvider = ({ children }) => {
                     await AsyncStorage.setItem('user', JSON.stringify(mergedUser));
                 }
 
-                // ✅ DON'T LOGOUT - Keep user authenticated but show expired screen
                 return {
                     valid: false,
-                    code: status,
+                    code: statusCode,
+                    message: errorData?.message,
                     data: userData
                 };
             }
-
-            // For other errors (network issues), don't change auth state
 
             return { valid: false, error: error.message };
         }
@@ -235,7 +207,7 @@ export const AuthProvider = ({ children }) => {
                 partnerCode: partnerCode.trim(),
                 macAddress: deviceInfo.macAddress,
                 deviceName: deviceInfo.deviceName,
-                customMac: customDeviceInfo.customMac || null // ✅ Pass custom MAC
+                customMac: customDeviceInfo.customMac || null
             });
 
             if (!response.data.success) {
@@ -243,7 +215,7 @@ export const AuthProvider = ({ children }) => {
                     success: false,
                     code: response.data.code,
                     message: response.data.message,
-                    data: response.data.data // ✅ Include data for canUseCustomMac flag
+                    data: response.data.data
                 };
             }
 
@@ -261,9 +233,10 @@ export const AuthProvider = ({ children }) => {
             setUser(subscriber);
             setChannels(channels);
             setPackagesList(packagesList);
+            setServerInfo(serverInfo);
+            setSubscriptionStatus('ACTIVE');
 
             return { success: true };
-
         } catch (error) {
             console.error('Login error:', error);
 
@@ -288,7 +261,6 @@ export const AuthProvider = ({ children }) => {
             const token = await AsyncStorage.getItem('accessToken');
             if (!token) return;
 
-            // Fetch movies
             const moviesResponse = await api.get('/customer/movies', {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -300,7 +272,6 @@ export const AuthProvider = ({ children }) => {
                 setGroupedMovies(grouped);
             }
 
-            // Fetch series
             const seriesResponse = await api.get('/customer/series', {
                 headers: { Authorization: `Bearer ${token}` }
             });
@@ -312,7 +283,7 @@ export const AuthProvider = ({ children }) => {
                 setGroupedSeries(grouped);
             }
         } catch (error) {
-
+            console.error('OTT content fetch error:', error);
         }
     };
 
@@ -327,18 +298,11 @@ export const AuthProvider = ({ children }) => {
             });
 
             if (response.data.success) {
-                const {
-                    subscriber,
-                    channels: fetchedChannels,
-                    packagesList: fetchedPackages,
-                    serverInfo: fetchedServerInfo // ✅ Extract serverInfo from response
-                } = response.data.data;
+                const { subscriber, channels: fetchedChannels, packagesList: fetchedPackages, serverInfo: fetchedServerInfo } = response.data.data;
 
-                // ✅ Get current device info to preserve it
                 const currentUser = await AsyncStorage.getItem('user');
                 const parsedUser = currentUser ? JSON.parse(currentUser) : {};
 
-                // ✅ Merge subscriber data with device info
                 const enrichedSubscriber = {
                     ...parsedUser,
                     ...subscriber,
@@ -357,7 +321,6 @@ export const AuthProvider = ({ children }) => {
                 setChannels(fetchedChannels);
                 setPackagesList(fetchedPackages);
 
-                // ✅ Update serverInfo if provided
                 if (fetchedServerInfo) {
                     setServerInfo(fetchedServerInfo);
                     await AsyncStorage.setItem('serverInfo', JSON.stringify(fetchedServerInfo));
@@ -370,6 +333,7 @@ export const AuthProvider = ({ children }) => {
                 return { success: true };
             }
         } catch (error) {
+            console.error('Refresh channels error:', error);
             if (error.response?.status === 401 || error.response?.status === 403) {
                 await checkSubscriptionStatus();
             }
@@ -381,8 +345,6 @@ export const AuthProvider = ({ children }) => {
 
     const logout = async () => {
         try {
-
-
             await AsyncStorage.multiRemove([
                 'accessToken',
                 'user',
@@ -403,7 +365,7 @@ export const AuthProvider = ({ children }) => {
 
             router.replace('/(auth)/signin');
         } catch (error) {
-
+            console.error('Logout error:', error);
         }
     };
 
