@@ -175,13 +175,12 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // ✅ UPDATED: Fetch validityDate for distributor check
         const reseller = await User.findOne({
             partnerCode: partnerCode.trim(),
             role: 'reseller'
         })
             .populate('packages')
-            .populate('createdBy', 'status name validityDate'); // ✅ Added validityDate
+            .populate('createdBy', 'status name');
 
         if (!reseller) {
             return res.status(404).json({
@@ -190,7 +189,7 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // ✅ UPDATED: Check reseller status and validity
+        // Verify reseller is Active
         if (reseller.status !== 'Active') {
             return res.status(403).json({
                 success: false,
@@ -199,31 +198,13 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // ✅ NEW: Check reseller validity date
-        if (reseller.validityDate && new Date() > reseller.validityDate) {
-            return res.status(403).json({
-                success: false,
-                code: 'RESELLER_EXPIRED',
-                message: `Your reseller's validity has expired. Please contact admin.`
-            });
-        }
-
-        // ✅ UPDATED: Check distributor status and validity (if reseller has a distributor)
+        // Verify parent distributor is Active (if reseller has a distributor)
         if (reseller.createdBy) {
             if (reseller.createdBy.status !== 'Active') {
                 return res.status(403).json({
                     success: false,
                     code: 'DISTRIBUTOR_INACTIVE',
                     message: `The distributor account (${reseller.createdBy.name}) for your reseller is inactive. Please contact admin.`
-                });
-            }
-
-            // ✅ NEW: Check distributor validity date
-            if (reseller.createdBy.validityDate && new Date() > reseller.createdBy.validityDate) {
-                return res.status(403).json({
-                    success: false,
-                    code: 'DISTRIBUTOR_EXPIRED',
-                    message: `The distributor's validity has expired. Please contact admin.`
                 });
             }
         }
@@ -400,46 +381,66 @@ router.post('/login', async (req, res) => {
                 if (new Date() > new Date(subscriber.expiryDate)) {
                     return res.status(403).json({
                         success: false,
-                        code: 'MAC_EXPIRED',
-                        message: `Your subscription has expired.\n\nExpiry Date: ${new Date(subscriber.expiryDate).toLocaleDateString()}\n\nPlease contact admin/reseller to renew or use a Custom MAC.`,
+                        code: 'SUBSCRIPTION_EXPIRED',
+                        message: `Subscription expired on ${new Date(subscriber.expiryDate).toLocaleDateString()}. Please contact admin/reseller to renew.`,
                         data: {
                             deviceMac: deviceMac,
-                            expiryDate: subscriber.expiryDate,
                             status: subscriber.status,
-                            canUseCustomMac: true,
-                            hasPackages: subscriber.packages?.length > 0
+                            expiryDate: subscriber.expiryDate,
+                            canUseCustomMac: true
                         }
                     });
                 }
+
+                // SUB-CASE E: Check if subscriber has no packages assigned (after expiry cleanup)
+                if (!subscriber.packages || subscriber.packages.length === 0) {
+                    return res.status(403).json({
+                        success: false,
+                        code: 'NO_PACKAGES',
+                        message: 'Your device is Active but no packages are assigned. All packages may have expired. Please contact admin/reseller to assign new packages.',
+                        data: {
+                            deviceMac: deviceMac,
+                            status: subscriber.status,
+                            hasPackages: false,
+                            canUseCustomMac: true
+                        }
+                    });
+                }
+
+                // SUB-CASE F: Device MAC Active and Valid
+                subscriber.deviceInfo = {
+                    ...subscriber.deviceInfo,
+                    lastIPAddress: req.ip || req.connection.remoteAddress,
+                    deviceModel: deviceName || subscriber.deviceInfo?.deviceModel,
+                };
+                await subscriber.save();
+
+                console.log(`✅ Login with own device MAC: ${deviceMac}`);
             }
 
-            // 🔥 STEP 2C: MAC doesn't exist - Create new Fresh subscriber
+            // 🔥 STEP 2C: MAC doesn't exist anywhere - Create Fresh subscriber
             if (!existingSubscriber) {
                 subscriber = new Subscriber({
                     resellerId: reseller._id,
                     subscriberName: deviceName || 'User',
                     serialNumber: deviceMac,
                     macAddress: deviceMac,
-                    status: 'Fresh',
-                    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
                     packages: [],
-                    deviceInfo: {
-                        lastIPAddress: req.ip || req.connection.remoteAddress,
-                        deviceModel: deviceName || ''
-                    }
+                    primaryPackageId: null,
+                    status: 'Fresh',
+                    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
                 });
-
                 await subscriber.save();
-                console.log(`✅ Created new Fresh subscriber: ${deviceMac}`);
+
+                console.log(`✅ New Fresh subscriber created: ${deviceMac}`);
 
                 return res.status(201).json({
                     success: false,
-                    code: 'MAC_FRESH_NEW',
-                    message: 'Welcome! Your device has been registered.\n\nPlease contact admin/reseller to assign packages and activate your account.',
+                    code: 'MAC_FRESH',
+                    message: 'Device registered successfully as Fresh. Please contact admin/reseller to assign packages and activate your account.',
                     data: {
                         deviceMac: deviceMac,
                         status: 'Fresh',
-                        partnerCode: partnerCode,
                         canUseCustomMac: true,
                         hasPackages: false
                     }
@@ -447,37 +448,98 @@ router.post('/login', async (req, res) => {
             }
         }
 
-        // Generate JWT token
+        // ==========================================
+        // PROCEED WITH LOGIN - BUILD RESPONSE
+        // ==========================================
+
+        await subscriber.populate({
+            path: 'packages',
+            select: 'name cost duration channels',
+            populate: {
+                path: 'channels',
+                populate: [
+                    { path: 'language', select: 'name' },
+                    { path: 'genre', select: 'name' }
+                ]
+            }
+        });
+
+        const channelMap = new Map();
+        const packagesList = [];
+
+        if (subscriber.packages && subscriber.packages.length > 0) {
+            subscriber.packages.forEach(pkg => {
+                packagesList.push({
+                    _id: pkg._id,
+                    name: pkg.name,
+                    cost: pkg.cost,
+                    duration: pkg.duration,
+                    channelCount: pkg.channels?.length || 0
+                });
+
+                if (pkg.channels && Array.isArray(pkg.channels)) {
+                    pkg.channels.forEach(channel => {
+                        if (channel._id) {
+                            const channelId = channel._id.toString();
+                            if (channelMap.has(channelId)) {
+                                const existing = channelMap.get(channelId);
+                                if (!existing.packageNames.includes(pkg.name)) {
+                                    existing.packageNames.push(pkg.name);
+                                }
+                            } else {
+                                channelMap.set(channelId, {
+                                    _id: channel._id,
+                                    name: channel.name,
+                                    lcn: channel.lcn,
+                                    imageUrl: channel.imageUrl,
+                                    url: channel.url,
+                                    genre: channel.genre,
+                                    language: channel.language,
+                                    packageNames: [pkg.name]
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
+
+        const channels = buildChannelResponse(channelMap);
+
+        await subscriber.populate({
+            path: 'primaryPackageId',
+            select: 'name'
+        });
+
         const token = jwt.sign(
-            {
-                id: subscriber._id,
-                macAddress: subscriber.macAddress,
-                resellerId: subscriber.resellerId
-            },
+            { id: subscriber._id, resellerId: subscriber.resellerId },
             process.env.JWT_SECRET,
             { expiresIn: '30d' }
         );
 
-        // Populate for response
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
-
         res.json({
             success: true,
-            message: usingCustomMac ? 'Login successful with custom MAC' : 'Login successful',
             data: {
                 subscriber: {
-                    _id: subscriber._id,
+                    name: subscriber.subscriberName,
                     subscriberName: subscriber.subscriberName,
-                    serialNumber: subscriber.serialNumber,
-                    macAddress: subscriber.macAddress,
-                    status: subscriber.status,
                     expiryDate: subscriber.expiryDate,
-                    packages: subscriber.packages,
-                    primaryPackage: subscriber.primaryPackageId
+                    packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
+                    totalPackages: subscriber.packages.length,
+                    totalChannels: channels.length,
+                    macAddress: subscriber.serialNumber,
+                    currentMac: usingCustomMac ? customMac : deviceMac,
+                    deviceName: deviceName,
+                    status: subscriber.status,
+                    usingCustomMac: usingCustomMac
                 },
+                channels,
+                packagesList,
                 token,
-                usingCustomMac
+                serverInfo: {
+                    proxyEnabled: true,
+                    apiUrl: process.env.API_URL || 'http://localhost:8000'
+                }
             }
         });
 
@@ -485,58 +547,252 @@ router.post('/login', async (req, res) => {
         console.error('Login error:', error);
         res.status(500).json({
             success: false,
-            message: 'Login failed'
+            message: 'Login failed. Please try again.'
         });
     }
 });
 
-// Get channels by package
-router.get('/channels', authenticateToken, async (req, res) => {
+// ==========================================
+// PROTECTED ROUTES
+// ==========================================
+
+// Check subscription status (called on app launch) - WITH EXPIRY CHECK
+router.get('/check-status', authenticateToken, async (req, res) => {
+    try {
+        let subscriber = await Subscriber.findById(req.user.id)
+            .select('subscriberName status expiryDate macAddress deviceInfo packages createdAt resellerId')
+            .populate('packages', 'name duration')
+            .populate('resellerId', 'status name partnerCode');
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                code: 'NOT_FOUND',
+                message: 'Subscriber not found'
+            });
+        }
+
+        // Verify reseller is Active
+        if (subscriber.resellerId && subscriber.resellerId.status !== 'Active') {
+            return res.json({
+                success: false,
+                code: 'RESELLER_INACTIVE',
+                message: 'Your reseller account is inactive. Please contact your reseller or admin.',
+                data: {
+                    status: 'Inactive',
+                    subscriberName: subscriber.subscriberName
+                }
+            });
+        }
+
+        // Verify distributor is Active (fetch from reseller's createdBy)
+        if (subscriber.resellerId) {
+            const resellerWithDistributor = await User.findById(subscriber.resellerId._id)
+                .populate('createdBy', 'status name');
+
+            if (resellerWithDistributor && resellerWithDistributor.createdBy && resellerWithDistributor.createdBy.status !== 'Active') {
+                return res.json({
+                    success: false,
+                    code: 'DISTRIBUTOR_INACTIVE',
+                    message: `The distributor account for your reseller is inactive. Please contact admin.`,
+                    data: {
+                        status: 'Inactive',
+                        subscriberName: subscriber.subscriberName
+                    }
+                });
+            }
+        }
+
+        // CHECK AND REMOVE EXPIRED PACKAGES
+        const { hadChanges } = await removeExpiredPackages(subscriber);
+
+        if (hadChanges) {
+            console.log(`Check-status: Cleaned expired packages from subscriber ${subscriber.subscriberName}`);
+
+            // Refresh subscriber data after changes
+            subscriber = await Subscriber.findById(req.user.id)
+                .select('subscriberName status expiryDate macAddress deviceInfo packages')
+                .lean();
+        }
+
+        const now = new Date();
+        const expiryDate = new Date(subscriber.expiryDate);
+        const isExpired = now > expiryDate;
+
+        // Auto-activate if Fresh with packages
+        if (subscriber.status === 'Fresh' && subscriber.packages && subscriber.packages.length > 0) {
+            await Subscriber.findByIdAndUpdate(req.user.id, { status: 'Active' });
+            subscriber.status = 'Active';
+            console.log(`✅ Auto-activated Fresh subscriber on status check: ${req.user.id}`);
+        }
+
+        if (subscriber.status === 'Fresh') {
+            return res.json({
+                success: false,
+                code: 'FRESH',
+                message: 'Your subscription is Fresh. Please contact admin to assign packages and activate.',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        if (subscriber.status === 'Inactive') {
+            return res.json({
+                success: false,
+                code: 'INACTIVE',
+                message: 'Your subscription is inactive',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        if (isExpired) {
+            return res.json({
+                success: false,
+                code: 'EXPIRED',
+                message: 'Your subscription has expired',
+                data: {
+                    status: subscriber.status,
+                    expiryDate: subscriber.expiryDate,
+                    subscriberName: subscriber.subscriberName,
+                    macAddress: subscriber.macAddress,
+                    deviceInfo: subscriber.deviceInfo,
+                    totalPackages: subscriber.packages?.length || 0
+                }
+            });
+        }
+
+        res.json({
+            success: true,
+            code: 'ACTIVE',
+            data: {
+                status: subscriber.status,
+                expiryDate: subscriber.expiryDate,
+                subscriberName: subscriber.subscriberName,
+                macAddress: subscriber.macAddress,
+                totalPackages: subscriber.packages?.length || 0,
+                daysRemaining: Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24))
+            }
+        });
+
+    } catch (error) {
+        console.error('Check status error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check status'
+        });
+    }
+});
+
+// Refresh channels route
+router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
         const subscriber = await Subscriber.findById(req.user.id)
             .populate({
                 path: 'packages',
+                select: 'name cost duration channels',
                 populate: {
                     path: 'channels',
-                    select: 'name lcn imageUrl url genre language'
+                    populate: [
+                        { path: 'language', select: 'name' },
+                        { path: 'genre', select: 'name' }
+                    ]
                 }
+            })
+            .populate({
+                path: 'primaryPackageId',
+                select: 'name'
             });
 
-        if (!subscriber || !subscriber.packages || subscriber.packages.length === 0) {
-            return res.json({
-                success: true,
-                data: { channels: [] }
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
             });
         }
 
         const channelMap = new Map();
-        subscriber.packages.forEach(pkg => {
-            if (pkg.channels) {
-                pkg.channels.forEach(channel => {
-                    if (!channelMap.has(channel._id.toString())) {
-                        channelMap.set(channel._id.toString(), {
-                            ...channel.toObject(),
-                            packageNames: [pkg.name]
-                        });
-                    } else {
-                        const existing = channelMap.get(channel._id.toString());
-                        existing.packageNames.push(pkg.name);
-                    }
+        const packagesList = [];
+
+        if (subscriber.packages && subscriber.packages.length > 0) {
+            subscriber.packages.forEach(pkg => {
+                packagesList.push({
+                    _id: pkg._id,
+                    name: pkg.name,
+                    cost: pkg.cost,
+                    duration: pkg.duration,
+                    channelCount: pkg.channels?.length || 0
                 });
-            }
-        });
+
+                if (pkg.channels && Array.isArray(pkg.channels)) {
+                    pkg.channels.forEach(channel => {
+                        if (channel._id) {
+                            const channelId = channel._id.toString();
+
+                            if (channelMap.has(channelId)) {
+                                const existing = channelMap.get(channelId);
+                                if (!existing.packageNames.includes(pkg.name)) {
+                                    existing.packageNames.push(pkg.name);
+                                }
+                            } else {
+                                channelMap.set(channelId, {
+                                    _id: channel._id,
+                                    name: channel.name,
+                                    lcn: channel.lcn,
+                                    imageUrl: channel.imageUrl,
+                                    url: channel.url,
+                                    genre: channel.genre,
+                                    language: channel.language,
+                                    packageNames: [pkg.name]
+                                });
+                            }
+                        }
+                    });
+                }
+            });
+        }
 
         const channels = buildChannelResponse(channelMap);
 
         res.json({
             success: true,
-            data: { channels }
+            data: {
+                subscriber: {
+                    name: subscriber.subscriberName,
+                    subscriberName: subscriber.subscriberName,
+                    expiryDate: subscriber.expiryDate,
+                    packageName: subscriber.primaryPackageId?.name || 'Multi-Package',
+                    totalPackages: subscriber.packages.length,
+                    totalChannels: channels.length,
+                    macAddress: subscriber.macAddress,
+                    status: subscriber.status
+                },
+                channels,
+                packagesList,
+                serverInfo: {
+                    proxyEnabled: true,
+                    apiUrl: process.env.API_URL || 'http://localhost:8000'
+                }
+            }
         });
+
     } catch (error) {
-        console.error('Get channels error:', error);
+        console.error('Refresh channels error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch channels'
+            message: 'Failed to refresh channels'
         });
     }
 });

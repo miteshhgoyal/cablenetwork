@@ -144,156 +144,54 @@ userSchema.pre('save', async function (next) {
     next();
 });
 
-// ✅ NEW APPROACH: Only check and update own status, NO CASCADE
-// Access control is now handled at login/authentication level
+// ✅ PERFECTED: Cascade status to CUSTOMERS (Subscribers)
 userSchema.methods.checkValidityStatus = async function () {
     if (this.validityDate && new Date() > this.validityDate && this.status === 'Active') {
         console.log(`🎯 AUTO-INACTIVATING ${this.role.toUpperCase()}: ${this.name} - Validity expired`);
         this.status = 'Inactive';
         await this.save();
+
+        // FULL CASCADE HIERARCHY:
+        if (this.role === 'distributor') {
+            // 1️⃣ Inactivate ALL resellers
+            const resellers = await User.updateMany(
+                { createdBy: this._id, role: 'reseller' },
+                { status: 'Inactive' }
+            );
+            console.log(`📉 Distributor ${this.name}: Inactivated ${resellers.modifiedCount} resellers`);
+
+            // 2️⃣ Get all reseller IDs
+            const resellerDocs = await User.find({ createdBy: this._id, role: 'reseller' });
+            const resellerIds = resellerDocs.map(r => r._id);
+
+            // 3️⃣ Inactivate ALL CUSTOMERS under those resellers
+            if (resellerIds.length > 0) {
+                const customers = await Subscriber.updateMany(
+                    { resellerId: { $in: resellerIds } },
+                    {
+                        status: 'Inactive',
+                        // expiryDate already exists - app login will check status first
+                    }
+                );
+                console.log(`📉 Distributor ${this.name}: Inactivated ${customers.modifiedCount} CUSTOMERS`);
+            }
+
+        } else if (this.role === 'reseller') {
+            // 1️⃣ Inactivate ALL CUSTOMERS under THIS reseller
+            const customers = await Subscriber.updateMany(
+                { resellerId: this._id },
+                { status: 'Inactive' }
+            );
+            console.log(`📉 Reseller ${this.name}: Inactivated ${customers.modifiedCount} CUSTOMERS`);
+        }
         return true;
     }
     return false;
 };
 
-// ✅ NEW: Method to check if user can access system (checks upline hierarchy)
-userSchema.methods.canAccess = async function () {
-    const User = mongoose.model('User');
-
-    // Check own status
-    if (this.status !== 'Active') {
-        return {
-            canAccess: false,
-            reason: 'Your account is inactive. Please contact support.'
-        };
-    }
-
-    // Check validity date
-    if (this.validityDate && new Date() > this.validityDate) {
-        // Auto-inactivate if expired
-        await this.checkValidityStatus();
-        return {
-            canAccess: false,
-            reason: 'Your account validity has expired. Please contact support.'
-        };
-    }
-
-    // For resellers, check distributor status
-    if (this.role === 'reseller' && this.createdBy) {
-        const distributor = await User.findById(this.createdBy).select('status validityDate name');
-
-        if (!distributor) {
-            return {
-                canAccess: false,
-                reason: 'Your distributor account not found.'
-            };
-        }
-
-        if (distributor.status !== 'Active') {
-            return {
-                canAccess: false,
-                reason: `Your distributor (${distributor.name}) is inactive. Please contact them.`
-            };
-        }
-
-        if (distributor.validityDate && new Date() > distributor.validityDate) {
-            return {
-                canAccess: false,
-                reason: `Your distributor (${distributor.name}) validity has expired.`
-            };
-        }
-    }
-
-    return {
-        canAccess: true,
-        reason: null
-    };
-};
-
 // Method to compare passwords
 userSchema.methods.comparePassword = async function (candidatePassword) {
     return bcrypt.compare(candidatePassword, this.password);
-};
-
-// ✅ NEW: Static method to check subscriber access (checks subscriber + reseller + distributor)
-userSchema.statics.checkSubscriberAccess = async function (subscriber) {
-    if (!subscriber) {
-        return {
-            canAccess: false,
-            reason: 'Subscriber not found.'
-        };
-    }
-
-    // Check subscriber's own status
-    if (subscriber.status !== 'Active') {
-        return {
-            canAccess: false,
-            reason: 'Your subscription is not active. Please contact your reseller.'
-        };
-    }
-
-    // Check subscriber's expiry
-    if (subscriber.expiryDate && new Date() > subscriber.expiryDate) {
-        return {
-            canAccess: false,
-            reason: 'Your subscription has expired. Please renew to continue.'
-        };
-    }
-
-    // Check reseller status
-    const reseller = await this.findById(subscriber.resellerId).select('status validityDate name createdBy');
-
-    if (!reseller) {
-        return {
-            canAccess: false,
-            reason: 'Your reseller account not found.'
-        };
-    }
-
-    if (reseller.status !== 'Active') {
-        return {
-            canAccess: false,
-            reason: `Your reseller (${reseller.name}) is inactive. Please contact them.`
-        };
-    }
-
-    if (reseller.validityDate && new Date() > reseller.validityDate) {
-        return {
-            canAccess: false,
-            reason: `Your reseller (${reseller.name}) validity has expired.`
-        };
-    }
-
-    // Check distributor status (if reseller has one)
-    if (reseller.createdBy) {
-        const distributor = await this.findById(reseller.createdBy).select('status validityDate name');
-
-        if (!distributor) {
-            return {
-                canAccess: false,
-                reason: 'Distributor account not found.'
-            };
-        }
-
-        if (distributor.status !== 'Active') {
-            return {
-                canAccess: false,
-                reason: `The distributor (${distributor.name}) is inactive. Please contact your reseller.`
-            };
-        }
-
-        if (distributor.validityDate && new Date() > distributor.validityDate) {
-            return {
-                canAccess: false,
-                reason: `The distributor (${distributor.name}) validity has expired.`
-            };
-        }
-    }
-
-    return {
-        canAccess: true,
-        reason: null
-    };
 };
 
 export default mongoose.model('User', userSchema);

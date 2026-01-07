@@ -99,7 +99,7 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// ✅ UPDATED: Enhanced Login with Full Hierarchy Check
+// Enhanced Login with Hierarchy Check
 router.post('/login', async (req, res) => {
     try {
         const { email, password, role } = req.body;
@@ -111,11 +111,11 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Find user with password and createdBy fields
+        // Find user
         const user = await User.findOne({
             email: email.toLowerCase(),
             role: role.toLowerCase()
-        }).select('+password');
+        }).select('+password').populate('createdBy', 'status name');
 
         if (!user) {
             return res.status(401).json({
@@ -133,21 +133,27 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // ✅ NEW: Check full access hierarchy using the new canAccess method
-        const accessCheck = await user.canAccess();
-        if (!accessCheck.canAccess) {
+        // Check if user's own account is inactive
+        if (user.status !== 'Active') {
             return res.status(403).json({
                 success: false,
-                message: accessCheck.reason
+                message: 'Your account is inactive. Please contact admin to activate.'
             });
+        }
+
+        // Check if parent distributor is inactive (for resellers)
+        if (user.role === 'reseller' && user.createdBy) {
+            if (user.createdBy.status !== 'Active') {
+                return res.status(403).json({
+                    success: false,
+                    message: `Your distributor account (${user.createdBy.name}) is inactive. Please contact admin.`
+                });
+            }
         }
 
         // Update last login
         user.lastLogin = new Date();
         await user.save();
-
-        // Populate for response
-        await user.populate('createdBy', 'name email status validityDate');
 
         // Generate token
         const token = generateToken(user);
@@ -170,7 +176,7 @@ router.post('/login', async (req, res) => {
     }
 });
 
-// Forgot Password
+// Forgot Password - FIXED
 router.post('/forgot-password', async (req, res) => {
     try {
         const { email } = req.body;
@@ -184,7 +190,7 @@ router.post('/forgot-password', async (req, res) => {
 
         const user = await User.findOne({
             email: email.toLowerCase(),
-            status: 'Active'
+            status: 'Active' // FIXED: Capital A
         });
 
         // Always return success to prevent email enumeration
@@ -223,7 +229,7 @@ router.post('/forgot-password', async (req, res) => {
     }
 });
 
-// Reset Password
+// Reset Password - FIXED
 router.post('/reset-password', async (req, res) => {
     try {
         const { token, password } = req.body;
@@ -242,19 +248,19 @@ router.post('/reset-password', async (req, res) => {
             });
         }
 
-        // Hash the token to compare with database
+        // Hash token to match database
         const hashedToken = crypto.createHash('sha256').update(token).digest('hex');
 
-        // Find user with valid token
         const user = await User.findOne({
             resetPasswordToken: hashedToken,
-            resetPasswordExpires: { $gt: Date.now() }
+            resetPasswordExpires: { $gt: Date.now() },
+            status: 'Active' // FIXED: Capital A
         });
 
         if (!user) {
             return res.status(400).json({
                 success: false,
-                message: 'Invalid or expired reset token'
+                message: 'Invalid or expired password reset token'
             });
         }
 
@@ -264,9 +270,16 @@ router.post('/reset-password', async (req, res) => {
         user.resetPasswordExpires = undefined;
         await user.save();
 
+        // Generate new token
+        const newToken = generateToken(user);
+
         res.json({
             success: true,
-            message: 'Password reset successful. You can now login with your new password.'
+            message: 'Password has been reset successfully',
+            data: {
+                user: user.toJSON(),
+                token: newToken
+            }
         });
 
     } catch (error) {
@@ -281,10 +294,7 @@ router.post('/reset-password', async (req, res) => {
 // Get current user
 router.get('/me', authenticateToken, async (req, res) => {
     try {
-        const user = await User.findById(req.user.id)
-            .populate('packages', 'name cost duration')
-            .populate('createdBy', 'name email status validityDate')
-            .select('-password');
+        const user = await User.findById(req.user.id).select('-password');
 
         if (!user) {
             return res.status(404).json({
@@ -293,45 +303,135 @@ router.get('/me', authenticateToken, async (req, res) => {
             });
         }
 
-        // ✅ Check if user still has access
-        const accessCheck = await user.canAccess();
-        if (!accessCheck.canAccess) {
-            return res.status(403).json({
+        res.json({
+            success: true,
+            data: { user: user.toJSON() }
+        });
+
+    } catch (error) {
+        console.error('Get user error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get user information'
+        });
+    }
+});
+
+// Enhanced Verify Token with Hierarchy Check
+router.get('/verify', authenticateToken, async (req, res) => {
+    try {
+        const user = await User.findById(req.user.id)
+            .select('-password')
+            .populate('createdBy', 'status name');
+
+        if (!user) {
+            return res.status(404).json({
                 success: false,
-                message: accessCheck.reason
+                message: 'User not found'
             });
+        }
+
+        // Check own status
+        if (user.status !== 'Active') {
+            return res.status(401).json({
+                success: false,
+                message: 'Your account is inactive'
+            });
+        }
+
+        // Check parent distributor status (for resellers)
+        if (user.role === 'reseller' && user.createdBy) {
+            if (user.createdBy.status !== 'Active') {
+                return res.status(401).json({
+                    success: false,
+                    message: `Your distributor account is inactive`
+                });
+            }
         }
 
         res.json({
             success: true,
-            data: { user }
+            message: 'Token is valid',
+            data: { user: user.toJSON() }
         });
 
     } catch (error) {
-        console.error('Get current user error:', error);
+        console.error('Token verification error:', error);
         res.status(500).json({
             success: false,
-            message: 'Failed to fetch user data'
+            message: 'Token verification failed'
+        });
+    }
+});
+
+// Change Password
+router.put('/change-password', authenticateToken, async (req, res) => {
+    try {
+        const { currentPassword, newPassword } = req.body;
+
+        if (!currentPassword || !newPassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current password and new password are required'
+            });
+        }
+
+        if (newPassword.length < 6) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be at least 6 characters'
+            });
+        }
+
+        const user = await User.findById(req.user.id).select('+password');
+        if (!user) {
+            return res.status(404).json({
+                success: false,
+                message: 'User not found'
+            });
+        }
+
+        // Verify current password
+        const isCurrentPasswordValid = await user.comparePassword(currentPassword);
+        if (!isCurrentPasswordValid) {
+            return res.status(400).json({
+                success: false,
+                message: 'Current password is incorrect'
+            });
+        }
+
+        // Check if new password is different
+        const isSamePassword = await user.comparePassword(newPassword);
+        if (isSamePassword) {
+            return res.status(400).json({
+                success: false,
+                message: 'New password must be different from current password'
+            });
+        }
+
+        user.password = newPassword;
+        await user.save();
+
+        res.json({
+            success: true,
+            message: 'Password changed successfully'
+        });
+
+    } catch (error) {
+        console.error('Change password error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to change password'
         });
     }
 });
 
 // Logout
-router.post('/logout', authenticateToken, async (req, res) => {
-    try {
-        // In a JWT system, logout is handled client-side by removing the token
-        // But we can track logout events if needed
-        res.json({
-            success: true,
-            message: 'Logged out successfully'
-        });
-    } catch (error) {
-        console.error('Logout error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Logout failed'
-        });
-    }
+router.post('/logout', authenticateToken, (req, res) => {
+    res.json({
+        success: true,
+        message: 'Logged out successfully'
+    });
 });
 
 export default router;
