@@ -7,6 +7,10 @@ const subscriberSchema = new mongoose.Schema({
         required: true,
         ref: 'User',
     },
+    partnerCode: {
+        type: String,
+        required: true
+    },
     subscriberName: {
         type: String,
         required: true,

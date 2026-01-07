@@ -49,11 +49,14 @@ def find_and_extract_files(target_files, root_dir='.', output_file='files-conten
 if __name__ == "__main__":
     # Define the files you want to search for
     files_to_find = [
-        'credit.routes.js',
+        # 'credit.routes.js',
         'customer.routes.js',
         'distributors.routes.js',
-        'packages.routes.js',
+        'auth.routes.js',
+        # 'packages.routes.js',
         'resellers.routes.js',
+        'Subscriber.js',
+        'User.js',
         'subscribers.routes.js'
         
         

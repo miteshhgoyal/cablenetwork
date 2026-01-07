@@ -1,4 +1,3 @@
-// backend/src/routes/auth.routes.js
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
@@ -84,14 +83,12 @@ router.post('/register', async (req, res) => {
 
     } catch (error) {
         console.error('Registration error:', error);
-
         if (error.code === 11000) {
             return res.status(400).json({
                 success: false,
                 message: 'Email already exists'
             });
         }
-
         res.status(500).json({
             success: false,
             message: 'Registration failed'
@@ -99,7 +96,12 @@ router.post('/register', async (req, res) => {
     }
 });
 
-// Enhanced Login with Hierarchy Check
+/**
+ * 🔧 FIXED: Enhanced Login with Full Hierarchy Check
+ * - Checks user's own status
+ * - For resellers: checks distributor (createdBy) status
+ * - Blocks login if upline is Inactive
+ */
 router.post('/login', async (req, res) => {
     try {
         const { email, password, role } = req.body;
@@ -111,11 +113,13 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Find user
+        // Find user and populate distributor info for resellers
         const user = await User.findOne({
             email: email.toLowerCase(),
             role: role.toLowerCase()
-        }).select('+password').populate('createdBy', 'status name');
+        })
+            .select('+password')
+            .populate('createdBy', 'status name role');
 
         if (!user) {
             return res.status(401).json({
@@ -133,19 +137,21 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // Check if user's own account is inactive
+        // 🔧 FIXED: Check if user's own account is inactive
         if (user.status !== 'Active') {
             return res.status(403).json({
                 success: false,
-                message: 'Your account is inactive. Please contact admin to activate.'
+                code: 'USER_INACTIVE',
+                message: `Your ${user.role} account is inactive. Please contact admin to activate.`
             });
         }
 
-        // Check if parent distributor is inactive (for resellers)
+        // 🔧 FIXED: Check if parent distributor is inactive (for resellers)
         if (user.role === 'reseller' && user.createdBy) {
             if (user.createdBy.status !== 'Active') {
                 return res.status(403).json({
                     success: false,
+                    code: 'DISTRIBUTOR_INACTIVE',
                     message: `Your distributor account (${user.createdBy.name}) is inactive. Please contact admin.`
                 });
             }
@@ -190,7 +196,7 @@ router.post('/forgot-password', async (req, res) => {
 
         const user = await User.findOne({
             email: email.toLowerCase(),
-            status: 'Active' // FIXED: Capital A
+            status: 'Active' // FIXED: Capital 'A'
         });
 
         // Always return success to prevent email enumeration
@@ -254,7 +260,7 @@ router.post('/reset-password', async (req, res) => {
         const user = await User.findOne({
             resetPasswordToken: hashedToken,
             resetPasswordExpires: { $gt: Date.now() },
-            status: 'Active' // FIXED: Capital A
+            status: 'Active' // FIXED: Capital 'A'
         });
 
         if (!user) {
@@ -305,7 +311,9 @@ router.get('/me', authenticateToken, async (req, res) => {
 
         res.json({
             success: true,
-            data: { user: user.toJSON() }
+            data: {
+                user: user.toJSON()
+            }
         });
 
     } catch (error) {
@@ -317,12 +325,15 @@ router.get('/me', authenticateToken, async (req, res) => {
     }
 });
 
-// Enhanced Verify Token with Hierarchy Check
+/**
+ * 🔧 FIXED: Enhanced Verify Token with Hierarchy Check
+ * Checks both own status and distributor status (for resellers)
+ */
 router.get('/verify', authenticateToken, async (req, res) => {
     try {
         const user = await User.findById(req.user.id)
             .select('-password')
-            .populate('createdBy', 'status name');
+            .populate('createdBy', 'status name role');
 
         if (!user) {
             return res.status(404).json({
@@ -331,20 +342,22 @@ router.get('/verify', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check own status
+        // 🔧 FIXED: Check own status
         if (user.status !== 'Active') {
             return res.status(401).json({
                 success: false,
+                code: 'USER_INACTIVE',
                 message: 'Your account is inactive'
             });
         }
 
-        // Check parent distributor status (for resellers)
+        // 🔧 FIXED: Check parent distributor status (for resellers)
         if (user.role === 'reseller' && user.createdBy) {
             if (user.createdBy.status !== 'Active') {
                 return res.status(401).json({
                     success: false,
-                    message: `Your distributor account is inactive`
+                    code: 'DISTRIBUTOR_INACTIVE',
+                    message: 'Your distributor account is inactive'
                 });
             }
         }
@@ -352,7 +365,9 @@ router.get('/verify', authenticateToken, async (req, res) => {
         res.json({
             success: true,
             message: 'Token is valid',
-            data: { user: user.toJSON() }
+            data: {
+                user: user.toJSON()
+            }
         });
 
     } catch (error) {
@@ -384,6 +399,7 @@ router.put('/change-password', authenticateToken, async (req, res) => {
         }
 
         const user = await User.findById(req.user.id).select('+password');
+
         if (!user) {
             return res.status(404).json({
                 success: false,
