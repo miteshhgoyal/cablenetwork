@@ -981,4 +981,274 @@ router.post('/bulk-upload', authenticateToken, async (req, res) => {
     }
 });
 
+// GET RESELLERS LIST (for dropdowns)
+router.get('/resellers', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+
+        let resellers = [];
+
+        if (user.role === 'admin') {
+            resellers = await User.find({ role: 'reseller' })
+                .select('name email partnerCode')
+                .sort({ name: 1 });
+        } else if (user.role === 'distributor') {
+            resellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            })
+                .select('name email partnerCode')
+                .sort({ name: 1 });
+        }
+
+        res.json({
+            success: true,
+            data: { resellers }
+        });
+
+    } catch (error) {
+        console.error('Get resellers error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch resellers'
+        });
+    }
+});
+
+// GET PACKAGES LIST (for dropdowns)
+router.get('/packages', authenticateToken, async (req, res) => {
+    try {
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            data: { packages }
+        });
+
+    } catch (error) {
+        console.error('Get packages error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch packages'
+        });
+    }
+});
+
+// ACTIVATE SUBSCRIBER
+router.patch('/:id/activate', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const currentUser = await User.findById(userId);
+        const { expiryDate } = req.body;
+
+        const subscriber = await Subscriber.findById(req.params.id)
+            .populate('packages', 'name cost duration');
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // 🔧 FIXED: Check permission based on subscriber's partnerCode
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: You can only activate subscribers who used your partner code'
+            });
+        }
+
+        if (!subscriber.packages || subscriber.packages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot activate subscriber without packages'
+            });
+        }
+
+        // Calculate expiry date
+        let finalExpiryDate;
+        if (expiryDate) {
+            finalExpiryDate = new Date(expiryDate + 'T23:59:59');
+        } else {
+            finalExpiryDate = calculateExpiryDate(subscriber.packages);
+        }
+
+        // 🔧 FIXED: Handle balance deduction using partnerCode
+        let balanceResult = null;
+
+        if (subscriber.partnerCode) {
+            const packageIds = subscriber.packages.map(p => p._id.toString());
+
+            balanceResult = await calculateAndDeductBalance(subscriber.partnerCode, {
+                newPackages: packageIds,
+                newExpiryDate: finalExpiryDate,
+                isInitialActivation: true,
+                skipBalanceCheck: currentUser.role === 'admin'
+            });
+
+            if (!balanceResult.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: balanceResult.error
+                });
+            }
+        }
+
+        subscriber.status = 'Active';
+        subscriber.expiryDate = finalExpiryDate;
+        await subscriber.save();
+
+        await subscriber.populate('packages', 'name cost duration');
+        await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
+
+        const responseMessage = balanceResult && balanceResult.chargedAmount > 0
+            ? `Subscriber activated successfully. ${balanceResult.message}`
+            : 'Subscriber activated successfully';
+
+        res.json({
+            success: true,
+            message: responseMessage,
+            data: {
+                subscriber: subObj,
+                chargedAmount: balanceResult ? balanceResult.chargedAmount : 0,
+                remainingBalance: balanceResult ? balanceResult.remainingBalance : null
+            }
+        });
+
+    } catch (error) {
+        console.error('Activate subscriber error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to activate subscriber'
+        });
+    }
+});
+
+// RENEW PACKAGE
+router.patch('/:id/renew', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const currentUser = await User.findById(userId);
+        const { duration } = req.body;
+
+        const subscriber = await Subscriber.findById(req.params.id)
+            .populate('packages', 'name cost duration');
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // 🔧 FIXED: Check permission based on subscriber's partnerCode
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: You can only renew subscribers who used your partner code'
+            });
+        }
+
+        if (!duration || duration <= 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Valid duration is required'
+            });
+        }
+
+        if (!subscriber.packages || subscriber.packages.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No packages assigned to subscriber'
+            });
+        }
+
+        // Calculate new expiry date
+        const currentExpiry = subscriber.expiryDate ? new Date(subscriber.expiryDate) : new Date();
+        const now = new Date();
+        const baseDate = currentExpiry > now ? currentExpiry : now;
+        const newExpiryDate = new Date(baseDate.getTime() + duration * 24 * 60 * 60 * 1000);
+
+        // 🔧 FIXED: Handle balance deduction using partnerCode
+        let balanceResult = null;
+
+        if (subscriber.partnerCode) {
+            const packageIds = subscriber.packages.map(p => p._id.toString());
+
+            balanceResult = await calculateAndDeductBalance(subscriber.partnerCode, {
+                newPackages: packageIds,
+                oldExpiryDate: subscriber.expiryDate,
+                newExpiryDate: newExpiryDate,
+                skipBalanceCheck: currentUser.role === 'admin'
+            });
+
+            if (!balanceResult.success) {
+                return res.status(400).json({
+                    success: false,
+                    message: balanceResult.error
+                });
+            }
+        }
+
+        subscriber.status = 'Active';
+        subscriber.expiryDate = newExpiryDate;
+        await subscriber.save();
+
+        await subscriber.populate('packages', 'name cost duration');
+        await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
+
+        const responseMessage = balanceResult && balanceResult.chargedAmount > 0
+            ? `Package renewed successfully. ${balanceResult.message}`
+            : 'Package renewed successfully';
+
+        res.json({
+            success: true,
+            message: responseMessage,
+            data: {
+                subscriber: subObj,
+                chargedAmount: balanceResult ? balanceResult.chargedAmount : 0,
+                remainingBalance: balanceResult ? balanceResult.remainingBalance : null,
+                newExpiryDate: newExpiryDate
+            }
+        });
+
+    } catch (error) {
+        console.error('Renew package error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to renew package'
+        });
+    }
+});
+
 export default router;
