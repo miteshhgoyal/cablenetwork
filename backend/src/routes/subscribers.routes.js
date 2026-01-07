@@ -12,7 +12,7 @@ const router = express.Router();
 
 /**
  * 🔧 FIXED: Check if user has permission to access subscriber
- * Based on subscriber's partnerCode (which partner code they used during login)
+ * Based on subscriber's partnerCode (not resellerId)
  */
 async function checkSubscriberPermission(userId, subscriber) {
     const user = await User.findById(userId);
@@ -22,13 +22,13 @@ async function checkSubscriberPermission(userId, subscriber) {
         return true;
     }
 
-    // Reseller can access subscribers who used their partner code
+    // 🔧 FIXED: Reseller can access subscribers who used their partner code
     if (user.role === 'reseller') {
         // Match user's partnerCode with subscriber's partnerCode
         return subscriber.partnerCode && subscriber.partnerCode === user.partnerCode;
     }
 
-    // Distributor can access subscribers whose partnerCode belongs to their resellers
+    // 🔧 FIXED: Distributor can access subscribers whose partnerCode belongs to their resellers
     if (user.role === 'distributor') {
         if (!subscriber.partnerCode) return false;
 
@@ -47,7 +47,7 @@ async function checkSubscriberPermission(userId, subscriber) {
 
 /**
  * 🔧 FIXED: Centralized balance calculation and deduction
- * Uses partnerCode to find the correct reseller
+ * Uses partnerCode to find the correct reseller (not resellerId)
  */
 async function calculateAndDeductBalance(partnerCode, options = {}) {
     const {
@@ -79,7 +79,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         };
     }
 
-    // Find reseller by partnerCode
+    // 🔧 FIXED: Find reseller by partnerCode (not by resellerId)
     const reseller = await User.findOne({ partnerCode: partnerCode, role: 'reseller' });
     if (!reseller) {
         return {
@@ -228,8 +228,8 @@ function calculateExpiryDate(packages, baseDate = null) {
 // ==========================================
 
 /**
- * GET ALL SUBSCRIBERS
- * With role-based filtering using partnerCode
+ * 🔧 FIXED: GET ALL SUBSCRIBERS
+ * With role-based filtering using partnerCode (not resellerId)
  */
 router.get('/', authenticateToken, async (req, res) => {
     try {
@@ -243,7 +243,7 @@ router.get('/', authenticateToken, async (req, res) => {
         if (currentUser.role === 'admin') {
             // Admin sees all subscribers
         } else if (currentUser.role === 'distributor') {
-            // Distributor sees subscribers whose partnerCode belongs to their resellers
+            // 🔧 FIXED: Distributor sees subscribers whose partnerCode belongs to their resellers
             const resellers = await User.find({
                 role: 'reseller',
                 createdBy: userId
@@ -252,7 +252,7 @@ router.get('/', authenticateToken, async (req, res) => {
             const partnerCodes = resellers.map(r => r.partnerCode).filter(pc => pc);
             query.partnerCode = { $in: partnerCodes };
         } else if (currentUser.role === 'reseller') {
-            // Reseller sees only subscribers who used their partner code
+            // 🔧 FIXED: Reseller sees only subscribers who used their partner code
             query.partnerCode = currentUser.partnerCode;
         }
 
@@ -266,19 +266,37 @@ router.get('/', authenticateToken, async (req, res) => {
             query.$or = [
                 { subscriberName: { $regex: search, $options: 'i' } },
                 { macAddress: { $regex: search, $options: 'i' } },
-                { serialNumber: { $regex: search, $options: 'i' } }
+                { serialNumber: { $regex: search, $options: 'i' } },
+                { partnerCode: { $regex: search, $options: 'i' } }  // 🔧 ADDED: Search by partnerCode
             ];
         }
 
+        // 🔧 FIXED: Populate reseller info using partnerCode lookup
         const subscribers = await Subscriber.find(query)
-            .populate('resellerId', 'name email')
             .populate('packages', 'name cost duration')
             .populate('primaryPackageId', 'name cost duration')
             .sort({ createdAt: -1 });
 
+        // 🔧 FIXED: Manually populate reseller info based on partnerCode
+        const subscribersWithReseller = await Promise.all(
+            subscribers.map(async (sub) => {
+                const subObj = sub.toObject();
+                if (sub.partnerCode) {
+                    const reseller = await User.findOne(
+                        { partnerCode: sub.partnerCode, role: 'reseller' },
+                        'name email balance partnerCode'
+                    );
+                    subObj.resellerInfo = reseller || null;
+                } else {
+                    subObj.resellerInfo = null;
+                }
+                return subObj;
+            })
+        );
+
         res.json({
             success: true,
-            data: { subscribers }
+            data: { subscribers: subscribersWithReseller }
         });
 
     } catch (error) {
@@ -291,13 +309,13 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 /**
- * GET SINGLE SUBSCRIBER
+ * 🔧 FIXED: GET SINGLE SUBSCRIBER
+ * With partnerCode-based authorization
  */
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('resellerId', 'name email balance')
             .populate('packages', 'name cost duration')
             .populate('primaryPackageId', 'name cost duration');
 
@@ -308,6 +326,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // 🔧 FIXED: Check permission based on subscriber's partnerCode
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -316,9 +335,21 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
+
         res.json({
             success: true,
-            data: { subscriber }
+            data: { subscriber: subObj }
         });
 
     } catch (error) {
@@ -332,7 +363,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 /**
  * 🔧 FIXED: CREATE SUBSCRIBER
- * Now properly stores partnerCode
+ * Now properly stores partnerCode and uses it for reseller lookup
  */
 router.post('/', authenticateToken, async (req, res) => {
     try {
@@ -347,8 +378,7 @@ router.post('/', authenticateToken, async (req, res) => {
             expiryDate,
             packages = [],
             primaryPackageId,
-            resellerId,
-            partnerCode  // 🔧 NEW: Accept partnerCode
+            partnerCode  // 🔧 PRIMARY: Accept partnerCode (not resellerId)
         } = req.body;
 
         // Validation
@@ -376,33 +406,38 @@ router.post('/', authenticateToken, async (req, res) => {
         let finalPartnerCode = null;
 
         if (currentUser.role === 'admin') {
-            // Admin can assign to any reseller
-            if (resellerId) {
-                const reseller = await User.findById(resellerId);
-                if (reseller && reseller.role === 'reseller') {
-                    finalResellerId = resellerId;
-                    finalPartnerCode = reseller.partnerCode;
-                }
-            } else if (partnerCode) {
-                // Admin can directly use partnerCode
+            // Admin must provide partnerCode
+            if (partnerCode) {
                 const reseller = await User.findOne({ partnerCode: partnerCode, role: 'reseller' });
                 if (reseller) {
                     finalResellerId = reseller._id;
                     finalPartnerCode = partnerCode;
-                }
-            }
-        } else if (currentUser.role === 'distributor') {
-            if (resellerId) {
-                const reseller = await User.findById(resellerId);
-                if (!reseller || reseller.role !== 'reseller' ||
-                    reseller.createdBy.toString() !== userId) {
-                    return res.status(403).json({
+                } else {
+                    return res.status(400).json({
                         success: false,
-                        message: 'Invalid reseller selection'
+                        message: 'Invalid partner code'
                     });
                 }
-                finalResellerId = resellerId;
-                finalPartnerCode = reseller.partnerCode;
+            }
+            // If no partnerCode provided, create as Fresh (no reseller assignment)
+        } else if (currentUser.role === 'distributor') {
+            if (partnerCode) {
+                // Verify partnerCode belongs to distributor's reseller
+                const reseller = await User.findOne({
+                    partnerCode: partnerCode,
+                    role: 'reseller',
+                    createdBy: userId
+                });
+
+                if (!reseller) {
+                    return res.status(403).json({
+                        success: false,
+                        message: 'Invalid partner code - not under your distributorship'
+                    });
+                }
+
+                finalResellerId = reseller._id;
+                finalPartnerCode = partnerCode;
             }
         } else if (currentUser.role === 'reseller') {
             // Reseller creates subscriber with their own partnerCode
@@ -448,7 +483,7 @@ router.post('/', authenticateToken, async (req, res) => {
             }
         }
 
-        // 🔧 FIXED: Create subscriber with partnerCode
+        // 🔧 FIXED: Create subscriber with partnerCode as primary field
         const subscriber = new Subscriber({
             subscriberName: subscriberName.trim(),
             macAddress: macAddress.trim().toLowerCase(),
@@ -457,15 +492,26 @@ router.post('/', authenticateToken, async (req, res) => {
             expiryDate: finalExpiryDate,
             packages: packages,
             primaryPackageId: primaryPackageId || (packages.length > 0 ? packages[0] : null),
-            resellerId: finalResellerId,
-            partnerCode: finalPartnerCode  // 🔧 STORE PARTNER CODE
+            resellerId: finalResellerId,  // Still store for backward compatibility
+            partnerCode: finalPartnerCode  // 🔧 PRIMARY FIELD
         });
 
         await subscriber.save();
 
-        await subscriber.populate('resellerId', 'name email balance');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (finalPartnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: finalPartnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
 
         const responseMessage = balanceResult && balanceResult.chargedAmount > 0
             ? `Subscriber created and activated successfully. ${balanceResult.message}`
@@ -475,7 +521,7 @@ router.post('/', authenticateToken, async (req, res) => {
             success: true,
             message: responseMessage,
             data: {
-                subscriber,
+                subscriber: subObj,
                 chargedAmount: balanceResult ? balanceResult.chargedAmount : 0,
                 remainingBalance: balanceResult ? balanceResult.remainingBalance : null
             }
@@ -509,7 +555,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
         } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('resellerId', 'name email balance')
             .populate('packages', 'name cost duration');
 
         if (!subscriber) {
@@ -623,9 +668,20 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
         await subscriber.save();
 
-        await subscriber.populate('resellerId', 'name email balance');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
 
         const responseMessage = balanceResult && balanceResult.chargedAmount > 0
             ? `Subscriber updated successfully. ${balanceResult.message}`
@@ -635,7 +691,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
             success: true,
             message: responseMessage,
             data: {
-                subscriber,
+                subscriber: subObj,
                 chargedAmount: balanceResult ? balanceResult.chargedAmount : 0,
                 remainingBalance: balanceResult ? balanceResult.remainingBalance : null,
                 breakdown: balanceResult ? balanceResult.breakdown : null
@@ -677,7 +733,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         }
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('resellerId', 'name email balance')
             .populate('packages', 'name cost duration');
 
         if (!subscriber) {
@@ -738,9 +793,20 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         subscriber.status = newStatus;
         await subscriber.save();
 
-        await subscriber.populate('resellerId', 'name email balance');
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
 
         const responseMessage = balanceResult && balanceResult.chargedAmount > 0
             ? `Status updated to ${newStatus}. ${balanceResult.message}`
@@ -750,7 +816,7 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
             success: true,
             message: responseMessage,
             data: {
-                subscriber,
+                subscriber: subObj,
                 chargedAmount: balanceResult ? balanceResult.chargedAmount : 0,
                 remainingBalance: balanceResult ? balanceResult.remainingBalance : null
             }
@@ -774,8 +840,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        const subscriber = await Subscriber.findById(req.params.id)
-            .populate('resellerId', 'name email');
+        const subscriber = await Subscriber.findById(req.params.id);
 
         if (!subscriber) {
             return res.status(404).json({
@@ -825,7 +890,8 @@ router.delete('/:id', authenticateToken, async (req, res) => {
 });
 
 /**
- * BULK UPLOAD SUBSCRIBERS
+ * 🔧 FIXED: BULK UPLOAD SUBSCRIBERS
+ * No partnerCode assignment for bulk upload
  */
 router.post('/bulk-upload', authenticateToken, async (req, res) => {
     try {
@@ -877,6 +943,7 @@ router.post('/bulk-upload', authenticateToken, async (req, res) => {
                     continue;
                 }
 
+                // 🔧 FIXED: Bulk upload creates Fresh subscribers with no partnerCode
                 const newSubscriber = new Subscriber({
                     subscriberName: subscriberName.trim(),
                     macAddress: macAddress.trim().toLowerCase(),
