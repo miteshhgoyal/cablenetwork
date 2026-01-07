@@ -56,6 +56,8 @@ if __name__ == "__main__":
         'resellers.routes.js',
         'distributors.routes.js',
         'subscribers.routes.js',
+        'auth.js',
+        
     ]
     
     # Start the search from current directory

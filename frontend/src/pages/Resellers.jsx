@@ -47,7 +47,7 @@ const Resellers = () => {
     subscriberLimit: "",
     partnerCode: "",
     packages: [],
-    validityDate: "", // NEW: Validity date field
+    validityDate: "",
   });
   const [balanceError, setBalanceError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -167,17 +167,26 @@ const Resellers = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!formData.balance || !validateBalance(formData.balance)) return;
+
+    // ✅ FIX: Only validate balance if it's being changed
+    if (formData.balance && !validateBalance(formData.balance)) {
+      return;
+    }
 
     setSubmitting(true);
     try {
       const submitData = {
         ...formData,
-        balance: parseFloat(formData.balance),
         subscriberLimit: parseInt(formData.subscriberLimit) || 0,
         validityDate: formData.validityDate || null,
       };
 
+      // Only include balance if it's provided
+      if (formData.balance) {
+        submitData.balance = parseFloat(formData.balance);
+      }
+
+      // Remove password if empty in edit mode
       if (modalMode === "edit" && !submitData.password) {
         delete submitData.password;
       }
@@ -388,6 +397,7 @@ const Resellers = () => {
                   Total Balance
                 </p>
                 <p className="text-2xl font-bold text-purple-900">
+                  ₹
                   {filteredResellers
                     .reduce((sum, r) => sum + (r.balance || 0), 0)
                     .toLocaleString("en-IN")}
@@ -614,166 +624,197 @@ const Resellers = () => {
             </div>
             <div className="p-6 space-y-6">
               {/* Basic Info */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
-                  <p className="text-xs text-green-600 font-semibold mb-2">
-                    Name
-                  </p>
-                  <p className="text-lg font-bold text-green-900">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <User className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Name
+                    </p>
+                  </div>
+                  <p className="text-base font-bold text-gray-900">
                     {selectedReseller.name}
                   </p>
                 </div>
-                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
-                  <p className="text-xs text-blue-600 font-semibold mb-2">
-                    Email
-                  </p>
-                  <p className="text-base font-semibold text-blue-900">
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Mail className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Email
+                    </p>
+                  </div>
+                  <p className="text-base font-bold text-gray-900">
                     {selectedReseller.email}
                   </p>
                 </div>
-                <div className="bg-gradient-to-br from-emerald-50 to-teal-100 rounded-xl p-4 border border-emerald-200">
-                  <p className="text-xs text-emerald-600 font-semibold mb-2">
-                    Phone
-                  </p>
-                  <p className="text-lg font-bold text-emerald-900">
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Phone className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Phone
+                    </p>
+                  </div>
+                  <p className="text-base font-bold text-gray-900">
                     {selectedReseller.phone}
                   </p>
                 </div>
-                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
-                  <p className="text-xs text-purple-600 font-semibold mb-2">
-                    Partner Code
-                  </p>
-                  <p className="text-lg font-mono font-bold text-purple-900">
-                    {selectedReseller.partnerCode || "N/A"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Financial & Limits */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl p-4 border border-indigo-200">
-                  <p className="text-xs text-indigo-600 font-semibold mb-2">
-                    Subscriber Limit
-                  </p>
-                  <p className="text-2xl font-bold text-indigo-900">
-                    {selectedReseller.subscriberLimit || 0}
-                  </p>
-                </div>
-                <div className="bg-gradient-to-br from-cyan-50 to-cyan-100 rounded-xl p-4 border border-cyan-200">
-                  <p className="text-xs text-cyan-600 font-semibold mb-2">
-                    Current Balance
-                  </p>
-                  <p className="text-2xl font-bold text-cyan-900">
-                    ₹{selectedReseller.balance?.toLocaleString("en-IN") || 0}
-                  </p>
-                </div>
-              </div>
-
-              {/* Status, Created, Validity */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="bg-gradient-to-br from-pink-50 to-pink-100 rounded-xl p-4 border border-pink-200">
-                  <p className="text-xs text-pink-600 font-semibold mb-2">
-                    Status
-                  </p>
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Shield className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Status
+                    </p>
+                  </div>
                   <span
-                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold border ${getStatusColor(
+                    className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-bold ${getStatusColor(
                       selectedReseller.status
                     )}`}
                   >
                     {selectedReseller.status}
                   </span>
                 </div>
-                <div className="bg-gradient-to-br from-yellow-50 to-yellow-100 rounded-xl p-4 border border-yellow-200">
-                  <p className="text-xs text-yellow-600 font-semibold mb-2">
-                    Created Date
-                  </p>
-                  <p className="text-base font-bold text-yellow-900">
-                    {formatDate(selectedReseller.createdAt)}
+              </div>
+
+              {/* Financial Info */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-gradient-to-br from-emerald-50 to-teal-50 rounded-xl p-4 border border-emerald-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Wallet className="w-4 h-4 text-emerald-600" />
+                    <p className="text-xs font-semibold text-emerald-800 uppercase">
+                      Balance
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold text-emerald-900">
+                    ₹{selectedReseller.balance?.toLocaleString("en-IN") || 0}
                   </p>
                 </div>
-                <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
-                  <p className="text-xs text-orange-600 font-semibold mb-2">
-                    Validity Date
+                <div className="bg-gradient-to-br from-blue-50 to-cyan-50 rounded-xl p-4 border border-blue-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Users className="w-4 h-4 text-blue-600" />
+                    <p className="text-xs font-semibold text-blue-800 uppercase">
+                      Subscriber Limit
+                    </p>
+                  </div>
+                  <p className="text-2xl font-bold text-blue-900">
+                    {selectedReseller.subscriberLimit || 0}
                   </p>
-                  {formatValidityDate(selectedReseller.validityDate)}
                 </div>
+                <div className="bg-gradient-to-br from-purple-50 to-indigo-50 rounded-xl p-4 border border-purple-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <PackageIcon className="w-4 h-4 text-purple-600" />
+                    <p className="text-xs font-semibold text-purple-800 uppercase">
+                      Partner Code
+                    </p>
+                  </div>
+                  <p className="text-lg font-bold text-purple-900 font-mono">
+                    {selectedReseller.partnerCode || "N/A"}
+                  </p>
+                </div>
+              </div>
+
+              {/* Validity */}
+              <div className="bg-orange-50 rounded-xl p-4 border border-orange-200">
+                <div className="flex items-center space-x-2 mb-2">
+                  <Clock className="w-4 h-4 text-orange-600" />
+                  <p className="text-xs font-semibold text-orange-800 uppercase">
+                    Validity Period
+                  </p>
+                </div>
+                <p className="text-base font-bold text-orange-900">
+                  {selectedReseller.validityDate
+                    ? new Date(selectedReseller.validityDate).toLocaleString(
+                        "en-IN"
+                      )
+                    : "No Expiration"}
+                </p>
+              </div>
+
+              {/* Packages */}
+              <div>
+                <h3 className="text-sm font-bold text-gray-700 mb-3 uppercase">
+                  Assigned Packages
+                </h3>
+                {selectedReseller.packages &&
+                selectedReseller.packages.length > 0 ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {selectedReseller.packages.map((pkg) => (
+                      <div
+                        key={pkg._id}
+                        className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 border border-indigo-200"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-bold text-indigo-900">
+                              {pkg.name}
+                            </p>
+                            <p className="text-xs text-indigo-600 mt-1">
+                              ₹{pkg.cost} / {pkg.duration} days
+                            </p>
+                          </div>
+                          <PackageIcon className="w-5 h-5 text-indigo-600" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-gray-500 text-sm italic">
+                    No packages assigned
+                  </p>
+                )}
               </div>
 
               {/* Created By */}
               {selectedReseller.createdBy && (
-                <div className="bg-gradient-to-r from-gray-50 to-gray-100 rounded-xl p-4 border-2 border-gray-300">
-                  <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
-                    <User className="w-4 h-4" />
-                    <span>Created By (Distributor)</span>
-                  </h3>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <p className="text-xs text-gray-600 font-semibold mb-1">
-                        Name
-                      </p>
-                      <p className="text-base font-bold text-gray-900">
-                        {selectedReseller.createdBy.name}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-xs text-gray-600 font-semibold mb-1">
-                        Email
-                      </p>
-                      <p className="text-sm text-gray-700">
-                        {selectedReseller.createdBy.email}
-                      </p>
-                    </div>
-                  </div>
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <p className="text-xs font-semibold text-gray-600 uppercase mb-2">
+                    Created By
+                  </p>
+                  <p className="text-base font-bold text-gray-900">
+                    {selectedReseller.createdBy.name} (
+                    {selectedReseller.createdBy.email})
+                  </p>
                 </div>
               )}
 
-              {/* Packages */}
-              {selectedReseller.packages &&
-                selectedReseller.packages.length > 0 && (
-                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
-                    <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center space-x-2">
-                      <PackageIcon className="w-4 h-4" />
-                      <span>
-                        Assigned Packages ({selectedReseller.packages.length})
-                      </span>
-                    </h3>
-                    <div className="space-y-2">
-                      {selectedReseller.packages.map((pkg, idx) => (
-                        <div
-                          key={idx}
-                          className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200"
-                        >
-                          <span className="font-semibold text-gray-900">
-                            {pkg.name}
-                          </span>
-                          <span className="text-sm font-bold text-blue-600">
-                            ₹{pkg.cost} / {pkg.duration}d
-                          </span>
-                        </div>
-                      ))}
-                    </div>
+              {/* Dates */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Created At
+                    </p>
                   </div>
-                )}
-            </div>
-            <div className="px-6 py-4 bg-gray-50 border-t">
-              <button
-                onClick={() => setShowViewModal(false)}
-                className="w-full px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all font-semibold"
-              >
-                Close
-              </button>
+                  <p className="text-sm font-bold text-gray-900">
+                    {formatDate(selectedReseller.createdAt)}
+                  </p>
+                </div>
+                <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                  <div className="flex items-center space-x-2 mb-2">
+                    <Calendar className="w-4 h-4 text-gray-500" />
+                    <p className="text-xs font-semibold text-gray-600 uppercase">
+                      Last Updated
+                    </p>
+                  </div>
+                  <p className="text-sm font-bold text-gray-900">
+                    {formatDate(selectedReseller.updatedAt)}
+                  </p>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Add/Edit Modal */}
+      {/* CREATE/EDIT MODAL */}
       {showModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
             <div className="sticky top-0 bg-gradient-to-r from-green-600 to-emerald-600 flex items-center justify-between px-6 py-4">
               <h2 className="text-xl font-bold text-white">
-                {modalMode === "create" ? "Add New Reseller" : "Edit Reseller"}
+                {modalMode === "create"
+                  ? "Create New Reseller"
+                  : "Edit Reseller"}
               </h2>
               <button
                 onClick={handleCloseModal}
@@ -786,7 +827,7 @@ const Resellers = () => {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Name
+                    Name <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="text"
@@ -794,14 +835,14 @@ const Resellers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, name: e.target.value })
                     }
-                    placeholder="Enter name"
+                    placeholder="Enter reseller name"
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
                     required
                   />
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Email
+                    Email <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="email"
@@ -809,15 +850,25 @@ const Resellers = () => {
                     onChange={(e) =>
                       setFormData({ ...formData, email: e.target.value })
                     }
-                    placeholder="Enter email"
+                    placeholder="Enter email address"
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
                     required
                   />
                 </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
                     Password{" "}
-                    {modalMode === "create" ? "(Required)" : "(Optional)"}
+                    {modalMode === "create" && (
+                      <span className="text-red-600">*</span>
+                    )}
+                    {modalMode === "edit" && (
+                      <span className="text-xs text-gray-500">
+                        (Leave empty to keep current)
+                      </span>
+                    )}
                   </label>
                   <div className="relative">
                     <input
@@ -827,18 +878,17 @@ const Resellers = () => {
                         setFormData({ ...formData, password: e.target.value })
                       }
                       placeholder={
-                        modalMode === "create"
-                          ? "Enter password"
-                          : "Leave blank to keep current"
+                        modalMode === "edit"
+                          ? "Enter new password"
+                          : "Enter password"
                       }
-                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500 pr-12"
+                      className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
                       required={modalMode === "create"}
-                      minLength={6}
                     />
                     <button
                       type="button"
                       onClick={() => setShowPassword(!showPassword)}
-                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
                     >
                       {showPassword ? (
                         <EyeOff className="w-5 h-5" />
@@ -850,18 +900,15 @@ const Resellers = () => {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Phone
+                    Phone <span className="text-red-600">*</span>
                   </label>
                   <input
                     type="tel"
                     value={formData.phone}
-                    onChange={(e) => {
-                      const value = e.target.value.replace(/[^0-9]/g, "");
-                      if (value.length <= 10)
-                        setFormData({ ...formData, phone: value });
-                    }}
-                    maxLength={10}
-                    placeholder="Enter 10-digit phone"
+                    onChange={(e) =>
+                      setFormData({ ...formData, phone: e.target.value })
+                    }
+                    placeholder="Enter phone number"
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
                     required
                   />
@@ -879,15 +926,14 @@ const Resellers = () => {
                       setFormData({ ...formData, status: e.target.value })
                     }
                     className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
-                    required
                   >
                     <option value="Active">Active</option>
                     <option value="Inactive">Inactive</option>
                   </select>
                 </div>
-                {/* <div>
+                <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Balance Amount
+                    Balance
                   </label>
                   <input
                     type="number"
@@ -899,7 +945,6 @@ const Resellers = () => {
                         ? "border-red-300 focus:ring-red-500"
                         : "border-gray-200 focus:ring-green-500"
                     }`}
-                    required
                     min={1000}
                     step={100}
                   />
@@ -911,7 +956,7 @@ const Resellers = () => {
                       </span>
                     </div>
                   )}
-                </div> */}
+                </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

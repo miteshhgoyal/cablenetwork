@@ -207,57 +207,51 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validate balance
-        if (!balance) {
-            return res.status(400).json({
-                success: false,
-                message: 'Balance amount is required'
-            });
-        }
-        const initialBalance = parseFloat(balance);
-        if (isNaN(initialBalance) || initialBalance < 1000) {
-            return res.status(400).json({
-                success: false,
-                message: 'Minimum balance must be ₹1,000 or more'
-            });
+        // Validate packages if provided
+        if (packages && packages.length > 0) {
+            const validPackages = await Package.find({ _id: { $in: packages } });
+            if (validPackages.length !== packages.length) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'One or more invalid packages'
+                });
+            }
         }
 
         // Create reseller
         const reseller = new User({
-            name: name.trim(),
-            email: email.toLowerCase().trim(),
+            name,
+            email: email.toLowerCase(),
             password,
-            phone: phone.trim(),
+            phone,
             role: 'reseller',
             subscriberLimit: subscriberLimit || 0,
-            partnerCode: partnerCode?.trim() || '',
+            partnerCode: partnerCode || '',
             packages: packages || [],
             status: status || 'Active',
-            createdBy: userId,
-            balance: initialBalance,
-            validityDate: validityDate || null  // ✅ Validity support
+            balance: balance || 0,
+            validityDate: validityDate || null,
+            createdBy: userId
         });
 
         await reseller.save();
 
-        // Populate response
+        // Populate fields before sending response
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
+
+        // Remove password from response
+        const resellerObj = reseller.toObject();
+        delete resellerObj.password;
 
         res.status(201).json({
             success: true,
             message: 'Reseller created successfully',
-            data: { reseller: reseller.toJSON() }
+            data: { reseller: resellerObj }
         });
 
     } catch (error) {
         console.error('Create reseller error:', error);
-        if (error.code === 11000) {
-            return res.status(400).json({
-                success: false,
-                message: 'Email already exists'
-            });
-        }
         res.status(500).json({
             success: false,
             message: 'Failed to create reseller'
@@ -265,12 +259,13 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Update reseller (FULL CASCADE)
+// Update reseller
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
+        // Find reseller
         const reseller = await User.findOne({
             _id: req.params.id,
             role: 'reseller'
@@ -283,19 +278,12 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Permission check
+        // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
             return res.status(403).json({
                 success: false,
                 message: 'You do not have permission to update this reseller'
-            });
-        }
-
-        if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
-            return res.status(403).json({
-                success: false,
-                message: 'Your account is inactive. Cannot update resellers.'
             });
         }
 
@@ -313,15 +301,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         } = req.body;
 
         // Validation
-        if (!name || !email || !phone) {
-            return res.status(400).json({
-                success: false,
-                message: 'Name, email, and phone are required'
-            });
-        }
-
-        // Email uniqueness
-        if (email.toLowerCase() !== reseller.email) {
+        if (email && email !== reseller.email) {
             const existingUser = await User.findOne({
                 email: email.toLowerCase(),
                 _id: { $ne: req.params.id }
@@ -332,81 +312,63 @@ router.put('/:id', authenticateToken, async (req, res) => {
                     message: 'Email already exists'
                 });
             }
+            reseller.email = email.toLowerCase();
         }
 
-        // Balance validation
-        if (balance !== undefined && balance !== null && balance !== '') {
-            const numBalance = parseFloat(balance);
-            if (isNaN(numBalance) || numBalance < 1000) {
+        // ✅ Validate validityDate if provided
+        if (validityDate !== undefined) {
+            if (validityDate === null || validityDate === '') {
+                reseller.validityDate = null;
+            } else {
+                const validity = new Date(validityDate);
+                if (isNaN(validity.getTime()) || validity <= new Date()) {
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Validity date must be a future date'
+                    });
+                }
+                reseller.validityDate = validity;
+            }
+        }
+
+        // Validate packages if provided
+        if (packages) {
+            const validPackages = await Package.find({ _id: { $in: packages } });
+            if (validPackages.length !== packages.length) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Balance amount cannot be less than ₹1,000'
+                    message: 'One or more invalid packages'
                 });
             }
-            reseller.balance = numBalance;
+            reseller.packages = packages;
         }
 
-        // ✅ ValidityDate validation
-        if (validityDate !== undefined && validityDate !== null && validityDate !== '') {
-            const validity = new Date(validityDate);
-            if (isNaN(validity.getTime()) || validity <= new Date()) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Validity date must be a future date'
-                });
-            }
-            reseller.validityDate = validity;
-        }
+        // Update fields
+        if (name) reseller.name = name;
+        if (password) reseller.password = password;
+        if (phone) reseller.phone = phone;
+        if (subscriberLimit !== undefined) reseller.subscriberLimit = subscriberLimit;
+        if (partnerCode !== undefined) reseller.partnerCode = partnerCode;
+        if (status) reseller.status = status;
+        if (balance !== undefined) reseller.balance = balance;
 
-        // Update basic fields
-        reseller.name = name.trim();
-        reseller.email = email.toLowerCase().trim();
-        reseller.phone = phone.trim();
-        reseller.subscriberLimit = subscriberLimit || 0;
-        reseller.partnerCode = partnerCode?.trim() || '';
-        reseller.packages = packages || [];
-
-        // ✅ PERFECT STATUS CASCADE TO CUSTOMERS
-        if (status && ['Active', 'Inactive'].includes(status)) {
-            const oldStatus = reseller.status;
-            reseller.status = status;
-
-            // 🎯 MANUAL CASCADE: Inactivate ALL CUSTOMERS when setting Inactive
-            if (status === 'Inactive' && oldStatus === 'Active') {
-                console.log(`🎯 MANUAL CASCADE: Inactivating customers for reseller ${reseller.name}`);
-                const customersUpdated = await Subscriber.updateMany(
-                    { resellerId: reseller._id },
-                    {
-                        status: 'Inactive'  // ✅ Customer app login sees this!
-                    }
-                );
-                console.log(`📉 Inactivated ${customersUpdated.modifiedCount} customers for reseller ${reseller.name}`);
-            }
-        }
-
-        // Password update
-        if (password && password.length >= 6) {
-            reseller.password = password;
-        } else if (password && password.length > 0 && password.length < 6) {
-            return res.status(400).json({
-                success: false,
-                message: 'Password must be at least 6 characters'
-            });
-        }
-
+        // Save reseller
         await reseller.save();
 
-        // Auto-validity check (handles validityDate expiry)
+        // Check validity after update (this will cascade to customers if needed)
         await reseller.checkValidityStatus();
 
-        // Populate response
+        // Populate and return
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
+
+        const resellerObj = reseller.toObject();
+        delete resellerObj.password;
 
         res.json({
             success: true,
             message: 'Reseller updated successfully',
-            data: { reseller: reseller.toJSON() }
+            data: { reseller: resellerObj }
         });
 
     } catch (error) {
@@ -436,7 +398,7 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Permission check
+        // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
             return res.status(403).json({
@@ -445,21 +407,19 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
-            return res.status(403).json({
+        // Check if reseller has active subscribers
+        const subscriberCount = await Subscriber.countDocuments({
+            createdBy: req.params.id
+        });
+
+        if (subscriberCount > 0) {
+            return res.status(400).json({
                 success: false,
-                message: 'Your account is inactive. Cannot delete resellers.'
+                message: `Cannot delete reseller with ${subscriberCount} active subscribers`
             });
         }
 
-        // ✅ CASCADE: Inactivate customers before deletion
-        console.log(`🎯 CASCADE: Inactivating customers before deleting reseller ${reseller.name}`);
-        await Subscriber.updateMany(
-            { resellerId: reseller._id },
-            { status: 'Inactive' }
-        );
-
-        await reseller.deleteOne();
+        await User.deleteOne({ _id: req.params.id });
 
         res.json({
             success: true,

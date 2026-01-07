@@ -41,7 +41,7 @@ router.get('/', authenticateToken, async (req, res) => {
             .select('-password')
             .sort({ createdAt: -1 });
 
-        // ✅ Check validity for all distributors + cascade to customers
+        // ✅ Check validity for all distributors (no cascade)
         for (let distributor of distributors) {
             await distributor.checkValidityStatus();
         }
@@ -107,7 +107,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // ✅ Check validity status + cascade to customers
+        // ✅ Check validity status (no cascade)
         await distributor.checkValidityStatus();
 
         // Get resellers count for this distributor
@@ -203,7 +203,7 @@ router.post('/', authenticateToken, async (req, res) => {
             status: status || 'Active',
             balance: initialBalance,
             packages: packages || [],
-            validityDate: validityDate || null  // ✅ Validity support
+            validityDate: validityDate || null
         });
 
         await distributor.save();
@@ -234,7 +234,7 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-// Update distributor (FULL CASCADE)
+// ✅ UPDATED: Update distributor (NO CASCADE)
 router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
     try {
         const { name, email, password, phone, status, balance, packages, validityDate } = req.body;
@@ -304,35 +304,10 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
         distributor.phone = phone.trim();
         distributor.packages = packages || [];
 
-        // ✅ PERFECT STATUS CASCADE - Distributor → Resellers → ALL CUSTOMERS
+        // ✅ NO CASCADE - Just update distributor status
+        // Access control happens at login level via hierarchy checks
         if (status && ['Active', 'Inactive'].includes(status)) {
-            const oldStatus = distributor.status;
             distributor.status = status;
-
-            // 🎯 MANUAL CASCADE: Inactivate ALL RESSELLERS + CUSTOMERS
-            if (status === 'Inactive' && oldStatus === 'Active') {
-                console.log(`🎯 MANUAL CASCADE: Inactivating resellers + customers for distributor ${distributor.name}`);
-
-                // 1️⃣ Inactivate ALL resellers
-                const resellersUpdated = await User.updateMany(
-                    { createdBy: distributor._id, role: 'reseller' },
-                    { status: 'Inactive' }
-                );
-                console.log(`📉 Inactivated ${resellersUpdated.modifiedCount} resellers`);
-
-                // 2️⃣ Get all affected reseller IDs
-                const resellerDocs = await User.find({ createdBy: distributor._id, role: 'reseller' });
-                const resellerIds = resellerDocs.map(r => r._id);
-
-                // 3️⃣ Inactivate ALL CUSTOMERS under those resellers
-                if (resellerIds.length > 0) {
-                    const customersUpdated = await Subscriber.updateMany(
-                        { resellerId: { $in: resellerIds } },
-                        { status: 'Inactive' }  // ✅ Customer app login sees this!
-                    );
-                    console.log(`📉 Inactivated ${customersUpdated.modifiedCount} customers`);
-                }
-            }
         }
 
         // Update password if provided
@@ -347,7 +322,7 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
 
         await distributor.save();
 
-        // Auto-validity check (handles validityDate expiry)
+        // Auto-validity check (handles validityDate expiry - no cascade)
         await distributor.checkValidityStatus();
 
         // Populate before sending
@@ -403,18 +378,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
                 success: false,
                 message: `Cannot delete distributor with ${resellersCount} active reseller(s)`
             });
-        }
-
-        // ✅ CASCADE: Inactivate ALL CUSTOMERS before deletion (safety)
-        console.log(`🎯 CASCADE: Inactivating customers before deleting distributor ${distributor.name}`);
-        const allResellers = await User.find({ createdBy: distributor._id, role: 'reseller' });
-        const allResellerIds = allResellers.map(r => r._id);
-
-        if (allResellerIds.length > 0) {
-            await Subscriber.updateMany(
-                { resellerId: { $in: allResellerIds } },
-                { status: 'Inactive' }
-            );
         }
 
         await distributor.deleteOne();
