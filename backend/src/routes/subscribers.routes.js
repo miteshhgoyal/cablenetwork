@@ -309,59 +309,6 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 /**
- * 🔧 FIXED: GET SINGLE SUBSCRIBER
- * With partnerCode-based authorization
- */
-router.get('/:id', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration')
-            .populate('primaryPackageId', 'name cost duration');
-
-        if (!subscriber) {
-            return res.status(404).json({
-                success: false,
-                message: 'Subscriber not found'
-            });
-        }
-
-        // 🔧 FIXED: Check permission based on subscriber's partnerCode
-        const hasPermission = await checkSubscriberPermission(userId, subscriber);
-        if (!hasPermission) {
-            return res.status(403).json({
-                success: false,
-                message: 'Unauthorized: This subscriber used a different partner code'
-            });
-        }
-
-        // 🔧 FIXED: Populate reseller info using partnerCode
-        const subObj = subscriber.toObject();
-        if (subscriber.partnerCode) {
-            const reseller = await User.findOne(
-                { partnerCode: subscriber.partnerCode, role: 'reseller' },
-                'name email balance partnerCode'
-            );
-            subObj.resellerInfo = reseller || null;
-        } else {
-            subObj.resellerInfo = null;
-        }
-
-        res.json({
-            success: true,
-            data: { subscriber: subObj }
-        });
-
-    } catch (error) {
-        console.error('Get subscriber error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch subscriber'
-        });
-    }
-});
-
-/**
  * 🔧 FIXED: CREATE SUBSCRIBER
  * Now properly stores partnerCode and uses it for reseller lookup
  */
@@ -532,6 +479,207 @@ router.post('/', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to create subscriber'
+        });
+    }
+});
+
+/**
+ * 🔧 FIXED: BULK UPLOAD SUBSCRIBERS
+ * No partnerCode assignment for bulk upload
+ */
+router.post('/bulk-upload', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const currentUser = await User.findById(userId);
+
+        if (currentUser.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can perform bulk uploads'
+            });
+        }
+
+        const { subscribers } = req.body;
+
+        if (!subscribers || !Array.isArray(subscribers) || subscribers.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid subscribers data'
+            });
+        }
+
+        const results = {
+            successful: [],
+            failed: []
+        };
+
+        for (const sub of subscribers) {
+            try {
+                const { subscriberName, macAddress, serialNumber } = sub;
+
+                if (!subscriberName || !macAddress || !serialNumber) {
+                    results.failed.push({
+                        data: sub,
+                        reason: 'Missing required fields'
+                    });
+                    continue;
+                }
+
+                const existingSubscriber = await Subscriber.findOne({
+                    macAddress: macAddress.trim().toLowerCase()
+                });
+
+                if (existingSubscriber) {
+                    results.failed.push({
+                        data: sub,
+                        reason: 'MAC address already exists'
+                    });
+                    continue;
+                }
+
+                // 🔧 FIXED: Bulk upload creates Fresh subscribers with no partnerCode
+                const newSubscriber = new Subscriber({
+                    subscriberName: subscriberName.trim(),
+                    macAddress: macAddress.trim().toLowerCase(),
+                    serialNumber: serialNumber.trim(),
+                    status: 'Fresh',
+                    resellerId: null,
+                    partnerCode: null,  // 🔧 NO PARTNER CODE FOR BULK UPLOAD
+                    packages: [],
+                    expiryDate: null
+                });
+
+                await newSubscriber.save();
+                results.successful.push(newSubscriber);
+
+            } catch (error) {
+                results.failed.push({
+                    data: sub,
+                    reason: error.message
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Bulk upload completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+            data: results
+        });
+
+    } catch (error) {
+        console.error('Bulk upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to perform bulk upload'
+        });
+    }
+});
+
+// GET RESELLERS LIST (for dropdowns)
+router.get('/resellers', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const user = await User.findById(userId);
+
+        let resellers = [];
+
+        if (user.role === 'admin') {
+            resellers = await User.find({ role: 'reseller' })
+                .select('name email partnerCode')
+                .sort({ name: 1 });
+        } else if (user.role === 'distributor') {
+            resellers = await User.find({
+                role: 'reseller',
+                createdBy: userId
+            })
+                .select('name email partnerCode')
+                .sort({ name: 1 });
+        }
+
+        res.json({
+            success: true,
+            data: { resellers }
+        });
+
+    } catch (error) {
+        console.error('Get resellers error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch resellers'
+        });
+    }
+});
+
+// GET PACKAGES LIST (for dropdowns)
+router.get('/packages', authenticateToken, async (req, res) => {
+    try {
+        const packages = await Package.find()
+            .select('name cost duration')
+            .sort({ name: 1 });
+
+        res.json({
+            success: true,
+            data: { packages }
+        });
+
+    } catch (error) {
+        console.error('Get packages error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch packages'
+        });
+    }
+});
+
+/**
+ * 🔧 FIXED: GET SINGLE SUBSCRIBER
+ * With partnerCode-based authorization
+ */
+router.get('/:id', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const subscriber = await Subscriber.findById(req.params.id)
+            .populate('packages', 'name cost duration')
+            .populate('primaryPackageId', 'name cost duration');
+
+        if (!subscriber) {
+            return res.status(404).json({
+                success: false,
+                message: 'Subscriber not found'
+            });
+        }
+
+        // 🔧 FIXED: Check permission based on subscriber's partnerCode
+        const hasPermission = await checkSubscriberPermission(userId, subscriber);
+        if (!hasPermission) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized: This subscriber used a different partner code'
+            });
+        }
+
+        // 🔧 FIXED: Populate reseller info using partnerCode
+        const subObj = subscriber.toObject();
+        if (subscriber.partnerCode) {
+            const reseller = await User.findOne(
+                { partnerCode: subscriber.partnerCode, role: 'reseller' },
+                'name email balance partnerCode'
+            );
+            subObj.resellerInfo = reseller || null;
+        } else {
+            subObj.resellerInfo = null;
+        }
+
+        res.json({
+            success: true,
+            data: { subscriber: subObj }
+        });
+
+    } catch (error) {
+        console.error('Get subscriber error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch subscriber'
         });
     }
 });
@@ -885,154 +1033,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete subscriber'
-        });
-    }
-});
-
-/**
- * 🔧 FIXED: BULK UPLOAD SUBSCRIBERS
- * No partnerCode assignment for bulk upload
- */
-router.post('/bulk-upload', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const currentUser = await User.findById(userId);
-
-        if (currentUser.role !== 'admin') {
-            return res.status(403).json({
-                success: false,
-                message: 'Only admins can perform bulk uploads'
-            });
-        }
-
-        const { subscribers } = req.body;
-
-        if (!subscribers || !Array.isArray(subscribers) || subscribers.length === 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid subscribers data'
-            });
-        }
-
-        const results = {
-            successful: [],
-            failed: []
-        };
-
-        for (const sub of subscribers) {
-            try {
-                const { subscriberName, macAddress, serialNumber } = sub;
-
-                if (!subscriberName || !macAddress || !serialNumber) {
-                    results.failed.push({
-                        data: sub,
-                        reason: 'Missing required fields'
-                    });
-                    continue;
-                }
-
-                const existingSubscriber = await Subscriber.findOne({
-                    macAddress: macAddress.trim().toLowerCase()
-                });
-
-                if (existingSubscriber) {
-                    results.failed.push({
-                        data: sub,
-                        reason: 'MAC address already exists'
-                    });
-                    continue;
-                }
-
-                // 🔧 FIXED: Bulk upload creates Fresh subscribers with no partnerCode
-                const newSubscriber = new Subscriber({
-                    subscriberName: subscriberName.trim(),
-                    macAddress: macAddress.trim().toLowerCase(),
-                    serialNumber: serialNumber.trim(),
-                    status: 'Fresh',
-                    resellerId: null,
-                    partnerCode: null,  // 🔧 NO PARTNER CODE FOR BULK UPLOAD
-                    packages: [],
-                    expiryDate: null
-                });
-
-                await newSubscriber.save();
-                results.successful.push(newSubscriber);
-
-            } catch (error) {
-                results.failed.push({
-                    data: sub,
-                    reason: error.message
-                });
-            }
-        }
-
-        res.json({
-            success: true,
-            message: `Bulk upload completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
-            data: results
-        });
-
-    } catch (error) {
-        console.error('Bulk upload error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to perform bulk upload'
-        });
-    }
-});
-
-// GET RESELLERS LIST (for dropdowns)
-router.get('/resellers', authenticateToken, async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const user = await User.findById(userId);
-
-        let resellers = [];
-
-        if (user.role === 'admin') {
-            resellers = await User.find({ role: 'reseller' })
-                .select('name email partnerCode')
-                .sort({ name: 1 });
-        } else if (user.role === 'distributor') {
-            resellers = await User.find({
-                role: 'reseller',
-                createdBy: userId
-            })
-                .select('name email partnerCode')
-                .sort({ name: 1 });
-        }
-
-        res.json({
-            success: true,
-            data: { resellers }
-        });
-
-    } catch (error) {
-        console.error('Get resellers error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch resellers'
-        });
-    }
-});
-
-// GET PACKAGES LIST (for dropdowns)
-router.get('/packages', authenticateToken, async (req, res) => {
-    try {
-        const packages = await Package.find()
-            .select('name cost duration')
-            .sort({ name: 1 });
-
-        res.json({
-            success: true,
-            data: { packages }
-        });
-
-    } catch (error) {
-        console.error('Get packages error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Failed to fetch packages'
         });
     }
 });
