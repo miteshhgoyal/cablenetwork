@@ -71,6 +71,7 @@ export default function ChannelsScreen() {
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedCategory, setSelectedCategory] = useState('all');
+    const [youtubeVideoId, setYoutubeVideoId] = useState(null);
     const videoRef = useRef(null);
 
     useEffect(() => {
@@ -307,14 +308,10 @@ export default function ChannelsScreen() {
         return {
             uri: baseUrl,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 'Referer': channel.url.split('/').slice(0, 3).join('/'),
                 'Origin': channel.url.split('/').slice(0, 3).join('/'),
                 'Accept': '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Cache-Control': 'no-cache',
-                'Pragma': 'no-cache',
-                'Accept-Encoding': 'identity',
                 'Connection': 'keep-alive',
             },
         };
@@ -325,6 +322,25 @@ export default function ChannelsScreen() {
         setVideoError(false);
         setErrorMessage('');
 
+        const streamType = analyzeStreamUrl(channel.url);
+
+        // Handle YouTube separately
+        if (streamType.type.startsWith('youtube')) {
+            const videoId = extractVideoId(channel.url);
+            if (videoId) {
+                setYoutubeVideoId(videoId);
+                setVideoLoading(false);
+                return;
+            } else {
+                setVideoError(true);
+                setErrorMessage('Invalid YouTube URL');
+                setVideoLoading(false);
+                return;
+            }
+        }
+
+        // For non-YouTube streams
+        setYoutubeVideoId(null);
         const newUrl = getCurrentStreamUrl(channel, useProxy);
         const newUrlString = JSON.stringify(newUrl);
 
@@ -335,12 +351,14 @@ export default function ChannelsScreen() {
         if (videoRef.current) {
             try {
                 await videoRef.current.unloadAsync();
-                await videoRef.current.loadAsync(newUrl, { shouldPlay: true });
+                await videoRef.current.loadAsync(newUrl, {
+                    shouldPlay: true,
+                    progressUpdateIntervalMillis: 500,
+                });
             } catch (error) {
                 setVideoError(true);
                 setVideoLoading(false);
                 if (useProxy && channel.proxyUrl) {
-                    // Fallback to direct connection
                     loadStream(channel, false);
                 } else {
                     setErrorMessage('No stream available');
@@ -351,12 +369,11 @@ export default function ChannelsScreen() {
 
     useEffect(() => {
         if (selectedChannel && showPlayer) {
-            // Always start with proxy
             loadStream(selectedChannel, true);
         }
     }, [selectedChannel, showPlayer]);
 
-    // YouTube Player Components
+    // YouTube Player Component
     const YouTubeVideoPlayer = ({ videoId }) => {
         const player = useYouTubePlayer(videoId, {
             autoplay: true,
@@ -375,21 +392,40 @@ export default function ChannelsScreen() {
         useYouTubeEvent(player, 'error', error => {
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Error: ${error.message}. Unable to play video`);
+            setErrorMessage(`YouTube Error: Unable to play video`);
         });
 
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
+                <View
+                    style={{
+                        position: 'absolute',
+                        bottom: 8,
+                        right: 8,
+                        zIndex: 5,
+                        pointerEvents: 'none',
+                    }}
+                >
+                    <Text
+                        style={{
+                            color: 'rgba(255, 255, 255, 0.12)',
+                            fontSize: 12,
+                            fontWeight: 'bold',
+                        }}
+                    >
+                        Online IPTV Hub
+                    </Text>
+                </View>
             </View>
         );
     };
 
     const renderStreamTypeBadge = type => {
         const badges = {
-            'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
+            'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
+            'youtube-live': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube Live' },
+            'youtube-playlist': { icon: 'list', color: 'bg-red-600', text: 'YouTube' },
             'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS Stream' },
             'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
             'iptv': { icon: 'tv', color: 'bg-indigo-600', text: 'IPTV' },
@@ -422,9 +458,36 @@ export default function ChannelsScreen() {
             );
         }
 
+        // Render YouTube player for YouTube links
+        if (type.type.startsWith('youtube') && youtubeVideoId) {
+            return (
+                <View className="w-full bg-black relative" style={{ height: 260 }}>
+                    {renderStreamTypeBadge(type.type)}
+                    {videoLoading && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-20">
+                            <ActivityIndicator size="large" color="#f97316" />
+                            <Text className="text-white mt-3 text-sm">
+                                Loading YouTube...
+                            </Text>
+                        </View>
+                    )}
+                    {videoError && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                            <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                            <Text className="text-white text-center mt-4 text-lg font-semibold">YouTube Error</Text>
+                            <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
+                                {errorMessage || 'Unable to load YouTube video'}
+                            </Text>
+                        </View>
+                    )}
+                    <YouTubeVideoPlayer videoId={youtubeVideoId} />
+                </View>
+            );
+        }
+
+        // Render regular video player for other streams
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
-                {/* Watermark on video player - Bottom Right */}
                 <View
                     style={{
                         position: 'absolute',
@@ -452,7 +515,6 @@ export default function ChannelsScreen() {
                         <Text className="text-white mt-3 text-sm">
                             Loading {type.type.toUpperCase()} stream...
                         </Text>
-                        <Text className="text-gray-400 mt-1 text-xs">Using Proxy Connection</Text>
                     </View>
                 )}
 
@@ -501,8 +563,9 @@ export default function ChannelsScreen() {
                             msg = 'Stream format not supported or unavailable.';
                         }
                         setErrorMessage(msg);
-                        // Fallback to direct
-                        loadStream(selectedChannel, false);
+                        if (selectedChannel.proxyUrl) {
+                            loadStream(selectedChannel, false);
+                        }
                     }}
                     onLoadStart={() => {
                         setVideoLoading(true);
@@ -533,8 +596,8 @@ export default function ChannelsScreen() {
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
-        const type = analyzeStreamUrl(channel.url);
-        loadStream(channel, !type.type.startsWith('youtube'));
+        setYoutubeVideoId(null);
+        loadStream(channel, true);
     };
 
     const handleLogout = () => {
@@ -651,10 +714,8 @@ export default function ChannelsScreen() {
         <SafeAreaView className="flex-1 bg-black">
             <StatusBar barStyle="light-content" />
 
-            {/* Watermark Overlay - Bottom Right */}
             <WatermarkOverlay />
 
-            {/* Header + Search */}
             <View className="px-4 py-3 bg-gray-900 border-b border-gray-800">
                 <View className="flex-row items-center justify-between mb-3">
                     <View className="flex-row items-center">
@@ -696,7 +757,6 @@ export default function ChannelsScreen() {
                 </View>
             </View>
 
-            {/* Grouped Channels List */}
             <FlatList
                 data={filteredSections}
                 renderItem={renderCategorySection}
@@ -711,10 +771,10 @@ export default function ChannelsScreen() {
                 }
             />
 
-            {/* Player Modal - Using Movies Pattern for Suggestions */}
             <Modal visible={showPlayer} animationType="slide" onRequestClose={() => {
                 setShowPlayer(false);
                 setSelectedChannel(null);
+                setYoutubeVideoId(null);
             }}>
                 <SafeAreaView className="flex-1 bg-black">
                     <StatusBar barStyle="light-content" />
@@ -723,6 +783,7 @@ export default function ChannelsScreen() {
                             onPress={() => {
                                 setShowPlayer(false);
                                 setSelectedChannel(null);
+                                setYoutubeVideoId(null);
                             }}
                         >
                             <Ionicons name="arrow-back" size={24} color="white" />
@@ -781,7 +842,6 @@ export default function ChannelsScreen() {
                                 </View>
                             )}
 
-                            {/* More Like This - Movies Pattern */}
                             {getRecommendedChannels().length > 0 && (
                                 <View className="mt-6">
                                     <View className="flex-row items-center justify-between mb-3">
@@ -808,8 +868,8 @@ export default function ChannelsScreen() {
                                                 setSelectedChannel(channel);
                                                 setVideoError(false);
                                                 setVideoLoading(true);
-                                                const type = analyzeStreamUrl(channel.url);
-                                                loadStream(channel, !type.type.startsWith('youtube'));
+                                                setYoutubeVideoId(null);
+                                                loadStream(channel, true);
                                             }}
                                             activeOpacity={0.7}
                                         >
@@ -865,7 +925,6 @@ export default function ChannelsScreen() {
                 </SafeAreaView>
             </Modal>
 
-            {/* User Info Modal */}
             <Modal visible={showUserInfo} animationType="slide" transparent={false} onRequestClose={() => setShowUserInfo(false)}>
                 <View className="flex-1 bg-black/70 justify-end">
                     <View className="bg-gray-900 rounded-t-3xl">

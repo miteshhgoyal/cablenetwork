@@ -45,10 +45,10 @@ export default function SeriesScreen() {
 
     const [useProxy, setUseProxy] = useState(true);
     const [currentStreamUrl, setCurrentStreamUrl] = useState(null);
+    const [youtubeVideoId, setYoutubeVideoId] = useState(null);
 
     const videoRef = useRef(null);
 
-    // AppState listener for refresh on app focus
     useEffect(() => {
         const subscription = AppState.addEventListener('change', (nextAppState) => {
             if (nextAppState === 'active' && isAuthenticated) {
@@ -177,13 +177,6 @@ export default function SeriesScreen() {
         return null;
     };
 
-    const extractPlaylistId = (url) => {
-        if (!url) return null;
-        const playlistRegex = /[?&]list=([a-zA-Z0-9_-]+)/;
-        const match = url.match(playlistRegex);
-        return match ? match[1] : null;
-    };
-
     const getCurrentStreamUrl = (seriesItem, proxyEnabled) => {
         if (!seriesItem) return null;
         const type = analyzeStreamUrl(seriesItem.mediaUrl);
@@ -197,14 +190,10 @@ export default function SeriesScreen() {
         return {
             uri: baseUrl,
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
                 Referer: seriesItem.mediaUrl.split('/').slice(0, 3).join('/'),
                 Origin: seriesItem.mediaUrl.split('/').slice(0, 3).join('/'),
                 Accept: '*/*',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Cache-Control': 'no-cache',
-                Pragma: 'no-cache',
-                'Accept-Encoding': 'identity',
                 Connection: 'keep-alive',
             },
         };
@@ -215,6 +204,25 @@ export default function SeriesScreen() {
         setVideoError(false);
         setErrorMessage('');
 
+        const streamType = analyzeStreamUrl(seriesItem.mediaUrl);
+
+        // Handle YouTube separately
+        if (streamType.type.startsWith('youtube')) {
+            const videoId = extractVideoId(seriesItem.mediaUrl);
+            if (videoId) {
+                setYoutubeVideoId(videoId);
+                setVideoLoading(false);
+                return;
+            } else {
+                setVideoError(true);
+                setErrorMessage('Invalid YouTube URL');
+                setVideoLoading(false);
+                return;
+            }
+        }
+
+        // For non-YouTube streams
+        setYoutubeVideoId(null);
         const newUrl = getCurrentStreamUrl(seriesItem, proxyEnabled);
         const newUrlString = JSON.stringify(newUrl);
 
@@ -224,14 +232,16 @@ export default function SeriesScreen() {
             if (videoRef.current) {
                 try {
                     await videoRef.current.unloadAsync();
-                    await videoRef.current.loadAsync(newUrl, { shouldPlay: true });
+                    await videoRef.current.loadAsync(newUrl, { 
+                        shouldPlay: true,
+                        progressUpdateIntervalMillis: 500,
+                    });
                     setVideoLoading(false);
                     setVideoError(false);
                 } catch (error) {
                     setVideoError(true);
                     setVideoLoading(false);
                     if (proxyEnabled && seriesItem.proxyUrl) {
-                        // Try direct connection as fallback
                         setUseProxy(false);
                         loadStream(seriesItem, false);
                     } else {
@@ -244,18 +254,15 @@ export default function SeriesScreen() {
 
     useEffect(() => {
         if (selectedSeries && showPlayer) {
-            const type = analyzeStreamUrl(selectedSeries.mediaUrl);
-            if (!type.type.startsWith('youtube')) {
-                loadStream(selectedSeries, useProxy);
-            }
+            loadStream(selectedSeries, useProxy);
         }
     }, [selectedSeries, showPlayer, useProxy]);
 
     const renderStreamTypeBadge = (type) => {
         const badges = {
-            'youtube-video': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-live': { icon: 'play-circle', color: 'bg-gray-600', text: 'Stream' },
-            'youtube-playlist': { icon: 'list', color: 'bg-purple-600', text: 'Playlist' },
+            'youtube-video': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube' },
+            'youtube-live': { icon: 'logo-youtube', color: 'bg-red-600', text: 'YouTube Live' },
+            'youtube-playlist': { icon: 'list', color: 'bg-red-600', text: 'YouTube' },
             'hls': { icon: 'videocam', color: 'bg-blue-600', text: 'HLS Stream' },
             'mp4': { icon: 'film', color: 'bg-green-600', text: 'MP4' },
             'mkv': { icon: 'film', color: 'bg-purple-600', text: 'MKV' },
@@ -290,7 +297,7 @@ export default function SeriesScreen() {
         useYouTubeEvent(player, 'error', (error) => {
             setVideoError(true);
             setVideoLoading(false);
-            setErrorMessage(`YouTube Error: ${error.message || 'Unable to play video'}`);
+            setErrorMessage('YouTube Error: Unable to play video');
         });
 
         return (
@@ -299,87 +306,6 @@ export default function SeriesScreen() {
             </View>
         );
     };
-
-    const YouTubeLivePlayer = ({ videoId }) => {
-        const player = useYouTubePlayer(videoId, {
-            autoplay: true,
-            muted: false,
-            controls: true,
-            playsinline: true,
-            rel: false,
-            modestbranding: true
-        });
-
-        useYouTubeEvent(player, 'ready', () => {
-            setVideoLoading(false);
-            setVideoError(false);
-        });
-
-        useYouTubeEvent(player, 'error', (error) => {
-            setVideoError(true);
-            setVideoLoading(false);
-            setErrorMessage(`YouTube Live Error: ${error.message || 'Unable to play live stream'}`);
-        });
-
-        return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <View className="absolute top-3 left-3 z-10 bg-red-600 px-3 py-1.5 rounded-full flex-row items-center">
-                    <View className="w-2 h-2 bg-white rounded-full mr-2" />
-                    <Text className="text-white text-xs font-bold">LIVE</Text>
-                </View>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
-            </View>
-        );
-    };
-
-    const YouTubePlaylistPlayer = ({ videoId, playlistId }) => {
-        const player = useYouTubePlayer(videoId, {
-            autoplay: true,
-            muted: false,
-            controls: true,
-            playsinline: true,
-            rel: false,
-            modestbranding: true,
-            loop: true,
-            list: playlistId,
-            listType: 'playlist'
-        });
-
-        useYouTubeEvent(player, 'ready', () => {
-            setVideoLoading(false);
-            setVideoError(false);
-        });
-
-        useYouTubeEvent(player, 'error', (error) => {
-            setVideoError(true);
-            setVideoLoading(false);
-            setErrorMessage(`YouTube Playlist Error: ${error.message || 'Unable to load playlist'}`);
-        });
-
-        return (
-            <View className="w-full bg-black relative" style={{ height: 260 }}>
-                <View className="absolute top-3 left-3 z-10 bg-purple-600 px-3 py-1.5 rounded-lg">
-                    <Text className="text-white text-xs font-bold">PLAYLIST</Text>
-                </View>
-                <YoutubeView player={player} style={{ width: '100%', height: 260 }} />
-            </View>
-        );
-    };
-
-    const YouTubeChannelPlayer = ({ url }) => (
-        <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-            <Ionicons name="logo-youtube" size={80} color="#ff0000" />
-            <Text className="text-white text-lg font-semibold mt-4 text-center px-6">
-                YouTube Channel Detected
-            </Text>
-            <Text className="text-gray-400 text-sm mt-2 text-center px-6">
-                Please use a specific video or playlist URL
-            </Text>
-            <TouchableOpacity className="mt-6 bg-orange-500 px-6 py-3 rounded-lg" onPress={() => Linking.openURL(url)}>
-                <Text className="text-white font-semibold">Open in YouTube</Text>
-            </TouchableOpacity>
-        </View>
-    );
 
     const renderVideoPlayer = () => {
         if (!selectedSeries) return null;
@@ -399,70 +325,32 @@ export default function SeriesScreen() {
             );
         }
 
-        if (type === 'youtube-video') {
-            const videoId = extractVideoId(selectedSeries.mediaUrl);
-            if (!videoId) {
-                return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube URL</Text>
-                    </View>
-                );
-            }
+        // Render YouTube player for YouTube links
+        if (type.startsWith('youtube') && youtubeVideoId) {
             return (
-                <>
+                <View className="w-full bg-black relative" style={{ height: 260 }}>
                     {renderStreamTypeBadge(type)}
-                    <YouTubeVideoPlayer videoId={videoId} />
-                </>
+                    {videoLoading && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-20">
+                            <ActivityIndicator size="large" color="#f97316" />
+                            <Text className="text-white mt-3 text-sm">Loading YouTube...</Text>
+                        </View>
+                    )}
+                    {videoError && (
+                        <View className="absolute inset-0 bg-black items-center justify-center z-30">
+                            <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
+                            <Text className="text-white text-center mt-4 text-lg font-semibold">YouTube Error</Text>
+                            <Text className="text-gray-400 text-center mt-2 px-4 text-sm">
+                                {errorMessage || 'Unable to load YouTube video'}
+                            </Text>
+                        </View>
+                    )}
+                    <YouTubeVideoPlayer videoId={youtubeVideoId} />
+                </View>
             );
         }
 
-        if (type === 'youtube-live') {
-            const videoId = extractVideoId(selectedSeries.mediaUrl);
-            if (!videoId) {
-                return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Live URL</Text>
-                    </View>
-                );
-            }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubeLivePlayer videoId={videoId} />
-                </>
-            );
-        }
-
-        if (type === 'youtube-playlist') {
-            const videoId = extractVideoId(selectedSeries.mediaUrl);
-            const playlistId = extractPlaylistId(selectedSeries.mediaUrl);
-            if (!playlistId) {
-                return (
-                    <View className="w-full bg-black items-center justify-center" style={{ height: 260 }}>
-                        <Ionicons name="alert-circle-outline" size={60} color="#ef4444" />
-                        <Text className="text-white text-center mt-4 text-lg font-semibold">Invalid YouTube Playlist URL</Text>
-                    </View>
-                );
-            }
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubePlaylistPlayer videoId={videoId} playlistId={playlistId} />
-                </>
-            );
-        }
-
-        if (type === 'youtube-channel') {
-            return (
-                <>
-                    {renderStreamTypeBadge(type)}
-                    <YouTubeChannelPlayer url={selectedSeries.mediaUrl} />
-                </>
-            );
-        }
-
+        // Render regular video player for other streams
         return (
             <View className="w-full bg-black relative" style={{ height: 260 }}>
                 {renderStreamTypeBadge(type)}
@@ -535,7 +423,6 @@ export default function SeriesScreen() {
                         else if (error?.error?.domain === 'AVFoundationErrorDomain') msg = 'Stream format not supported or unavailable.';
                         setErrorMessage(msg);
 
-                        // Try direct connection as fallback
                         if (useProxy && selectedSeries.proxyUrl) {
                             setUseProxy(false);
                             loadStream(selectedSeries, false);
@@ -571,6 +458,7 @@ export default function SeriesScreen() {
         setShowPlayer(true);
         setVideoError(false);
         setVideoLoading(true);
+        setYoutubeVideoId(null);
 
         const { type } = analyzeStreamUrl(seriesItem.mediaUrl);
         setUseProxy(!type.startsWith('youtube'));
@@ -717,6 +605,7 @@ export default function SeriesScreen() {
                 onRequestClose={() => {
                     setShowPlayer(false);
                     setSelectedSeries(null);
+                    setYoutubeVideoId(null);
                     if (videoRef.current) {
                         videoRef.current.pauseAsync();
                     }
@@ -729,6 +618,7 @@ export default function SeriesScreen() {
                             onPress={() => {
                                 setShowPlayer(false);
                                 setSelectedSeries(null);
+                                setYoutubeVideoId(null);
                                 if (videoRef.current) {
                                     videoRef.current.pauseAsync();
                                 }
@@ -820,6 +710,7 @@ export default function SeriesScreen() {
                                                     setSelectedSeries(show);
                                                     setVideoError(false);
                                                     setVideoLoading(true);
+                                                    setYoutubeVideoId(null);
                                                     const { type } = analyzeStreamUrl(show.mediaUrl);
                                                     setUseProxy(!type.startsWith('youtube'));
                                                     setCurrentStreamUrl(null);
