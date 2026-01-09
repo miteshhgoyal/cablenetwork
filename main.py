@@ -50,13 +50,15 @@ if __name__ == "__main__":
     # Define the files you want to search for
     files_to_find = [
         # 'credit.routes.js',
-        'customer.routes.js',
-        'distributors.routes.js',
-        'auth.routes.js',
-        # 'packages.routes.js',
-        'resellers.routes.js',
+        # 'customer.routes.js',
+        # 'distributors.routes.js',
+        # 'auth.routes.js',
+        'packages.routes.js',
+        # 'resellers.routes.js',
         'Subscriber.js',
-        'User.js',
+        'Package.js',
+        'Subscribers.jsx',
+        'Packages.jsx',
         'subscribers.routes.js'
         
         
