@@ -11,28 +11,22 @@ const router = express.Router();
 // ==========================================
 
 /**
- * 🔧 FIXED: Check if user has permission to access subscriber
- * Based on subscriber's partnerCode (not resellerId)
+ * Check if user has permission to access subscriber
  */
 async function checkSubscriberPermission(userId, subscriber) {
     const user = await User.findById(userId);
 
-    // Admin has access to all subscribers
     if (user.role === 'admin') {
         return true;
     }
 
-    // 🔧 FIXED: Reseller can access subscribers who used their partner code
     if (user.role === 'reseller') {
-        // Match user's partnerCode with subscriber's partnerCode
         return subscriber.partnerCode && subscriber.partnerCode === user.partnerCode;
     }
 
-    // 🔧 FIXED: Distributor can access subscribers whose partnerCode belongs to their resellers
     if (user.role === 'distributor') {
         if (!subscriber.partnerCode) return false;
 
-        // Find reseller with this partnerCode who was created by this distributor
         const reseller = await User.findOne({
             partnerCode: subscriber.partnerCode,
             role: 'reseller',
@@ -46,9 +40,8 @@ async function checkSubscriberPermission(userId, subscriber) {
 }
 
 /**
- * 🔧 CRITICAL FIX: Centralized balance calculation and deduction
- * NOW: Proper else-if logic to prevent DOUBLE CHARGING
- * Formula: (cost / duration) × days for ALL scenarios
+ * 🔧 COMPLETELY FIXED: Balance calculation with proper ID comparison
+ * CRITICAL FIX: Convert all IDs to strings for accurate comparison
  */
 async function calculateAndDeductBalance(partnerCode, options = {}) {
     const {
@@ -80,7 +73,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         };
     }
 
-    // 🔧 FIXED: Find reseller by partnerCode (not by resellerId)
+    // Find reseller by partnerCode
     const reseller = await User.findOne({ partnerCode: partnerCode, role: 'reseller' });
     if (!reseller) {
         return {
@@ -89,14 +82,16 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         };
     }
 
+    // 🔧 CRITICAL FIX: Normalize ALL package IDs to strings for comparison
+    const normalizedOldPackages = oldPackages.map(id => id.toString());
+    const normalizedNewPackages = newPackages.map(id => id.toString());
+
     // ========================================
     // SCENARIO 1: INITIAL ACTIVATION
-    // 🔧 FIXED: Calculate based on actual days
     // ========================================
-    if (isInitialActivation && newPackages.length > 0 && newExpiryDate) {
-        const packageDocs = await Package.find({ _id: { $in: newPackages } });
+    if (isInitialActivation && normalizedNewPackages.length > 0 && newExpiryDate) {
+        const packageDocs = await Package.find({ _id: { $in: normalizedNewPackages } });
 
-        // Calculate days from now to expiry date
         const now = new Date();
         const expiryDate = new Date(newExpiryDate);
         const daysToAdd = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
@@ -104,7 +99,6 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         if (daysToAdd > 0) {
             let activationCost = 0;
             for (const pkg of packageDocs) {
-                // 🔧 FIXED: Use formula (cost / duration) × days
                 const packageDuration = pkg.duration || 30;
                 const dailyRate = pkg.cost / packageDuration;
                 const packageCost = dailyRate * daysToAdd;
@@ -117,12 +111,10 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
     }
     // ========================================
     // SCENARIO 2: REACTIVATION
-    // 🔧 FIXED: Calculate based on new validity days
     // ========================================
-    else if (isReactivation && newPackages.length > 0 && newExpiryDate) {
-        const packageDocs = await Package.find({ _id: { $in: newPackages } });
+    else if (isReactivation && normalizedNewPackages.length > 0 && newExpiryDate) {
+        const packageDocs = await Package.find({ _id: { $in: normalizedNewPackages } });
 
-        // Calculate days from now to expiry date
         const now = new Date();
         const expiryDate = new Date(newExpiryDate);
         const daysToAdd = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
@@ -130,7 +122,6 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         if (daysToAdd > 0) {
             let reactivationCost = 0;
             for (const pkg of packageDocs) {
-                // 🔧 FIXED: Use formula (cost / duration) × days
                 const packageDuration = pkg.duration || 30;
                 const dailyRate = pkg.cost / packageDuration;
                 const packageCost = dailyRate * daysToAdd;
@@ -142,45 +133,74 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         }
     }
     // ========================================
-    // SCENARIO 3 & 4: COMBINED PACKAGE CHANGES AND VALIDITY EXTENSION
-    // 🔧 CRITICAL FIX: Handle BOTH in same block to avoid double charging
+    // SCENARIO 3: UPDATE (VALIDITY EXTENSION + PACKAGE CHANGES)
+    // 🔧 CRITICAL FIX: Proper package comparison with normalized IDs
     // ========================================
     else if (!isInitialActivation && !isReactivation) {
-        // First, handle validity extension
-        if (newExpiryDate && oldExpiryDate && newPackages.length > 0) {
+
+        // Check if validity was extended
+        let hasValidityExtension = false;
+        let extensionDays = 0;
+
+        if (newExpiryDate && oldExpiryDate) {
             const newExpiry = new Date(newExpiryDate);
             const oldExpiry = new Date(oldExpiryDate);
 
-            // Check if validity was extended
             if (newExpiry > oldExpiry) {
-                const extensionDays = Math.ceil((newExpiry - oldExpiry) / (1000 * 60 * 60 * 24));
-
-                if (extensionDays > 0) {
-                    // Get all packages (old ones that remain)
-                    const packageDocs = await Package.find({ _id: { $in: newPackages } });
-
-                    let extensionCost = 0;
-                    for (const pkg of packageDocs) {
-                        // 🔧 FIXED: Use formula (cost / duration) × extension_days
-                        const packageDuration = pkg.duration || 30;
-                        const dailyRate = pkg.cost / packageDuration;
-                        const packageExtensionCost = dailyRate * extensionDays;
-                        extensionCost += packageExtensionCost;
-                    }
-
-                    chargeBreakdown.validityExtensionCharge = extensionCost;
-                    totalCharges += extensionCost;
-                }
+                extensionDays = Math.ceil((newExpiry - oldExpiry) / (1000 * 60 * 60 * 24));
+                hasValidityExtension = extensionDays > 0;
             }
         }
 
-        // Then, handle NEW packages being added (not already present)
-        const addedPackageIds = newPackages.filter(id => !oldPackages.includes(id));
+        // 🔧 CRITICAL FIX: Find packages that were REMOVED
+        const removedPackageIds = normalizedOldPackages.filter(
+            id => !normalizedNewPackages.includes(id)
+        );
 
+        // 🔧 CRITICAL FIX: Find packages that were ADDED (truly new)
+        const addedPackageIds = normalizedNewPackages.filter(
+            id => !normalizedOldPackages.includes(id)
+        );
+
+        // 🔧 CRITICAL FIX: Find packages that REMAIN (were there before and still there)
+        const remainingPackageIds = normalizedNewPackages.filter(
+            id => normalizedOldPackages.includes(id)
+        );
+
+        console.log('🔍 Package Analysis:');
+        console.log('Old packages:', normalizedOldPackages);
+        console.log('New packages:', normalizedNewPackages);
+        console.log('Removed:', removedPackageIds);
+        console.log('Added:', addedPackageIds);
+        console.log('Remaining:', remainingPackageIds);
+        console.log('Validity extension:', hasValidityExtension, 'days:', extensionDays);
+
+        // CHARGE 1: Validity extension for REMAINING packages only
+        if (hasValidityExtension && remainingPackageIds.length > 0) {
+            const remainingPackageDocs = await Package.find({
+                _id: { $in: remainingPackageIds }
+            });
+
+            let extensionCost = 0;
+            for (const pkg of remainingPackageDocs) {
+                const packageDuration = pkg.duration || 30;
+                const dailyRate = pkg.cost / packageDuration;
+                const packageExtensionCost = dailyRate * extensionDays;
+                extensionCost += packageExtensionCost;
+
+                console.log(`📦 Extension charge for ${pkg.name}: (${pkg.cost}/${packageDuration}) × ${extensionDays} = ₹${packageExtensionCost.toFixed(2)}`);
+            }
+
+            chargeBreakdown.validityExtensionCharge = extensionCost;
+            totalCharges += extensionCost;
+        }
+
+        // CHARGE 2: NEW packages for remaining validity period
         if (addedPackageIds.length > 0 && newExpiryDate) {
-            const addedPackageDocs = await Package.find({ _id: { $in: addedPackageIds } });
+            const addedPackageDocs = await Package.find({
+                _id: { $in: addedPackageIds }
+            });
 
-            // Calculate remaining days to expiry
             const now = new Date();
             const expiryDate = new Date(newExpiryDate);
             const remainingDays = Math.ceil((expiryDate - now) / (1000 * 60 * 60 * 24));
@@ -188,17 +208,20 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             if (remainingDays > 0) {
                 let additionCost = 0;
                 for (const pkg of addedPackageDocs) {
-                    // 🔧 FIXED: Use formula (cost / duration) × remaining days
                     const packageDuration = pkg.duration || 30;
                     const dailyRate = pkg.cost / packageDuration;
                     const packageCost = dailyRate * remainingDays;
                     additionCost += packageCost;
+
+                    console.log(`📦 New package charge for ${pkg.name}: (${pkg.cost}/${packageDuration}) × ${remainingDays} = ₹${packageCost.toFixed(2)}`);
                 }
 
                 chargeBreakdown.newPackagesCharge = additionCost;
                 totalCharges += additionCost;
             }
         }
+
+        // NOTE: Removed packages - no refund (as per business logic)
     }
 
     // ========================================
@@ -206,6 +229,8 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
     // ========================================
     if (totalCharges > 0) {
         totalCharges = Math.round(totalCharges * 100) / 100;
+
+        console.log('💰 Total charges:', totalCharges);
 
         if (reseller.balance < totalCharges) {
             return {
@@ -262,7 +287,6 @@ function calculateExpiryDate(packages, baseDate = null) {
     }
 
     const startDate = baseDate ? new Date(baseDate) : new Date();
-    // 🔧 FIXED: Always treat duration as days (30 days = 1 month)
     const longestDuration = Math.max(...packages.map(pkg => pkg.duration || 30));
 
     const expiryDate = new Date(startDate);
@@ -273,13 +297,9 @@ function calculateExpiryDate(packages, baseDate = null) {
 }
 
 // ==========================================
-// ROUTES - ALL KEPT AS IS, NO CHANGES
+// ROUTES
 // ==========================================
 
-/**
- * 🔧 FIXED: GET ALL SUBSCRIBERS
- * With role-based filtering using partnerCode (not resellerId)
- */
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -288,11 +308,9 @@ router.get('/', authenticateToken, async (req, res) => {
 
         let query = {};
 
-        // Role-based filtering
         if (currentUser.role === 'admin') {
-            // Admin sees all subscribers
+            // Admin sees all
         } else if (currentUser.role === 'distributor') {
-            // 🔧 FIXED: Distributor sees subscribers whose partnerCode belongs to their resellers
             const resellers = await User.find({
                 role: 'reseller',
                 createdBy: userId
@@ -301,16 +319,13 @@ router.get('/', authenticateToken, async (req, res) => {
             const partnerCodes = resellers.map(r => r.partnerCode).filter(pc => pc);
             query.partnerCode = { $in: partnerCodes };
         } else if (currentUser.role === 'reseller') {
-            // 🔧 FIXED: Reseller sees only subscribers who used their partner code
             query.partnerCode = currentUser.partnerCode;
         }
 
-        // Apply status filter
         if (status && status !== 'All') {
             query.status = status;
         }
 
-        // Apply search filter
         if (search) {
             query.$or = [
                 { subscriberName: { $regex: search, $options: 'i' } },
@@ -324,7 +339,6 @@ router.get('/', authenticateToken, async (req, res) => {
             .populate('primaryPackageId', 'name cost duration')
             .sort({ createdAt: -1 });
 
-        // 🔧 FIXED: Add reseller info using partnerCode
         const subscribersWithReseller = await Promise.all(
             subscribers.map(async (sub) => {
                 const subObj = sub.toObject();
@@ -355,10 +369,6 @@ router.get('/', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 FIXED: CREATE SUBSCRIBER
- * Now properly stores partnerCode and uses it for reseller lookup
- */
 router.post('/', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -372,10 +382,9 @@ router.post('/', authenticateToken, async (req, res) => {
             expiryDate,
             packages = [],
             primaryPackageId,
-            partnerCode  // 🔧 PRIMARY: Accept partnerCode (not resellerId)
+            partnerCode
         } = req.body;
 
-        // Validation
         if (!subscriberName || !macAddress || !serialNumber) {
             return res.status(400).json({
                 success: false,
@@ -383,7 +392,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check MAC address uniqueness
         const existingSubscriber = await Subscriber.findOne({
             macAddress: macAddress.trim().toLowerCase()
         });
@@ -395,12 +403,10 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Determine reseller and partnerCode based on role
         let finalResellerId = null;
         let finalPartnerCode = null;
 
         if (currentUser.role === 'admin') {
-            // Admin must provide partnerCode
             if (partnerCode) {
                 const reseller = await User.findOne({ partnerCode: partnerCode, role: 'reseller' });
                 if (reseller) {
@@ -413,10 +419,8 @@ router.post('/', authenticateToken, async (req, res) => {
                     });
                 }
             }
-            // If no partnerCode provided, create as Fresh (no reseller assignment)
         } else if (currentUser.role === 'distributor') {
             if (partnerCode) {
-                // Verify partnerCode belongs to distributor's reseller
                 const reseller = await User.findOne({
                     partnerCode: partnerCode,
                     role: 'reseller',
@@ -434,17 +438,14 @@ router.post('/', authenticateToken, async (req, res) => {
                 finalPartnerCode = partnerCode;
             }
         } else if (currentUser.role === 'reseller') {
-            // Reseller creates subscriber with their own partnerCode
             finalResellerId = userId;
             finalPartnerCode = currentUser.partnerCode;
         }
 
-        // Determine if this is an activation
         const isActivation = status === 'Active' && packages.length > 0;
         let finalExpiryDate = null;
         let balanceResult = null;
 
-        // Handle activation with balance deduction
         if (isActivation && finalPartnerCode) {
             const packageDocs = await Package.find({ _id: { $in: packages } });
 
@@ -461,7 +462,6 @@ router.post('/', authenticateToken, async (req, res) => {
                 finalExpiryDate = calculateExpiryDate(packageDocs);
             }
 
-            // 🔧 FIXED: Use partnerCode for balance deduction with new calculation
             balanceResult = await calculateAndDeductBalance(finalPartnerCode, {
                 newPackages: packages,
                 newExpiryDate: finalExpiryDate,
@@ -477,7 +477,6 @@ router.post('/', authenticateToken, async (req, res) => {
             }
         }
 
-        // 🔧 FIXED: Create subscriber with partnerCode as primary field
         const subscriber = new Subscriber({
             subscriberName: subscriberName.trim(),
             macAddress: macAddress.trim().toLowerCase(),
@@ -486,8 +485,8 @@ router.post('/', authenticateToken, async (req, res) => {
             expiryDate: finalExpiryDate,
             packages: packages,
             primaryPackageId: primaryPackageId || (packages.length > 0 ? packages[0] : null),
-            resellerId: finalResellerId,  // Still store for backward compatibility
-            partnerCode: finalPartnerCode  // 🔧 PRIMARY FIELD
+            resellerId: finalResellerId,
+            partnerCode: finalPartnerCode
         });
 
         await subscriber.save();
@@ -495,7 +494,6 @@ router.post('/', authenticateToken, async (req, res) => {
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
 
-        // 🔧 FIXED: Populate reseller info using partnerCode
         const subObj = subscriber.toObject();
         if (finalPartnerCode) {
             const reseller = await User.findOne(
@@ -530,10 +528,6 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 FIXED: BULK UPLOAD SUBSCRIBERS
- * No partnerCode assignment for bulk upload
- */
 router.post('/bulk-upload', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -584,14 +578,13 @@ router.post('/bulk-upload', authenticateToken, async (req, res) => {
                     continue;
                 }
 
-                // 🔧 FIXED: Bulk upload creates Fresh subscribers with no partnerCode
                 const newSubscriber = new Subscriber({
                     subscriberName: subscriberName.trim(),
                     macAddress: macAddress.trim().toLowerCase(),
                     serialNumber: serialNumber.trim(),
                     status: 'Fresh',
                     resellerId: null,
-                    partnerCode: null,  // 🔧 NO PARTNER CODE FOR BULK UPLOAD
+                    partnerCode: null,
                     packages: [],
                     expiryDate: null
                 });
@@ -622,7 +615,6 @@ router.post('/bulk-upload', authenticateToken, async (req, res) => {
     }
 });
 
-// GET RESELLERS LIST (for dropdowns)
 router.get('/resellers', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -657,7 +649,6 @@ router.get('/resellers', authenticateToken, async (req, res) => {
     }
 });
 
-// GET PACKAGES LIST (for dropdowns)
 router.get('/packages', authenticateToken, async (req, res) => {
     try {
         const packages = await Package.find()
@@ -678,10 +669,6 @@ router.get('/packages', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 FIXED: GET SINGLE SUBSCRIBER
- * With partnerCode-based authorization
- */
 router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -696,7 +683,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check permission based on subscriber's partnerCode
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -705,7 +691,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Populate reseller info using partnerCode
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
             const reseller = await User.findOne(
@@ -732,8 +717,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
 });
 
 /**
- * 🔧 FIXED: UPDATE SUBSCRIBER
- * Authorization based on subscriber's partnerCode
+ * 🔧 COMPLETELY FIXED UPDATE ROUTE
+ * Proper ID normalization before passing to calculation function
  */
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
@@ -759,7 +744,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check permission based on subscriber's partnerCode
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -768,7 +752,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validation
         if (!subscriberName || !macAddress || !serialNumber) {
             return res.status(400).json({
                 success: false,
@@ -783,7 +766,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check MAC address uniqueness
         const existingSubscriber = await Subscriber.findOne({
             macAddress: macAddress.trim().toLowerCase(),
             _id: { $ne: req.params.id }
@@ -796,12 +778,11 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Prepare for balance calculation
+        // 🔧 CRITICAL FIX: Normalize package IDs to strings BEFORE passing to function
         const oldPackageIds = subscriber.packages.map(p => p._id.toString());
-        const newPackageIds = packages;
+        const newPackageIds = packages.map(id => id.toString());
         const oldExpiryDate = subscriber.expiryDate;
 
-        // Handle expiry date
         let finalExpiryDate = oldExpiryDate;
         if (expiryDate) {
             const newExpiryDate = new Date(expiryDate + 'T23:59:59');
@@ -820,11 +801,9 @@ router.put('/:id', authenticateToken, async (req, res) => {
             finalExpiryDate = calculateExpiryDate(packageDocs);
         }
 
-        // Calculate balance changes if needed
         let balanceResult = null;
 
         if (subscriber.partnerCode) {
-            // 🔧 FIXED: Calculate balance with new formula
             balanceResult = await calculateAndDeductBalance(subscriber.partnerCode, {
                 oldPackages: oldPackageIds,
                 newPackages: newPackageIds,
@@ -841,7 +820,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-        // Update subscriber fields
         subscriber.subscriberName = subscriberName.trim();
         subscriber.macAddress = macAddress.trim().toLowerCase();
         subscriber.serialNumber = serialNumber.trim();
@@ -865,7 +843,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
 
-        // 🔧 FIXED: Populate reseller info using partnerCode
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
             const reseller = await User.findOne(
@@ -901,10 +878,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 FIXED: UPDATE SUBSCRIBER STATUS
- * Authorization based on subscriber's partnerCode
- */
 router.patch('/:id/status', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -936,7 +909,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check permission based on subscriber's partnerCode
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -963,7 +935,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
             }
         }
 
-        // 🔧 FIXED: Handle balance deduction using partnerCode with new calculation
         let balanceResult = null;
 
         if (isReactivation && subscriber.partnerCode) {
@@ -990,7 +961,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         await subscriber.populate('packages', 'name cost duration');
         await subscriber.populate('primaryPackageId', 'name cost duration');
 
-        // 🔧 FIXED: Populate reseller info using partnerCode
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
             const reseller = await User.findOne(
@@ -1025,10 +995,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 FIXED: DELETE SUBSCRIBER
- * Authorization based on subscriber's partnerCode
- */
 router.delete('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1043,7 +1009,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check permission based on subscriber's partnerCode
         const hasPermission = await checkSubscriberPermission(userId, subscriber);
         if (!hasPermission) {
             return res.status(403).json({
@@ -1060,10 +1025,9 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Reseller/Distributor: Release MAC
         subscriber.status = 'Fresh';
         subscriber.resellerId = null;
-        subscriber.partnerCode = null;  // 🔧 ALSO CLEAR PARTNER CODE
+        subscriber.partnerCode = null;
         subscriber.expiryDate = null;
         subscriber.packages = [];
         subscriber.primaryPackageId = null;
