@@ -1016,26 +1016,13 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        if (currentUser.role === 'admin') {
-            await subscriber.deleteOne();
-            return res.json({
-                success: true,
-                message: 'Subscriber deleted successfully'
-            });
-        }
 
-        subscriber.status = 'Fresh';
-        subscriber.resellerId = null;
-        subscriber.partnerCode = null;
-        subscriber.expiryDate = null;
-        subscriber.packages = [];
-        subscriber.primaryPackageId = null;
-        await subscriber.save();
-
-        res.json({
+        await subscriber.deleteOne();
+        return res.json({
             success: true,
-            message: 'MAC released and returned to Admin. It is now unassigned and reusable.'
+            message: 'Subscriber deleted successfully'
         });
+
 
     } catch (error) {
         console.error('Delete subscriber error:', error);
