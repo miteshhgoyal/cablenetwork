@@ -39,8 +39,9 @@ async function checkSubscriberPermission(userId, subscriber) {
     return false;
 }
 
-// helpers in subscribers.routes.js
-
+/**
+ * 🔧 UPDATED: Now uses pkg.costPerDay instead of calculating cost/duration
+ */
 async function calculateAndDeductBalance(partnerCode, options = {}) {
     const {
         oldPackages = [],
@@ -100,9 +101,13 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         if (daysToAdd > 0) {
             let activationCost = 0;
             for (const pkg of packageDocs) {
-                const packageDuration = pkg.duration || 30;
-                const dailyRate = pkg.cost / packageDuration;
+                // 🔧 UPDATED: Use stored costPerDay
+                const dailyRate = pkg.costPerDay;
                 activationCost += dailyRate * daysToAdd;
+
+                console.log(
+                    `📦 Activation charge for ${pkg.name}: ${dailyRate} × ${daysToAdd} = ₹${(dailyRate * daysToAdd).toFixed(2)}`
+                );
             }
 
             chargeBreakdown.activationCharge = activationCost;
@@ -121,9 +126,13 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
         if (daysToAdd > 0) {
             let reactivationCost = 0;
             for (const pkg of packageDocs) {
-                const packageDuration = pkg.duration || 30;
-                const dailyRate = pkg.cost / packageDuration;
+                // 🔧 UPDATED: Use stored costPerDay
+                const dailyRate = pkg.costPerDay;
                 reactivationCost += dailyRate * daysToAdd;
+
+                console.log(
+                    `📦 Reactivation charge for ${pkg.name}: ${dailyRate} × ${daysToAdd} = ₹${(dailyRate * daysToAdd).toFixed(2)}`
+                );
             }
 
             chargeBreakdown.reactivationCharge = reactivationCost;
@@ -170,15 +179,13 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
 
             let extensionCost = 0;
             for (const pkg of remainingPackageDocs) {
-                const packageDuration = pkg.duration || 30;
-                const dailyRate = pkg.cost / packageDuration;
+                // 🔧 UPDATED: Use stored costPerDay
+                const dailyRate = pkg.costPerDay;
                 const packageExtensionCost = dailyRate * extensionDays;
                 extensionCost += packageExtensionCost;
 
                 console.log(
-                    `📦 Extension charge for ${pkg.name}: (${pkg.cost}/${packageDuration}) × ${extensionDays} = ₹${packageExtensionCost.toFixed(
-                        2
-                    )}`
+                    `📦 Extension charge for ${pkg.name}: ${dailyRate} × ${extensionDays} = ₹${packageExtensionCost.toFixed(2)}`
                 );
             }
 
@@ -199,15 +206,13 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             if (remainingDays > 0) {
                 let additionCost = 0;
                 for (const pkg of addedPackageDocs) {
-                    const packageDuration = pkg.duration || 30;
-                    const dailyRate = pkg.cost / packageDuration;
+                    // 🔧 UPDATED: Use stored costPerDay
+                    const dailyRate = pkg.costPerDay;
                     const packageCost = dailyRate * remainingDays;
                     additionCost += packageCost;
 
                     console.log(
-                        `📦 New package charge for ${pkg.name}: (${pkg.cost}/${packageDuration}) × ${remainingDays} = ₹${packageCost.toFixed(
-                            2
-                        )}`
+                        `📦 New package charge for ${pkg.name}: ${dailyRate} × ${remainingDays} = ₹${packageCost.toFixed(2)}`
                     );
                 }
 
@@ -270,7 +275,6 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
     };
 }
 
-
 /**
  * Calculate expiry date based on packages
  */
@@ -328,8 +332,8 @@ router.get('/', authenticateToken, async (req, res) => {
         }
 
         const subscribers = await Subscriber.find(query)
-            .populate('packages', 'name cost duration')
-            .populate('primaryPackageId', 'name cost duration')
+            .populate('packages', 'name cost duration costPerDay')
+            .populate('primaryPackageId', 'name cost duration costPerDay')
             .sort({ createdAt: -1 });
 
         const subscribersWithReseller = await Promise.all(
@@ -491,8 +495,8 @@ router.post('/', authenticateToken, async (req, res) => {
 
         await subscriber.save();
 
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration costPerDay');
+        await subscriber.populate('primaryPackageId', 'name cost duration costPerDay');
 
         const subObj = subscriber.toObject();
         if (finalPartnerCode) {
@@ -652,7 +656,7 @@ router.get('/resellers', authenticateToken, async (req, res) => {
 router.get('/packages', authenticateToken, async (req, res) => {
     try {
         const packages = await Package.find()
-            .select('name cost duration')
+            .select('name cost duration costPerDay')
             .sort({ name: 1 });
 
         res.json({
@@ -673,8 +677,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration')
-            .populate('primaryPackageId', 'name cost duration');
+            .populate('packages', 'name cost duration costPerDay')
+            .populate('primaryPackageId', 'name cost duration costPerDay');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -716,10 +720,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
     }
 });
 
-/**
- * 🔧 COMPLETELY FIXED UPDATE ROUTE
- * Proper ID normalization before passing to calculation function
- */
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -735,7 +735,7 @@ router.put('/:id', authenticateToken, async (req, res) => {
         } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration');
+            .populate('packages', 'name cost duration costPerDay');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -778,7 +778,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 CRITICAL FIX: Normalize package IDs to strings BEFORE passing to function
         const oldPackageIds = subscriber.packages.map(p => p._id.toString());
         const newPackageIds = packages.map(id => id.toString());
         const oldExpiryDate = subscriber.expiryDate;
@@ -840,8 +839,8 @@ router.put('/:id', authenticateToken, async (req, res) => {
 
         await subscriber.save();
 
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration costPerDay');
+        await subscriber.populate('primaryPackageId', 'name cost duration costPerDay');
 
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
@@ -900,7 +899,7 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         }
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration');
+            .populate('packages', 'name cost duration costPerDay');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -958,8 +957,8 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
         subscriber.status = newStatus;
         await subscriber.save();
 
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration costPerDay');
+        await subscriber.populate('primaryPackageId', 'name cost duration costPerDay');
 
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
@@ -1054,7 +1053,7 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
         const { expiryDate } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration');
+            .populate('packages', 'name cost duration costPerDay');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -1071,7 +1070,6 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
             });
         }
 
-        // Treat this endpoint as FIRST activation only
         if (subscriber.status !== 'Fresh' || subscriber.expiryDate) {
             return res.status(400).json({
                 success: false,
@@ -1125,8 +1123,8 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
         subscriber.expiryDate = finalExpiryDate;
         await subscriber.save();
 
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration costPerDay');
+        await subscriber.populate('primaryPackageId', 'name cost duration costPerDay');
 
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {
@@ -1162,7 +1160,6 @@ router.patch('/:id/activate', authenticateToken, async (req, res) => {
     }
 });
 
-
 router.patch('/:id/renew', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -1170,7 +1167,7 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         const { duration } = req.body;
 
         const subscriber = await Subscriber.findById(req.params.id)
-            .populate('packages', 'name cost duration');
+            .populate('packages', 'name cost duration costPerDay');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -1213,6 +1210,7 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
             const packageIds = subscriber.packages.map(p => p._id.toString());
 
             balanceResult = await calculateAndDeductBalance(subscriber.partnerCode, {
+                oldPackages: packageIds,
                 newPackages: packageIds,
                 oldExpiryDate: subscriber.expiryDate,
                 newExpiryDate,
@@ -1231,8 +1229,8 @@ router.patch('/:id/renew', authenticateToken, async (req, res) => {
         subscriber.expiryDate = newExpiryDate;
         await subscriber.save();
 
-        await subscriber.populate('packages', 'name cost duration');
-        await subscriber.populate('primaryPackageId', 'name cost duration');
+        await subscriber.populate('packages', 'name cost duration costPerDay');
+        await subscriber.populate('primaryPackageId', 'name cost duration costPerDay');
 
         const subObj = subscriber.toObject();
         if (subscriber.partnerCode) {

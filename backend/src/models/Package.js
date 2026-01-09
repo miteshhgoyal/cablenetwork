@@ -2,34 +2,19 @@
 import mongoose from 'mongoose';
 
 const packageSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true,
-        trim: true
-    },
-    cost: {
+    name: { type: String, required: true, trim: true },
+    cost: { type: Number, required: true },
+    costPerDay: {
         type: Number,
         required: true,
-    },
-    genres: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category',
-    }],
-    channels: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Channel',
-    }],
+        min: 0
+    },  // ← NEW FIELD
+    genres: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Category' }],
+    channels: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Channel' }],
     duration: {
         type: Number,
         required: true,
-        // Duration is ALWAYS in days
-        // 1 month = 30 days exactly
-        validate: {
-            validator: function (value) {
-                return value > 0;
-            },
-            message: 'Duration must be greater than 0 days'
-        }
+        validate: { validator: v => v > 0, message: 'Duration must be greater than 0 days' }
     },
     defaultChannelId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -37,31 +22,25 @@ const packageSchema = new mongoose.Schema({
         default: null,
         validate: {
             validator: function (value) {
-                // Only validate if set
                 if (!value || !this.channels) return true;
-                return this.channels.some(
-                    (ch) => ch.toString() === value.toString()
-                );
+                return this.channels.some(ch => ch.toString() === value.toString());
             },
             message: 'Default channel must be one of the package channels.'
         }
     }
-}, {
-    timestamps: true
+}, { timestamps: true });
+
+// ← NEW PRE-SAVE HOOK: Auto-calculates and sets costPerDay
+packageSchema.pre('save', function (next) {
+    this.costPerDay = this.cost / this.duration;
+    next();
 });
 
-// Helper method to get cost per day
+// Updated helper methods (now use stored value)
 packageSchema.methods.getCostPerDay = function () {
-    // For 30-day duration, cost per day = cost / 30
-    // For any duration, cost per day = cost / duration
-    return this.cost / this.duration;
+    return this.costPerDay;  // Direct from DB, no recalc
 };
 
-// Helper method to calculate cost for specific days
 packageSchema.methods.calculateCostForDays = function (days) {
-    // Formula: (total cost / duration) * days
-    const costPerDay = this.getCostPerDay();
-    return costPerDay * days;
+    return this.costPerDay * days;  // Uses pre-computed costPerDay
 };
-
-export default mongoose.model('Package', packageSchema);
