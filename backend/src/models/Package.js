@@ -44,3 +44,5 @@ packageSchema.methods.getCostPerDay = function () {
 packageSchema.methods.calculateCostForDays = function (days) {
     return this.costPerDay * days;  // Uses pre-computed costPerDay
 };
+
+export default mongoose.model('Package', packageSchema);
