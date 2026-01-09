@@ -53,12 +53,12 @@ if __name__ == "__main__":
         # 'customer.routes.js',
         # 'distributors.routes.js',
         # 'auth.routes.js',
-        'packages.routes.js',
+        # 'packages.routes.js',
         # 'resellers.routes.js',
         'Subscriber.js',
-        'Package.js',
+        # 'Package.js',
         'Subscribers.jsx',
-        'Packages.jsx',
+        # 'Packages.jsx',
         'subscribers.routes.js'
         
         
