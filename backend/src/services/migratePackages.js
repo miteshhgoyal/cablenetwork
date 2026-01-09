@@ -1,6 +1,6 @@
 // scripts/migrate-cost-per-day.js
 import mongoose from 'mongoose';
-import Package from '../src/models/Package.js';
+import Package from '../models/Package.js';
 
 mongoose.connect('your-mongo-uri');
 
