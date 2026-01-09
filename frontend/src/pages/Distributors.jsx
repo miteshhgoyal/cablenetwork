@@ -893,33 +893,35 @@ const Distributors = () => {
                 </div>
 
                 {/* Balance Amount */}
-                {/* <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">
-                    Balance Amount
-                  </label>
-                  <input
-                    type="number"
-                    value={formData.balance}
-                    onChange={handleBalanceChange}
-                    placeholder="Enter balance amount"
-                    className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 ${
-                      balanceError
-                        ? "border-red-300 focus:ring-red-500"
-                        : "border-gray-200 focus:ring-blue-500"
-                    }`}
-                    required
-                    min={10000}
-                    step={100}
-                  />
-                  {balanceError && (
-                    <div className="mt-2 flex items-center space-x-2 text-red-600">
-                      <AlertCircle className="w-4 h-4" />
-                      <span className="text-sm font-medium">
-                        {balanceError}
-                      </span>
-                    </div>
-                  )}
-                </div> */}
+                {modalMode === "create" && (
+                  <div>
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Balance Amount
+                    </label>
+                    <input
+                      type="number"
+                      value={formData.balance}
+                      onChange={handleBalanceChange}
+                      placeholder="Enter balance amount"
+                      className={`w-full px-4 py-3 bg-gray-50 border rounded-xl focus:outline-none focus:ring-2 ${
+                        balanceError
+                          ? "border-red-300 focus:ring-red-500"
+                          : "border-gray-200 focus:ring-blue-500"
+                      }`}
+                      required
+                      min={10000}
+                      step={100}
+                    />
+                    {balanceError && (
+                      <div className="mt-2 flex items-center space-x-2 text-red-600">
+                        <AlertCircle className="w-4 h-4" />
+                        <span className="text-sm font-medium">
+                          {balanceError}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Validity Date */}
