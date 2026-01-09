@@ -46,8 +46,9 @@ async function checkSubscriberPermission(userId, subscriber) {
 }
 
 /**
- * 🔧 FIXED: Centralized balance calculation and deduction
- * NOW: Always uses (cost / duration) × days formula for ALL scenarios
+ * 🔧 CRITICAL FIX: Centralized balance calculation and deduction
+ * NOW: Proper else-if logic to prevent DOUBLE CHARGING
+ * Formula: (cost / duration) × days for ALL scenarios
  */
 async function calculateAndDeductBalance(partnerCode, options = {}) {
     const {
@@ -90,7 +91,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
 
     // ========================================
     // SCENARIO 1: INITIAL ACTIVATION
-    // 🔧 FIXED: Now calculates based on actual days, not full package cost
+    // 🔧 FIXED: Calculate based on actual days
     // ========================================
     if (isInitialActivation && newPackages.length > 0 && newExpiryDate) {
         const packageDocs = await Package.find({ _id: { $in: newPackages } });
@@ -104,7 +105,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             let activationCost = 0;
             for (const pkg of packageDocs) {
                 // 🔧 FIXED: Use formula (cost / duration) × days
-                const packageDuration = pkg.duration || 30;  // Always 30 days = 1 month
+                const packageDuration = pkg.duration || 30;
                 const dailyRate = pkg.cost / packageDuration;
                 const packageCost = dailyRate * daysToAdd;
                 activationCost += packageCost;
@@ -114,10 +115,9 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             totalCharges += activationCost;
         }
     }
-
     // ========================================
     // SCENARIO 2: REACTIVATION
-    // 🔧 FIXED: Now calculates based on remaining/new validity, not full package cost
+    // 🔧 FIXED: Calculate based on new validity days
     // ========================================
     else if (isReactivation && newPackages.length > 0 && newExpiryDate) {
         const packageDocs = await Package.find({ _id: { $in: newPackages } });
@@ -131,7 +131,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             let reactivationCost = 0;
             for (const pkg of packageDocs) {
                 // 🔧 FIXED: Use formula (cost / duration) × days
-                const packageDuration = pkg.duration || 30;  // Always 30 days = 1 month
+                const packageDuration = pkg.duration || 30;
                 const dailyRate = pkg.cost / packageDuration;
                 const packageCost = dailyRate * daysToAdd;
                 reactivationCost += packageCost;
@@ -141,12 +141,40 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
             totalCharges += reactivationCost;
         }
     }
-
     // ========================================
-    // SCENARIO 3: PACKAGE ADDITION
-    // 🔧 FIXED: Calculate cost based on remaining validity days
+    // SCENARIO 3 & 4: COMBINED PACKAGE CHANGES AND VALIDITY EXTENSION
+    // 🔧 CRITICAL FIX: Handle BOTH in same block to avoid double charging
     // ========================================
     else if (!isInitialActivation && !isReactivation) {
+        // First, handle validity extension
+        if (newExpiryDate && oldExpiryDate && newPackages.length > 0) {
+            const newExpiry = new Date(newExpiryDate);
+            const oldExpiry = new Date(oldExpiryDate);
+
+            // Check if validity was extended
+            if (newExpiry > oldExpiry) {
+                const extensionDays = Math.ceil((newExpiry - oldExpiry) / (1000 * 60 * 60 * 24));
+
+                if (extensionDays > 0) {
+                    // Get all packages (old ones that remain)
+                    const packageDocs = await Package.find({ _id: { $in: newPackages } });
+
+                    let extensionCost = 0;
+                    for (const pkg of packageDocs) {
+                        // 🔧 FIXED: Use formula (cost / duration) × extension_days
+                        const packageDuration = pkg.duration || 30;
+                        const dailyRate = pkg.cost / packageDuration;
+                        const packageExtensionCost = dailyRate * extensionDays;
+                        extensionCost += packageExtensionCost;
+                    }
+
+                    chargeBreakdown.validityExtensionCharge = extensionCost;
+                    totalCharges += extensionCost;
+                }
+            }
+        }
+
+        // Then, handle NEW packages being added (not already present)
         const addedPackageIds = newPackages.filter(id => !oldPackages.includes(id));
 
         if (addedPackageIds.length > 0 && newExpiryDate) {
@@ -161,7 +189,7 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
                 let additionCost = 0;
                 for (const pkg of addedPackageDocs) {
                     // 🔧 FIXED: Use formula (cost / duration) × remaining days
-                    const packageDuration = pkg.duration || 30;  // Always 30 days = 1 month
+                    const packageDuration = pkg.duration || 30;
                     const dailyRate = pkg.cost / packageDuration;
                     const packageCost = dailyRate * remainingDays;
                     additionCost += packageCost;
@@ -169,36 +197,6 @@ async function calculateAndDeductBalance(partnerCode, options = {}) {
 
                 chargeBreakdown.newPackagesCharge = additionCost;
                 totalCharges += additionCost;
-            }
-        }
-    }
-
-    // ========================================
-    // SCENARIO 4: VALIDITY EXTENSION
-    // This already uses the correct formula - keeping as is
-    // ========================================
-    if (newExpiryDate && oldExpiryDate && newPackages.length > 0) {
-        const now = new Date();
-        const newExpiry = new Date(newExpiryDate);
-        const oldExpiry = new Date(oldExpiryDate);
-
-        if (newExpiry > oldExpiry) {
-            const extensionDays = Math.ceil((newExpiry - oldExpiry) / (1000 * 60 * 60 * 24));
-
-            if (extensionDays > 0) {
-                const packageDocs = await Package.find({ _id: { $in: newPackages } });
-
-                let extensionCost = 0;
-                for (const pkg of packageDocs) {
-                    // 🔧 This already uses correct formula: (cost / duration) × days
-                    const packageDuration = pkg.duration || 30;  // Always 30 days = 1 month
-                    const dailyRate = pkg.cost / packageDuration;
-                    const packageExtensionCost = dailyRate * extensionDays;
-                    extensionCost += packageExtensionCost;
-                }
-
-                chargeBreakdown.validityExtensionCharge = extensionCost;
-                totalCharges += extensionCost;
             }
         }
     }
