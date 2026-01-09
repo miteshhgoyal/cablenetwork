@@ -1,22 +1,12 @@
 // scripts/migrate-cost-per-day.js
 import mongoose from 'mongoose';
-import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-// Get __dirname equivalent in ES modules
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Load environment variables from parent directory
-dotenv.config({ path: path.resolve(__dirname, '../.env') });
 
 // Import Package model
 import Package from '../models/Package.js';
 
 const connectDB = async () => {
     try {
-        const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/your-database-name';
+        const mongoURI = 'mongodb://localhost:27017/cable-network';
 
         await mongoose.connect(mongoURI, {
             useNewUrlParser: true,
