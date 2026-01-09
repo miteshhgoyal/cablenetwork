@@ -98,7 +98,7 @@ async function calculatePackageExtensionCharge(partnerCode, packageId, days, ski
 // ROUTES
 // ============================================================================
 
-// GET all subscribers
+// GET list all subscribers
 router.get('/', authenticateToken, async (req, res) => {
     try {
         const userId = req.user.id;
@@ -293,6 +293,94 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 });
 
+// POST bulk upload subscribers (RE-ADDED from old version)
+router.post('/bulk-upload', authenticateToken, async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const currentUser = await User.findById(userId);
+
+        if (currentUser.role !== 'admin') {
+            return res.status(403).json({
+                success: false,
+                message: 'Only admins can perform bulk uploads'
+            });
+        }
+
+        const { subscribers } = req.body;
+
+        if (!subscribers || !Array.isArray(subscribers) || subscribers.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid subscribers data'
+            });
+        }
+
+        const results = {
+            successful: [],
+            failed: []
+        };
+
+        for (const sub of subscribers) {
+            try {
+                const { subscriberName, macAddress, serialNumber } = sub;
+
+                if (!subscriberName || !macAddress || !serialNumber) {
+                    results.failed.push({
+                        data: sub,
+                        reason: 'Missing required fields'
+                    });
+                    continue;
+                }
+
+                const existingSubscriber = await Subscriber.findOne({
+                    macAddress: macAddress.trim().toLowerCase()
+                });
+
+                if (existingSubscriber) {
+                    results.failed.push({
+                        data: sub,
+                        reason: 'MAC address already exists'
+                    });
+                    continue;
+                }
+
+                const newSubscriber = new Subscriber({
+                    subscriberName: subscriberName.trim(),
+                    macAddress: macAddress.trim().toLowerCase(),
+                    serialNumber: serialNumber.trim(),
+                    status: 'Fresh',
+                    resellerId: null,
+                    partnerCode: null,
+                    packages: [],
+                    expiryDate: null
+                });
+
+                await newSubscriber.save();
+                results.successful.push(newSubscriber);
+
+            } catch (error) {
+                results.failed.push({
+                    data: sub,
+                    reason: error.message
+                });
+            }
+        }
+
+        res.json({
+            success: true,
+            message: `Bulk upload completed. ${results.successful.length} successful, ${results.failed.length} failed.`,
+            data: results
+        });
+
+    } catch (error) {
+        console.error('Bulk upload error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to perform bulk upload'
+        });
+    }
+});
+
 // PUT update subscriber (basic info only)
 router.put('/:id', authenticateToken, async (req, res) => {
     try {
@@ -423,8 +511,12 @@ router.post('/:id/packages/add', authenticateToken, async (req, res) => {
         expiryDate.setDate(expiryDate.getDate() + days);
         expiryDate.setHours(23, 59, 59, 999);
 
-        // Add package
-        subscriber.packages.push({ packageId, expiryDate });
+        // FIXED: Add package with proper structure matching the model
+        subscriber.packages.push({
+            packageId: packageId,  // Store as ObjectId
+            expiryDate: expiryDate,
+            addedAt: new Date()
+        });
 
         // Update status to Active if there are packages
         if (subscriber.packages.length > 0 && subscriber.status === 'Fresh') {

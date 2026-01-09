@@ -1,6 +1,7 @@
+// frontend/src/pages/subscribers/Subscribers.jsx
 import React, { useState, useEffect } from "react";
-import { useAuth } from "../contexts/AuthContext.jsx";
-import api from "../services/api.js";
+import { useAuth } from "../../contexts/AuthContext";
+import api from "../../services/api";
 import {
   Search,
   Filter,
@@ -10,70 +11,67 @@ import {
   Edit2,
   Trash2,
   X,
-  Package as PackageIcon,
+  MapPin,
+  Shield,
+  CheckCircle,
   Calendar,
-  Plus,
+  Package as PackageIcon,
+  User,
+  Hash,
   Clock,
   AlertCircle,
-  CheckCircle,
-  ArrowRight,
+  Info,
+  UserX,
+  RefreshCw,
+  Plus,
+  TrendingUp,
 } from "lucide-react";
 
 const Subscribers = () => {
   const { user } = useAuth();
-
-  // Data states
   const [subscribers, setSubscribers] = useState([]);
   const [resellers, setResellers] = useState([]);
   const [packages, setPackages] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Filter states
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [resellerFilter, setResellerFilter] = useState("");
   const [filterOption, setFilterOption] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-
-  // Modal states
   const [showViewModal, setShowViewModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [showPackagesModal, setShowPackagesModal] = useState(false);
+  const [showPackageModal, setShowPackageModal] = useState(false);
   const [selectedSubscriber, setSelectedSubscriber] = useState(null);
+  const [showFilters, setShowFilters] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Package extension states
+  // Package management states
   const [extendingPackageId, setExtendingPackageId] = useState(null);
   const [extensionDays, setExtensionDays] = useState("30");
 
-  // Form data (only basic info now)
   const [formData, setFormData] = useState({
     subscriberName: "",
     macAddress: "",
     serialNumber: "",
   });
 
-  // Fetch data on mount
   useEffect(() => {
     fetchSubscribers();
     fetchPackages();
     if (user.role !== "reseller") {
       fetchResellers();
     }
-  }, [statusFilter, resellerFilter, filterOption]);
+  }, [statusFilter, filterOption]);
 
   const fetchSubscribers = async () => {
     try {
       setLoading(true);
       const params = new URLSearchParams();
       if (statusFilter) params.append("status", statusFilter);
-      if (resellerFilter) params.append("resellerId", resellerFilter);
 
       const response = await api.get(`/subscribers?${params.toString()}`);
       setSubscribers(response.data.data.subscribers);
     } catch (error) {
-      console.error("Failed to fetch subscribers", error);
+      console.error("Failed to fetch subscribers:", error);
     } finally {
       setLoading(false);
     }
@@ -84,7 +82,7 @@ const Subscribers = () => {
       const response = await api.get("/subscribers/resellers");
       setResellers(response.data.data.resellers);
     } catch (error) {
-      console.error("Failed to fetch resellers", error);
+      console.error("Failed to fetch resellers:", error);
     }
   };
 
@@ -93,11 +91,10 @@ const Subscribers = () => {
       const response = await api.get("/subscribers/packages");
       setPackages(response.data.data.packages);
     } catch (error) {
-      console.error("Failed to fetch packages", error);
+      console.error("Failed to fetch packages:", error);
     }
   };
 
-  // Modal handlers
   const handleViewDetails = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setShowViewModal(true);
@@ -118,14 +115,13 @@ const Subscribers = () => {
     setShowDeleteModal(true);
   };
 
-  const handlePackagesClick = (subscriber) => {
+  const handleManagePackages = (subscriber) => {
     setSelectedSubscriber(subscriber);
     setExtendingPackageId(null);
     setExtensionDays("30");
-    setShowPackagesModal(true);
+    setShowPackageModal(true);
   };
 
-  // Update subscriber (basic info only)
   const handleUpdate = async (e) => {
     e.preventDefault();
     setSubmitting(true);
@@ -143,7 +139,6 @@ const Subscribers = () => {
     }
   };
 
-  // Delete subscriber
   const handleDelete = async () => {
     setSubmitting(true);
     try {
@@ -160,11 +155,10 @@ const Subscribers = () => {
     }
   };
 
-  // Add package to subscriber
+  // NEW: Add package to subscriber
   const handleAddPackage = async (packageId) => {
-    const days = parseInt(extensionDays) || 30;
-    if (days <= 0) {
-      alert("Please enter valid days");
+    if (!extensionDays || parseInt(extensionDays) <= 0) {
+      alert("Please enter valid number of days");
       return;
     }
 
@@ -174,23 +168,18 @@ const Subscribers = () => {
         `/subscribers/${selectedSubscriber._id}/packages/add`,
         {
           packageId,
-          days,
+          days: parseInt(extensionDays),
         }
       );
 
-      const { chargedAmount, remainingBalance } = response.data;
-      alert(
-        `Package added successfully!\n` +
-          `Charged: ₹${chargedAmount}\n` +
-          `Remaining Balance: ₹${remainingBalance?.toFixed(2) || "N/A"}`
-      );
+      alert(response.data.message || "Package added successfully!");
 
+      // Update the subscriber in the modal
+      setSelectedSubscriber(response.data.data.subscriber);
+
+      // Refresh the list
       fetchSubscribers();
-      // Refresh modal data
-      const updatedSub = await api.get(
-        `/subscribers/${selectedSubscriber._id}`
-      );
-      setSelectedSubscriber(updatedSub.data.data.subscriber);
+      setExtendingPackageId(null);
       setExtensionDays("30");
     } catch (error) {
       console.error("Add package error:", error);
@@ -200,11 +189,10 @@ const Subscribers = () => {
     }
   };
 
-  // Extend package expiry
+  // NEW: Extend existing package
   const handleExtendPackage = async (packageId) => {
-    const days = parseInt(extensionDays) || 30;
-    if (days <= 0) {
-      alert("Please enter valid days");
+    if (!extensionDays || parseInt(extensionDays) <= 0) {
+      alert("Please enter valid number of days");
       return;
     }
 
@@ -212,22 +200,18 @@ const Subscribers = () => {
     try {
       const response = await api.post(
         `/subscribers/${selectedSubscriber._id}/packages/${packageId}/extend`,
-        { days }
+        {
+          days: parseInt(extensionDays),
+        }
       );
 
-      const { chargedAmount, remainingBalance } = response.data;
-      alert(
-        `Package extended successfully!\n` +
-          `Charged: ₹${chargedAmount}\n` +
-          `Remaining Balance: ₹${remainingBalance?.toFixed(2) || "N/A"}`
-      );
+      alert(response.data.message || "Package extended successfully!");
 
+      // Update the subscriber in the modal
+      setSelectedSubscriber(response.data.data.subscriber);
+
+      // Refresh the list
       fetchSubscribers();
-      // Refresh modal data
-      const updatedSub = await api.get(
-        `/subscribers/${selectedSubscriber._id}`
-      );
-      setSelectedSubscriber(updatedSub.data.data.subscriber);
       setExtendingPackageId(null);
       setExtensionDays("30");
     } catch (error) {
@@ -238,22 +222,25 @@ const Subscribers = () => {
     }
   };
 
-  // Remove package from subscriber
+  // NEW: Remove package from subscriber
   const handleRemovePackage = async (packageId) => {
-    if (!confirm("Are you sure you want to remove this package?")) return;
+    if (!confirm("Are you sure you want to remove this package?")) {
+      return;
+    }
 
     setSubmitting(true);
     try {
-      await api.delete(
+      const response = await api.delete(
         `/subscribers/${selectedSubscriber._id}/packages/${packageId}`
       );
+
       alert("Package removed successfully!");
+
+      // Update the subscriber in the modal
+      setSelectedSubscriber(response.data.data.subscriber);
+
+      // Refresh the list
       fetchSubscribers();
-      // Refresh modal data
-      const updatedSub = await api.get(
-        `/subscribers/${selectedSubscriber._id}`
-      );
-      setSelectedSubscriber(updatedSub.data.data.subscriber);
     } catch (error) {
       console.error("Remove package error:", error);
       alert(error.response?.data?.message || "Failed to remove package");
@@ -262,16 +249,16 @@ const Subscribers = () => {
     }
   };
 
-  // Calculate cost for extension
+  // Calculate extension cost
   const calculateExtensionCost = (packageId, days) => {
     const pkg = packages.find((p) => p._id === packageId);
     if (!pkg) return 0;
-    const rawCost = (pkg.costPerDay || 0) * days;
+
+    const cost = (pkg.costPerDay || 0) * days;
     // Round to nearest 10
-    return Math.round(rawCost / 10) * 10;
+    return Math.round(cost / 10) * 10;
   };
 
-  // Filter subscribers
   const filteredSubscribers = subscribers.filter((subscriber) => {
     const searchLower = searchTerm.toLowerCase();
     const matchesSearch =
@@ -284,35 +271,23 @@ const Subscribers = () => {
     if (!filterOption) return matchesSearch;
 
     const now = new Date();
+    const expiry = new Date(subscriber.expiryDate);
+
     switch (filterOption) {
       case "active":
-        return matchesSearch && subscriber.status === "Active";
+        return matchesSearch && expiry > now && subscriber.status === "Active";
       case "expired":
-        return matchesSearch && subscriber.status === "Expired";
+        return matchesSearch && expiry < now;
       case "fresh":
         return matchesSearch && subscriber.status === "Fresh";
-      case "orphaned":
-        return (
-          matchesSearch &&
-          subscriber.status === "Fresh" &&
-          !subscriber.resellerId
-        );
-      case "expiringsoon":
-        // Check if any package expires in next 7 days
-        const hasExpiringSoon = subscriber.packages?.some((pkg) => {
-          const expiry = new Date(pkg.expiryDate);
-          const daysRemaining = Math.ceil(
-            (expiry - now) / (1000 * 60 * 60 * 24)
-          );
-          return daysRemaining > 0 && daysRemaining <= 7;
-        });
-        return matchesSearch && hasExpiringSoon;
+      case "expiring_soon":
+        const daysRemaining = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
+        return matchesSearch && daysRemaining > 0 && daysRemaining <= 7;
       default:
         return matchesSearch;
     }
   });
 
-  // Get status color
   const getStatusColor = (status) => {
     switch (status) {
       case "Active":
@@ -326,8 +301,7 @@ const Subscribers = () => {
     }
   };
 
-  // Get package expiry status
-  const getPackageExpiryStatus = (expiryDate) => {
+  const getExpiryStatus = (expiryDate) => {
     const now = new Date();
     const expiry = new Date(expiryDate);
     const daysRemaining = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
@@ -364,13 +338,15 @@ const Subscribers = () => {
     });
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
+  const formatDateTime = (date) => {
+    if (!date) return "N/A";
+    return new Date(date).toLocaleString("en-IN", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -448,40 +424,16 @@ const Subscribers = () => {
                     <option value="">All Subscribers</option>
                     <option value="active">Active Only</option>
                     <option value="expired">Expired</option>
-                    <option value="expiringsoon">Expiring in 7 Days</option>
+                    <option value="expiring_soon">Expiring in 7 Days</option>
                     <option value="fresh">Fresh Users</option>
-                    {user.role === "admin" && (
-                      <option value="orphaned">Orphaned MACs</option>
-                    )}
                   </select>
                 </div>
 
-                {user.role !== "reseller" && (
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                      Reseller
-                    </label>
-                    <select
-                      value={resellerFilter}
-                      onChange={(e) => setResellerFilter(e.target.value)}
-                      className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="">All Resellers</option>
-                      {resellers.map((reseller) => (
-                        <option key={reseller._id} value={reseller._id}>
-                          {reseller.name} ({reseller.partnerCode || "N/A"})
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
-
                 <div className="flex items-end">
-                  {(statusFilter || resellerFilter || filterOption) && (
+                  {(statusFilter || filterOption) && (
                     <button
                       onClick={() => {
                         setStatusFilter("");
-                        setResellerFilter("");
                         setFilterOption("");
                       }}
                       className="w-full px-4 py-2.5 text-sm text-blue-600 hover:text-blue-700 font-medium bg-blue-50 rounded-xl hover:bg-blue-100 transition-all"
@@ -495,358 +447,557 @@ const Subscribers = () => {
           )}
         </div>
 
-        {/* Subscribers Table */}
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Subscriber
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    MAC / Serial
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Packages
-                  </th>
-                  {user.role !== "reseller" && (
-                    <th className="px-6 py-4 text-left text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                      Reseller
+        {/* Stats Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
+          <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-blue-600 font-medium mb-1">Total</p>
+                <p className="text-3xl font-bold text-blue-900">
+                  {filteredSubscribers.length}
+                </p>
+              </div>
+              <UserCheck className="w-10 h-10 text-blue-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-green-600 font-medium mb-1">
+                  Active
+                </p>
+                <p className="text-3xl font-bold text-green-900">
+                  {
+                    filteredSubscribers.filter((s) => s.status === "Active")
+                      .length
+                  }
+                </p>
+              </div>
+              <CheckCircle className="w-10 h-10 text-green-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-orange-50 to-orange-100 rounded-xl p-4 border border-orange-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-orange-600 font-medium mb-1">
+                  Expiring Soon
+                </p>
+                <p className="text-3xl font-bold text-orange-900">
+                  {
+                    filteredSubscribers.filter((s) => {
+                      const days = Math.ceil(
+                        (new Date(s.expiryDate) - new Date()) /
+                          (1000 * 60 * 60 * 24)
+                      );
+                      return days > 0 && days <= 7;
+                    }).length
+                  }
+                </p>
+              </div>
+              <AlertCircle className="w-10 h-10 text-orange-600 opacity-50" />
+            </div>
+          </div>
+          <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-purple-600 font-medium mb-1">
+                  Fresh
+                </p>
+                <p className="text-3xl font-bold text-purple-900">
+                  {
+                    filteredSubscribers.filter((s) => s.status === "Fresh")
+                      .length
+                  }
+                </p>
+              </div>
+              <User className="w-10 h-10 text-purple-600 opacity-50" />
+            </div>
+          </div>
+        </div>
+
+        {/* Table */}
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader className="w-8 h-8 text-blue-600 animate-spin" />
+          </div>
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="bg-gradient-to-r from-gray-50 to-gray-100 border-b-2 border-gray-300">
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      #
                     </th>
-                  )}
-                  <th className="px-6 py-4 text-right text-xs font-semibold text-gray-700 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200">
-                {filteredSubscribers.length === 0 ? (
-                  <tr>
-                    <td
-                      colSpan="6"
-                      className="px-6 py-12 text-center text-gray-500"
-                    >
-                      <AlertCircle className="w-12 h-12 mx-auto mb-4 text-gray-400" />
-                      <p className="text-lg font-medium">
-                        No subscribers found
-                      </p>
-                      <p className="text-sm">
-                        Try adjusting your filters or search terms
-                      </p>
-                    </td>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Subscriber Info
+                    </th>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      MAC / Serial
+                    </th>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Upline Info
+                    </th>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Status
+                    </th>
+                    <th className="px-4 py-4 text-left text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Packages
+                    </th>
+                    <th className="px-4 py-4 text-right text-xs font-bold text-gray-700 uppercase tracking-wider">
+                      Actions
+                    </th>
                   </tr>
-                ) : (
-                  filteredSubscribers.map((subscriber) => (
-                    <tr
-                      key={subscriber._id}
-                      className="hover:bg-gray-50 transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <div className="font-medium text-gray-900">
-                          {subscriber.subscriberName}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="text-sm text-gray-900">
-                          {subscriber.macAddress}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          {subscriber.serialNumber}
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getStatusColor(
-                            subscriber.status
-                          )}`}
-                        >
-                          {subscriber.status}
-                        </span>
-                      </td>
-                      <td className="px-6 py-4">
-                        {subscriber.packages &&
-                        subscriber.packages.length > 0 ? (
-                          <div className="space-y-1">
-                            {subscriber.packages.slice(0, 2).map((pkg) => {
-                              const status = getPackageExpiryStatus(
-                                pkg.expiryDate
-                              );
-                              return (
-                                <div
-                                  key={pkg._id}
-                                  className="flex items-center space-x-2 text-xs"
-                                >
-                                  <span className="font-medium text-gray-700">
-                                    {pkg.packageId?.name || "Unknown"}
-                                  </span>
-                                  <span
-                                    className={`px-2 py-0.5 rounded ${status.bgColor} ${status.color} font-medium`}
-                                  >
-                                    {status.text}
-                                  </span>
-                                </div>
-                              );
-                            })}
-                            {subscriber.packages.length > 2 && (
-                              <div className="text-xs text-blue-600 font-medium">
-                                +{subscriber.packages.length - 2} more
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-gray-500">
-                            No packages
-                          </span>
-                        )}
-                      </td>
-                      {user.role !== "reseller" && (
-                        <td className="px-6 py-4">
-                          {subscriber.resellerInfo ? (
-                            <div>
-                              <div className="text-sm font-medium text-gray-900">
-                                {subscriber.resellerInfo.name}
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                {subscriber.resellerInfo.partnerCode}
-                              </div>
-                            </div>
-                          ) : (
-                            <span className="text-xs text-gray-500">N/A</span>
-                          )}
-                        </td>
-                      )}
-                      <td className="px-6 py-4 text-right">
-                        <div className="flex items-center justify-end space-x-2">
-                          <button
-                            onClick={() => handleViewDetails(subscriber)}
-                            className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                            title="View Details"
-                          >
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(subscriber)}
-                            className="p-2 text-green-600 hover:bg-green-50 rounded-lg transition-colors"
-                            title="Edit"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handlePackagesClick(subscriber)}
-                            className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-colors"
-                            title="Manage Packages"
-                          >
-                            <PackageIcon className="w-4 h-4" />
-                          </button>
-                          <button
-                            onClick={() => handleDeleteClick(subscriber)}
-                            className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                            title="Delete"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                </thead>
+                <tbody className="divide-y divide-gray-200">
+                  {filteredSubscribers.length === 0 ? (
+                    <tr>
+                      <td colSpan="7" className="px-6 py-12 text-center">
+                        <div className="flex flex-col items-center justify-center space-y-2">
+                          <UserCheck className="w-12 h-12 text-gray-300" />
+                          <p className="text-gray-500 font-medium">
+                            No subscribers found
+                          </p>
+                          <p className="text-sm text-gray-400">
+                            Try adjusting your filters
+                          </p>
                         </div>
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    filteredSubscribers.map((subscriber, index) => {
+                      const expiryStatus = getExpiryStatus(
+                        subscriber.expiryDate
+                      );
+
+                      return (
+                        <tr
+                          key={subscriber._id}
+                          className="hover:bg-blue-50 transition-colors"
+                        >
+                          <td className="px-4 py-4">
+                            <span className="text-sm font-bold text-gray-600">
+                              {index + 1}
+                            </span>
+                          </td>
+
+                          {/* Subscriber Info */}
+                          <td className="px-4 py-4">
+                            <div className="flex items-start space-x-3">
+                              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-full flex items-center justify-center text-white font-bold text-sm">
+                                {subscriber.subscriberName
+                                  .charAt(0)
+                                  .toUpperCase()}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-gray-900">
+                                  {subscriber.subscriberName}
+                                </p>
+                                <div className="flex items-center space-x-1 mt-1">
+                                  <Calendar className="w-3 h-3 text-gray-400" />
+                                  <p className="text-xs text-gray-500">
+                                    Joined: {formatDate(subscriber.createdAt)}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          </td>
+
+                          {/* MAC / Serial */}
+                          <td className="px-4 py-4">
+                            <div className="space-y-1">
+                              <div className="flex items-center space-x-1">
+                                <Hash className="w-3 h-3 text-gray-400" />
+                                <p className="text-xs font-mono text-gray-900 font-semibold">
+                                  {subscriber.macAddress}
+                                </p>
+                              </div>
+                              <p className="text-xs font-mono text-gray-500">
+                                SN: {subscriber.serialNumber}
+                              </p>
+                            </div>
+                          </td>
+
+                          {/* Upline Info */}
+                          <td className="px-4 py-4">
+                            <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-lg p-2 border border-indigo-200">
+                              <div className="flex items-center space-x-2 mb-1">
+                                <User className="w-3 h-3 text-indigo-600" />
+                                <p className="text-xs font-bold text-indigo-900">
+                                  {subscriber.resellerInfo?.name || "N/A"}
+                                </p>
+                              </div>
+                              {subscriber.resellerInfo?.partnerCode && (
+                                <div className="flex items-center space-x-1">
+                                  <Hash className="w-3 h-3 text-indigo-500" />
+                                  <p className="text-xs font-mono text-indigo-700 font-semibold">
+                                    {subscriber.resellerInfo.partnerCode}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          </td>
+
+                          {/* Status */}
+                          <td className="px-4 py-4">
+                            <div className="space-y-2">
+                              <span
+                                className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold border ${getStatusColor(
+                                  subscriber.status
+                                )}`}
+                              >
+                                {subscriber.status}
+                              </span>
+                            </div>
+                          </td>
+
+                          {/* Packages */}
+                          <td className="px-4 py-4">
+                            {subscriber.packages &&
+                            subscriber.packages.length > 0 ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center space-x-1">
+                                  <PackageIcon className="w-3 h-3 text-blue-600" />
+                                  <p className="text-xs font-bold text-blue-900">
+                                    {subscriber.packages.length} Package(s)
+                                  </p>
+                                </div>
+                                {subscriber.packages
+                                  .slice(0, 2)
+                                  .map((pkg, idx) => (
+                                    <div
+                                      key={idx}
+                                      className="text-xs text-gray-600"
+                                    >
+                                      <p className="font-semibold">
+                                        • {pkg.packageId?.name || "Unknown"}
+                                      </p>
+                                      <p className="text-gray-500 ml-3">
+                                        Expires: {formatDate(pkg.expiryDate)}
+                                      </p>
+                                    </div>
+                                  ))}
+                                {subscriber.packages.length > 2 && (
+                                  <p className="text-xs text-blue-600 font-semibold">
+                                    +{subscriber.packages.length - 2} more
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-gray-400 italic">
+                                No packages
+                              </span>
+                            )}
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-4 py-4">
+                            <div className="flex items-center justify-end space-x-1">
+                              <button
+                                onClick={() => handleViewDetails(subscriber)}
+                                className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
+                                title="View Details"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleEdit(subscriber)}
+                                className="p-2 text-orange-600 hover:bg-orange-50 rounded-lg transition-all"
+                                title="Edit"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleManagePackages(subscriber)}
+                                className="p-2 text-purple-600 hover:bg-purple-50 rounded-lg transition-all"
+                                title="Manage Packages"
+                              >
+                                <PackageIcon className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteClick(subscriber)}
+                                className="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                title="Delete"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
-      {/* View Details Modal */}
+      {/* VIEW MODAL */}
       {showViewModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-gray-900">
-                Subscriber Details
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-blue-600 to-purple-600 flex items-center justify-between px-6 py-4">
+              <h2 className="text-xl font-bold text-white">
+                Subscriber Complete Details
               </h2>
               <button
                 onClick={() => setShowViewModal(false)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
-                <X className="w-5 h-5 text-gray-500" />
+                <X className="w-5 h-5 text-white" />
               </button>
             </div>
+
             <div className="p-6 space-y-6">
               {/* Basic Info */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                  Basic Information
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4 border border-blue-200">
+                  <p className="text-xs text-blue-600 font-semibold mb-2">
+                    Subscriber Name
+                  </p>
+                  <p className="text-lg font-bold text-blue-900">
+                    {selectedSubscriber.subscriberName}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4 border border-purple-200">
+                  <p className="text-xs text-purple-600 font-semibold mb-2">
+                    MAC Address
+                  </p>
+                  <p className="text-lg font-mono font-bold text-purple-900">
+                    {selectedSubscriber.macAddress}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-indigo-50 to-indigo-100 rounded-xl p-4 border border-indigo-200">
+                  <p className="text-xs text-indigo-600 font-semibold mb-2">
+                    Serial Number
+                  </p>
+                  <p className="text-lg font-mono font-bold text-indigo-900">
+                    {selectedSubscriber.serialNumber}
+                  </p>
+                </div>
+                <div className="bg-gradient-to-br from-green-50 to-green-100 rounded-xl p-4 border border-green-200">
+                  <p className="text-xs text-green-600 font-semibold mb-2">
+                    Status
+                  </p>
+                  <span
+                    className={`inline-flex items-center px-3 py-1.5 rounded-full text-sm font-bold border ${getStatusColor(
+                      selectedSubscriber.status
+                    )}`}
+                  >
+                    {selectedSubscriber.status}
+                  </span>
+                </div>
+              </div>
+
+              {/* Upline Info */}
+              <div className="bg-gradient-to-r from-indigo-50 to-purple-50 rounded-xl p-4 border-2 border-indigo-300">
+                <h3 className="text-sm font-bold text-indigo-900 mb-3 flex items-center space-x-2">
+                  <User className="w-4 h-4" />
+                  <span>Upline / Reseller Information</span>
                 </h3>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Name</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedSubscriber.subscriberName}
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Reseller Name
+                    </p>
+                    <p className="text-base font-bold text-indigo-900">
+                      {selectedSubscriber.resellerInfo?.name || "N/A"}
                     </p>
                   </div>
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">MAC Address</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedSubscriber.macAddress}
+                    <p className="text-xs text-indigo-600 font-semibold mb-1">
+                      Partner Code
                     </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Serial Number</p>
-                    <p className="text-sm font-medium text-gray-900">
-                      {selectedSubscriber.serialNumber}
+                    <p className="text-base font-mono font-bold text-indigo-900">
+                      {selectedSubscriber.resellerInfo?.partnerCode || "N/A"}
                     </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Status</p>
-                    <span
-                      className={`inline-flex items-center px-2.5 py-1 rounded-lg text-xs font-semibold border ${getStatusColor(
-                        selectedSubscriber.status
-                      )}`}
-                    >
-                      {selectedSubscriber.status}
-                    </span>
                   </div>
                 </div>
               </div>
 
               {/* Packages */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                  Packages
-                </h3>
-                {selectedSubscriber.packages &&
-                selectedSubscriber.packages.length > 0 ? (
-                  <div className="space-y-3">
-                    {selectedSubscriber.packages.map((pkg) => {
-                      const status = getPackageExpiryStatus(pkg.expiryDate);
-                      return (
+              {selectedSubscriber.packages &&
+                selectedSubscriber.packages.length > 0 && (
+                  <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-200">
+                    <h3 className="text-sm font-bold text-blue-900 mb-3 flex items-center space-x-2">
+                      <PackageIcon className="w-4 h-4" />
+                      <span>
+                        Assigned Packages ({selectedSubscriber.packages.length})
+                      </span>
+                    </h3>
+                    <div className="space-y-2">
+                      {selectedSubscriber.packages.map((pkg, idx) => (
                         <div
-                          key={pkg._id}
-                          className="p-4 bg-gray-50 rounded-lg"
+                          key={idx}
+                          className="flex items-center justify-between bg-white rounded-lg p-3 border border-blue-200"
                         >
-                          <div className="flex items-center justify-between mb-2">
-                            <span className="font-medium text-gray-900">
+                          <div>
+                            <span className="font-semibold text-gray-900">
                               {pkg.packageId?.name || "Unknown"}
                             </span>
-                            <span
-                              className={`px-2 py-1 rounded text-xs ${status.bgColor} ${status.color} font-medium`}
-                            >
-                              {status.text}
-                            </span>
+                            <p className="text-xs text-gray-500 mt-1">
+                              Added: {formatDate(pkg.addedAt)}
+                            </p>
                           </div>
-                          <div className="text-xs text-gray-600">
-                            Expires: {formatDate(pkg.expiryDate)}
+                          <div className="text-right">
+                            <span className="text-sm font-bold text-blue-600">
+                              ₹{pkg.packageId?.cost || 0} /{" "}
+                              {pkg.packageId?.duration || 0}d
+                            </span>
+                            <p className="text-xs text-gray-600 mt-1">
+                              Expires: {formatDate(pkg.expiryDate)}
+                            </p>
                           </div>
                         </div>
-                      );
-                    })}
+                      ))}
+                    </div>
                   </div>
-                ) : (
-                  <p className="text-sm text-gray-500">No packages assigned</p>
                 )}
-              </div>
 
-              {/* Reseller Info */}
-              {selectedSubscriber.resellerInfo && (
-                <div>
-                  <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                    Reseller Information
+              {/* Location & Device */}
+              {selectedSubscriber.lastLocation && (
+                <div className="bg-gradient-to-br from-green-50 to-teal-50 rounded-xl p-4 border border-green-200">
+                  <h3 className="text-sm font-bold text-green-900 mb-3 flex items-center space-x-2">
+                    <MapPin className="w-4 h-4" />
+                    <span>Last Known Location</span>
                   </h3>
-                  <div className="grid grid-cols-2 gap-4">
+                  <p className="text-sm font-mono text-green-800">
+                    {selectedSubscriber.lastLocation.coordinates[1].toFixed(6)},{" "}
+                    {selectedSubscriber.lastLocation.coordinates[0].toFixed(6)}
+                  </p>
+                  <p className="text-xs text-green-600 mt-1">
+                    {formatDateTime(selectedSubscriber.lastLocation.timestamp)}
+                  </p>
+                </div>
+              )}
+
+              {selectedSubscriber.deviceInfo && (
+                <div className="bg-gradient-to-br from-gray-50 to-gray-100 rounded-xl p-4 border border-gray-200">
+                  <h3 className="text-sm font-bold text-gray-900 mb-3 flex items-center space-x-2">
+                    <Shield className="w-4 h-4" />
+                    <span>Device Information</span>
+                  </h3>
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <p className="text-xs text-gray-500 mb-1">Name</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedSubscriber.resellerInfo.name}
+                      <p className="text-xs text-gray-600 mb-1">Model</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.deviceModel || "N/A"}
                       </p>
                     </div>
                     <div>
-                      <p className="text-xs text-gray-500 mb-1">Partner Code</p>
-                      <p className="text-sm font-medium text-gray-900">
-                        {selectedSubscriber.resellerInfo.partnerCode}
+                      <p className="text-xs text-gray-600 mb-1">OS Version</p>
+                      <p className="text-sm font-semibold text-gray-900">
+                        {selectedSubscriber.deviceInfo.osVersion || "N/A"}
                       </p>
                     </div>
                   </div>
                 </div>
               )}
             </div>
+
+            <div className="px-6 py-4 bg-gray-50 border-t">
+              <button
+                onClick={() => setShowViewModal(false)}
+                className="w-full px-4 py-3 bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-xl hover:from-gray-700 hover:to-gray-800 transition-all font-semibold"
+              >
+                Close
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* Edit Modal (Basic Info Only) */}
+      {/* EDIT MODAL */}
       {showEditModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full">
-            <div className="bg-gradient-to-r from-green-500 to-green-600 px-6 py-4 flex items-center justify-between rounded-t-2xl">
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-orange-600 to-red-600 flex items-center justify-between px-6 py-4">
               <h2 className="text-xl font-bold text-white">Edit Subscriber</h2>
               <button
                 onClick={() => setShowEditModal(false)}
-                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
+
             <form onSubmit={handleUpdate} className="p-6 space-y-4">
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Subscriber Name *
-                </label>
-                <input
-                  type="text"
-                  value={formData.subscriberName}
-                  onChange={(e) =>
-                    setFormData({ ...formData, subscriberName: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Subscriber Name *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.subscriberName}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        subscriberName: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    MAC Address *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.macAddress}
+                    onChange={(e) =>
+                      setFormData({ ...formData, macAddress: e.target.value })
+                    }
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                    required
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    Serial Number *
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.serialNumber}
+                    onChange={(e) =>
+                      setFormData({
+                        ...formData,
+                        serialNumber: e.target.value,
+                      })
+                    }
+                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-orange-500 font-mono"
+                    required
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  MAC Address *
-                </label>
-                <input
-                  type="text"
-                  value={formData.macAddress}
-                  onChange={(e) =>
-                    setFormData({ ...formData, macAddress: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required
-                />
+
+              <div className="bg-blue-50 rounded-lg p-3 border border-blue-200">
+                <p className="text-xs text-blue-800">
+                  <strong>Note:</strong> To manage packages, use the "Manage
+                  Packages" button from the actions menu.
+                </p>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">
-                  Serial Number *
-                </label>
-                <input
-                  type="text"
-                  value={formData.serialNumber}
-                  onChange={(e) =>
-                    setFormData({ ...formData, serialNumber: e.target.value })
-                  }
-                  className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-green-500"
-                  required
-                />
-              </div>
-              <div className="flex space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowEditModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
-                >
-                  Cancel
-                </button>
+
+              <div className="flex items-center space-x-3 pt-4">
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all font-medium disabled:opacity-50"
+                  className="flex-1 px-4 py-3 bg-gradient-to-r from-orange-600 to-red-600 text-white rounded-xl hover:from-orange-700 hover:to-red-700 transition-all disabled:opacity-50 font-semibold"
                 >
-                  {submitting ? "Updating..." : "Update"}
+                  {submitting ? "Updating..." : "Update Subscriber"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
+                >
+                  Cancel
                 </button>
               </div>
             </form>
@@ -854,306 +1005,307 @@ const Subscribers = () => {
         </div>
       )}
 
-      {/* Packages Modal */}
-      {showPackagesModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
-            <div className="sticky top-0 bg-gradient-to-r from-purple-500 to-purple-600 px-6 py-4 flex items-center justify-between rounded-t-2xl">
-              <div>
-                <h2 className="text-xl font-bold text-white">
-                  Manage Packages
-                </h2>
-                <p className="text-sm text-purple-100">
-                  {selectedSubscriber.subscriberName}
-                </p>
+      {/* DELETE MODAL */}
+      {showDeleteModal && selectedSubscriber && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="p-6">
+              <div className="flex items-center justify-center w-16 h-16 bg-red-100 rounded-full mx-auto mb-4">
+                <Trash2 className="w-8 h-8 text-red-600" />
               </div>
-              <button
-                onClick={() => setShowPackagesModal(false)}
-                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-white" />
-              </button>
-            </div>
-            <div className="p-6 space-y-6">
-              {/* Current Packages */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                  Active Packages
-                </h3>
-                {selectedSubscriber.packages &&
-                selectedSubscriber.packages.length > 0 ? (
-                  <div className="space-y-3">
-                    {selectedSubscriber.packages.map((pkg) => {
-                      const status = getPackageExpiryStatus(pkg.expiryDate);
-                      const isExtending =
-                        extendingPackageId === pkg.packageId._id;
-
-                      return (
-                        <div
-                          key={pkg._id}
-                          className="p-4 bg-gray-50 rounded-xl border border-gray-200"
-                        >
-                          <div className="flex items-start justify-between mb-3">
-                            <div className="flex-1">
-                              <div className="flex items-center space-x-2 mb-1">
-                                <span className="font-medium text-gray-900">
-                                  {pkg.packageId?.name || "Unknown"}
-                                </span>
-                                <span
-                                  className={`px-2 py-0.5 rounded text-xs ${status.bgColor} ${status.color} font-medium`}
-                                >
-                                  {status.text}
-                                </span>
-                              </div>
-                              <div className="text-xs text-gray-600">
-                                Expires: {formatDate(pkg.expiryDate)}
-                              </div>
-                              <div className="text-xs text-gray-500 mt-1">
-                                ₹{pkg.packageId?.costPerDay || 0}/day
-                              </div>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              {!isExtending && (
-                                <>
-                                  <button
-                                    onClick={() => {
-                                      setExtendingPackageId(pkg.packageId._id);
-                                      setExtensionDays("30");
-                                    }}
-                                    className="px-3 py-1.5 text-xs bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all font-medium"
-                                    disabled={submitting}
-                                  >
-                                    Extend
-                                  </button>
-                                  <button
-                                    onClick={() =>
-                                      handleRemovePackage(pkg.packageId._id)
-                                    }
-                                    className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                                    disabled={submitting}
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </>
-                              )}
-                            </div>
-                          </div>
-
-                          {/* Extension UI */}
-                          {isExtending && (
-                            <div className="mt-3 pt-3 border-t border-gray-200">
-                              <div className="flex items-end space-x-3">
-                                <div className="flex-1">
-                                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    Days to extend
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={extensionDays}
-                                    onChange={(e) =>
-                                      setExtensionDays(e.target.value)
-                                    }
-                                    min="1"
-                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
-                                    placeholder="30"
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    Cost
-                                  </label>
-                                  <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm font-semibold text-purple-700">
-                                    ₹
-                                    {calculateExtensionCost(
-                                      pkg.packageId._id,
-                                      parseInt(extensionDays) || 0
-                                    )}
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() =>
-                                    handleExtendPackage(pkg.packageId._id)
-                                  }
-                                  disabled={
-                                    submitting ||
-                                    !extensionDays ||
-                                    parseInt(extensionDays) <= 0
-                                  }
-                                  className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all font-medium text-sm disabled:opacity-50"
-                                >
-                                  {submitting ? "Processing..." : "Confirm"}
-                                </button>
-                                <button
-                                  onClick={() => setExtendingPackageId(null)}
-                                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all font-medium text-sm"
-                                  disabled={submitting}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
-                    No packages assigned yet
-                  </p>
-                )}
-              </div>
-
-              {/* Available Packages */}
-              <div>
-                <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
-                  Add New Package
-                </h3>
-                <div className="space-y-2">
-                  {packages
-                    .filter(
-                      (pkg) =>
-                        !selectedSubscriber.packages?.some(
-                          (sp) => sp.packageId._id === pkg._id
-                        )
-                    )
-                    .map((pkg) => {
-                      const isAdding = extendingPackageId === pkg._id;
-
-                      return (
-                        <div
-                          key={pkg._id}
-                          className="p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-300 transition-colors"
-                        >
-                          <div className="flex items-start justify-between">
-                            <div className="flex-1">
-                              <div className="font-medium text-gray-900 mb-1">
-                                {pkg.name}
-                              </div>
-                              <div className="text-xs text-gray-600">
-                                ₹{pkg.cost} for {pkg.duration} days (₹
-                                {pkg.costPerDay}/day)
-                              </div>
-                            </div>
-                            {!isAdding && (
-                              <button
-                                onClick={() => {
-                                  setExtendingPackageId(pkg._id);
-                                  setExtensionDays("30");
-                                }}
-                                className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all font-medium flex items-center space-x-1"
-                                disabled={submitting}
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Add</span>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Add Package UI */}
-                          {isAdding && (
-                            <div className="mt-3 pt-3 border-t border-gray-200">
-                              <div className="flex items-end space-x-3">
-                                <div className="flex-1">
-                                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    Days
-                                  </label>
-                                  <input
-                                    type="number"
-                                    value={extensionDays}
-                                    onChange={(e) =>
-                                      setExtensionDays(e.target.value)
-                                    }
-                                    min="1"
-                                    className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
-                                    placeholder="30"
-                                  />
-                                </div>
-                                <div className="flex-1">
-                                  <label className="block text-xs font-semibold text-gray-700 mb-1">
-                                    Cost
-                                  </label>
-                                  <div className="px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm font-semibold text-green-700">
-                                    ₹
-                                    {calculateExtensionCost(
-                                      pkg._id,
-                                      parseInt(extensionDays) || 0
-                                    )}
-                                  </div>
-                                </div>
-                                <button
-                                  onClick={() => handleAddPackage(pkg._id)}
-                                  disabled={
-                                    submitting ||
-                                    !extensionDays ||
-                                    parseInt(extensionDays) <= 0
-                                  }
-                                  className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all font-medium text-sm disabled:opacity-50"
-                                >
-                                  {submitting ? "Processing..." : "Confirm"}
-                                </button>
-                                <button
-                                  onClick={() => setExtendingPackageId(null)}
-                                  className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all font-medium text-sm"
-                                  disabled={submitting}
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
-                </div>
+              <h2 className="text-xl font-bold text-gray-900 text-center mb-2">
+                Delete Subscriber
+              </h2>
+              <p className="text-gray-600 text-center mb-6">
+                Are you sure you want to delete "
+                <span className="font-semibold">
+                  {selectedSubscriber?.subscriberName}
+                </span>
+                "? This action cannot be undone.
+              </p>
+              <div className="flex items-center space-x-3">
+                <button
+                  onClick={handleDelete}
+                  disabled={submitting}
+                  className="flex-1 px-4 py-3 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all disabled:opacity-50 font-semibold"
+                >
+                  {submitting ? "Deleting..." : "Delete"}
+                </button>
+                <button
+                  onClick={() => {
+                    setShowDeleteModal(false);
+                    setSelectedSubscriber(null);
+                  }}
+                  className="flex-1 px-4 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-semibold"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           </div>
         </div>
       )}
 
-      {/* Delete Modal */}
-      {showDeleteModal && selectedSubscriber && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
-            <div className="bg-gradient-to-r from-red-500 to-red-600 px-6 py-4 flex items-center justify-between rounded-t-2xl">
-              <h2 className="text-xl font-bold text-white">Confirm Delete</h2>
+      {/* PACKAGE MANAGEMENT MODAL */}
+      {showPackageModal && selectedSubscriber && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-gradient-to-r from-purple-600 to-pink-600 flex items-center justify-between px-6 py-4 rounded-t-2xl">
+              <h2 className="text-xl font-bold text-white flex items-center space-x-2">
+                <PackageIcon className="w-5 h-5" />
+                <span>
+                  Manage Packages - {selectedSubscriber.subscriberName}
+                </span>
+              </h2>
               <button
-                onClick={() => setShowDeleteModal(false)}
-                className="p-2 hover:bg-white/20 rounded-lg transition-colors"
+                onClick={() => {
+                  setShowPackageModal(false);
+                  setExtendingPackageId(null);
+                }}
+                className="p-2 hover:bg-white/20 rounded-lg transition-all"
               >
                 <X className="w-5 h-5 text-white" />
               </button>
             </div>
+
             <div className="p-6">
-              <div className="mb-6">
-                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <AlertCircle className="w-8 h-8 text-red-600" />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                {/* Current Packages */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
+                    Current Packages
+                  </h3>
+                  {selectedSubscriber.packages &&
+                  selectedSubscriber.packages.length > 0 ? (
+                    <div className="space-y-3">
+                      {selectedSubscriber.packages.map((pkg) => {
+                        const isExtending =
+                          extendingPackageId === pkg.packageId._id;
+
+                        return (
+                          <div
+                            key={pkg.packageId._id}
+                            className="p-4 bg-gradient-to-br from-blue-50 to-indigo-50 border border-blue-200 rounded-xl"
+                          >
+                            <div className="flex items-start justify-between mb-2">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 mb-1">
+                                  {pkg.packageId.name}
+                                </div>
+                                <div className="text-xs text-gray-600 space-y-1">
+                                  <p>
+                                    ₹{pkg.packageId.cost} for{" "}
+                                    {pkg.packageId.duration} days (₹
+                                    {pkg.packageId.costPerDay}/day)
+                                  </p>
+                                  <p>
+                                    Expires:{" "}
+                                    <span className="font-semibold">
+                                      {formatDate(pkg.expiryDate)}
+                                    </span>
+                                  </p>
+                                  <p>Added: {formatDate(pkg.addedAt)}</p>
+                                </div>
+                              </div>
+                              <div className="flex space-x-1">
+                                {!isExtending && (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setExtendingPackageId(
+                                          pkg.packageId._id
+                                        );
+                                        setExtensionDays("30");
+                                      }}
+                                      className="p-2 text-purple-600 hover:bg-purple-100 rounded-lg transition-all"
+                                      title="Extend"
+                                      disabled={submitting}
+                                    >
+                                      <TrendingUp className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        handleRemovePackage(pkg.packageId._id)
+                                      }
+                                      className="p-2 text-red-600 hover:bg-red-100 rounded-lg transition-all"
+                                      title="Remove"
+                                      disabled={submitting}
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Extend Package UI */}
+                            {isExtending && (
+                              <div className="mt-3 pt-3 border-t border-blue-300">
+                                <div className="flex items-end space-x-3">
+                                  <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                      Days
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={extensionDays}
+                                      onChange={(e) =>
+                                        setExtensionDays(e.target.value)
+                                      }
+                                      min="1"
+                                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                                      placeholder="30"
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                      Cost
+                                    </label>
+                                    <div className="px-3 py-2 bg-purple-50 border border-purple-200 rounded-lg text-sm font-semibold text-purple-700">
+                                      ₹
+                                      {calculateExtensionCost(
+                                        pkg.packageId._id,
+                                        parseInt(extensionDays) || 0
+                                      )}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() =>
+                                      handleExtendPackage(pkg.packageId._id)
+                                    }
+                                    disabled={
+                                      submitting ||
+                                      !extensionDays ||
+                                      parseInt(extensionDays) <= 0
+                                    }
+                                    className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-all font-medium text-sm disabled:opacity-50"
+                                  >
+                                    {submitting ? "Processing..." : "Confirm"}
+                                  </button>
+                                  <button
+                                    onClick={() => setExtendingPackageId(null)}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all font-medium text-sm"
+                                    disabled={submitting}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500 p-4 bg-gray-50 rounded-lg">
+                      No packages assigned yet
+                    </p>
+                  )}
                 </div>
-                <p className="text-center text-gray-700 mb-2">
-                  Are you sure you want to delete this subscriber?
-                </p>
-                <p className="text-center text-sm text-gray-600 font-medium">
-                  {selectedSubscriber.subscriberName}
-                </p>
-                <p className="text-center text-xs text-gray-500 mt-1">
-                  {selectedSubscriber.macAddress}
-                </p>
-              </div>
-              <div className="flex space-x-3">
-                <button
-                  onClick={() => setShowDeleteModal(false)}
-                  className="flex-1 px-4 py-2.5 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleDelete}
-                  disabled={submitting}
-                  className="flex-1 px-4 py-2.5 bg-red-600 text-white rounded-xl hover:bg-red-700 transition-all font-medium disabled:opacity-50"
-                >
-                  {submitting ? "Deleting..." : "Delete"}
-                </button>
+
+                {/* Available Packages */}
+                <div>
+                  <h3 className="text-sm font-semibold text-gray-700 uppercase mb-3">
+                    Add New Package
+                  </h3>
+                  <div className="space-y-2">
+                    {packages
+                      .filter(
+                        (pkg) =>
+                          !selectedSubscriber.packages?.some(
+                            (sp) => sp.packageId._id === pkg._id
+                          )
+                      )
+                      .map((pkg) => {
+                        const isAdding = extendingPackageId === pkg._id;
+
+                        return (
+                          <div
+                            key={pkg._id}
+                            className="p-4 bg-white border border-gray-200 rounded-xl hover:border-purple-300 transition-colors"
+                          >
+                            <div className="flex items-start justify-between">
+                              <div className="flex-1">
+                                <div className="font-medium text-gray-900 mb-1">
+                                  {pkg.name}
+                                </div>
+                                <div className="text-xs text-gray-600">
+                                  ₹{pkg.cost} for {pkg.duration} days (₹
+                                  {pkg.costPerDay}/day)
+                                </div>
+                              </div>
+                              {!isAdding && (
+                                <button
+                                  onClick={() => {
+                                    setExtendingPackageId(pkg._id);
+                                    setExtensionDays("30");
+                                  }}
+                                  className="px-3 py-1.5 text-xs bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all font-medium flex items-center space-x-1"
+                                  disabled={submitting}
+                                >
+                                  <Plus className="w-3 h-3" />
+                                  <span>Add</span>
+                                </button>
+                              )}
+                            </div>
+
+                            {/* Add Package UI */}
+                            {isAdding && (
+                              <div className="mt-3 pt-3 border-t border-gray-200">
+                                <div className="flex items-end space-x-3">
+                                  <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                      Days
+                                    </label>
+                                    <input
+                                      type="number"
+                                      value={extensionDays}
+                                      onChange={(e) =>
+                                        setExtensionDays(e.target.value)
+                                      }
+                                      min="1"
+                                      className="w-full px-3 py-2 bg-white border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-sm"
+                                      placeholder="30"
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                      Cost
+                                    </label>
+                                    <div className="px-3 py-2 bg-green-50 border border-green-200 rounded-lg text-sm font-semibold text-green-700">
+                                      ₹
+                                      {calculateExtensionCost(
+                                        pkg._id,
+                                        parseInt(extensionDays) || 0
+                                      )}
+                                    </div>
+                                  </div>
+                                  <button
+                                    onClick={() => handleAddPackage(pkg._id)}
+                                    disabled={
+                                      submitting ||
+                                      !extensionDays ||
+                                      parseInt(extensionDays) <= 0
+                                    }
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-all font-medium text-sm disabled:opacity-50"
+                                  >
+                                    {submitting ? "Processing..." : "Confirm"}
+                                  </button>
+                                  <button
+                                    onClick={() => setExtendingPackageId(null)}
+                                    className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-all font-medium text-sm"
+                                    disabled={submitting}
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
               </div>
             </div>
           </div>

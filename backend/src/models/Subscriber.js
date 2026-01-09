@@ -33,9 +33,21 @@ const subscriberSchema = new mongoose.Schema({
         type: Date,
         default: Date.now,
     },
+    // FIXED: Updated to support per-package expiry tracking
     packages: [{
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Package',
+        packageId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'Package',
+            required: true
+        },
+        expiryDate: {
+            type: Date,
+            required: true
+        },
+        addedAt: {
+            type: Date,
+            default: Date.now
+        }
     }],
     primaryPackageId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -92,7 +104,7 @@ const subscriberSchema = new mongoose.Schema({
 // Create geospatial index
 subscriberSchema.index({ 'lastLocation.coordinates': '2dsphere' });
 
-// Create unique index for macAddress
+// Create unique index for serialNumber per reseller
 subscriberSchema.index({ resellerId: 1, serialNumber: 1 }, { unique: true });
 
 export default mongoose.model('Subscriber', subscriberSchema);
