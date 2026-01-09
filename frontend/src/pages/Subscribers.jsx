@@ -209,9 +209,13 @@ const Subscribers = () => {
   const handleActivate = async () => {
     setSubmitting(true);
     try {
+      const d = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      const expiryDate = d.toISOString().split("T")[0];
+
       await api.patch(`/subscribers/${selectedSubscriber._id}/activate`, {
-        expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+        expiryDate,
       });
+
       alert("Subscriber activated successfully!");
       fetchSubscribers();
       setShowActivateModal(false);
