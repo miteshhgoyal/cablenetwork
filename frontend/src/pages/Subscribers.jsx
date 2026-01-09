@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { useAuth } from "../../contexts/AuthContext.jsx";
-import api from "../../services/api.js";
+import { useAuth } from "../contexts/AuthContext.jsx";
+import api from "../services/api.js";
 import {
   Search,
   Filter,
