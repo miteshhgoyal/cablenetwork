@@ -2,6 +2,7 @@ import express from 'express';
 import User from '../models/User.js';
 import Subscriber from '../models/Subscriber.js';
 import jwt from 'jsonwebtoken';
+import Ott from '../models/Ott.js';
 
 const router = express.Router();
 
@@ -10,7 +11,8 @@ const router = express.Router();
 // ==========================================
 
 /**
- * Remove expired packages from subscriber
+ * 🔧 UPDATED: Remove expired packages from subscriber
+ * Now works with new package structure: packages[{packageId, expiryDate, addedAt}]
  */
 const removeExpiredPackages = async (subscriber) => {
     const now = new Date();
@@ -20,21 +22,33 @@ const removeExpiredPackages = async (subscriber) => {
         return { hadChanges: false, subscriber };
     }
 
-    await subscriber.populate('packages', 'duration');
+    // Populate packageId subdocument to get package details
+    await subscriber.populate('packages.packageId', 'name duration');
 
     const validPackages = [];
     const expiredPackageNames = [];
 
+    // Check each package's individual expiry date
     for (const pkg of subscriber.packages) {
-        const assignedDate = subscriber.createdAt || now;
-        const packageDuration = pkg.duration || 30;
-        const packageExpiry = new Date(assignedDate.getTime() + packageDuration * 24 * 60 * 60 * 1000);
+        if (!pkg.packageId || !pkg.expiryDate) {
+            // Invalid package entry, skip it
+            hadChanges = true;
+            continue;
+        }
+
+        const packageExpiry = new Date(pkg.expiryDate);
 
         if (now > packageExpiry) {
-            expiredPackageNames.push(pkg.name || pkg._id);
+            // Package has expired
+            expiredPackageNames.push(pkg.packageId.name || pkg.packageId._id);
             hadChanges = true;
         } else {
-            validPackages.push(pkg._id);
+            // Package is still valid
+            validPackages.push({
+                packageId: pkg.packageId._id,
+                expiryDate: pkg.expiryDate,
+                addedAt: pkg.addedAt
+            });
         }
     }
 
@@ -42,15 +56,19 @@ const removeExpiredPackages = async (subscriber) => {
         subscriber.packages = validPackages;
         console.log(`Removed ${expiredPackageNames.length} expired packages from subscriber ${subscriber.subscriberName}`, expiredPackageNames);
 
+        // If no packages remain, set status to Inactive
         if (validPackages.length === 0) {
             subscriber.status = 'Inactive';
             console.log(`Subscriber ${subscriber.subscriberName} set to Inactive - no packages remaining`);
         }
 
+        // Update primaryPackageId if it was removed
         if (subscriber.primaryPackageId) {
-            const primaryExists = validPackages.some(pkgId => pkgId.toString() === subscriber.primaryPackageId.toString());
+            const primaryExists = validPackages.some(pkg =>
+                pkg.packageId.toString() === subscriber.primaryPackageId.toString()
+            );
             if (!primaryExists) {
-                subscriber.primaryPackageId = validPackages.length > 0 ? validPackages[0] : null;
+                subscriber.primaryPackageId = validPackages.length > 0 ? validPackages[0].packageId : null;
                 console.log(`Updated primaryPackageId for subscriber ${subscriber.subscriberName}`);
             }
         }
@@ -62,7 +80,7 @@ const removeExpiredPackages = async (subscriber) => {
 };
 
 /**
- * 🔧 NEW: Check upline status hierarchy using partnerCode
+ * Check upline status hierarchy using partnerCode
  * Returns: { isAllowed, code, message }
  */
 const checkUplinerStatus = async (partnerCode) => {
@@ -156,6 +174,7 @@ const authenticateToken = async (req, res, next) => {
             });
         }
 
+        // 🔧 UPDATED: Check overall subscriber expiry (not individual package expiry)
         if (new Date() > new Date(subscriber.expiryDate)) {
             return res.status(403).json({
                 success: false,
@@ -195,8 +214,8 @@ const authenticateToken = async (req, res, next) => {
 // ==========================================
 
 /**
- * 🔧 FULLY FIXED: LOGIN ROUTE
- * Now checks upline status using partnerCode (not resellerId)
+ * 🔧 UPDATED: LOGIN ROUTE
+ * Updated to work with new package structure
  */
 router.post('/login', async (req, res) => {
     try {
@@ -209,7 +228,7 @@ router.post('/login', async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check upline status hierarchy using partnerCode
+        // Check upline status hierarchy using partnerCode
         const uplinerCheck = await checkUplinerStatus(partnerCode);
 
         if (!uplinerCheck.isAllowed) {
@@ -240,10 +259,11 @@ router.post('/login', async (req, res) => {
                 return res.status(404).json({
                     success: false,
                     code: 'CUSTOM_MAC_NOT_ACTIVE',
-                    message: `Custom MAC not found or not active. MAC: ${customMac}. Ensure MAC address is correct. The account is Active.`
+                    message: `Custom MAC not found or not active. MAC: ${customMac}. Ensure MAC address is correct and the account is Active.`
                 });
             }
 
+            // Clean expired packages
             const { hadChanges } = await removeExpiredPackages(activeSubscriber);
             if (hadChanges) {
                 console.log('Cleaned expired packages from custom MAC:', customMacAddress);
@@ -261,30 +281,33 @@ router.post('/login', async (req, res) => {
                 return res.status(403).json({
                     success: false,
                     code: 'CUSTOM_MAC_EXPIRED',
-                    message: `Custom MAC subscription expired. ${customMac} on ${new Date(activeSubscriber.expiryDate).toLocaleDateString()}. Use another active MAC or contact admin.`
+                    message: `Custom MAC subscription expired. ${customMac} expired on ${new Date(activeSubscriber.expiryDate).toLocaleDateString()}. Use another active MAC or contact admin.`
                 });
             }
 
+            // Find or create device MAC entry
             subscriber = await Subscriber.findOne({
                 partnerCode: partnerCode.trim(),
                 serialNumber: deviceMac
             });
 
             if (!subscriber) {
+                // Create new subscriber entry for device MAC
                 subscriber = new Subscriber({
                     resellerId: reseller._id,
                     partnerCode: partnerCode.trim(),
                     subscriberName: deviceName || 'User',
                     serialNumber: deviceMac,
                     macAddress: deviceMac,
-                    packages: activeSubscriber.packages,
-                    primaryPackageId: activeSubscriber.primaryPackageId,
+                    packages: [],
+                    primaryPackageId: null,
                     status: 'Fresh',
-                    expiryDate: activeSubscriber.expiryDate
+                    expiryDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
                 });
                 await subscriber.save();
             }
 
+            // Update device info
             subscriber.macAddress = customMacAddress;
             subscriber.partnerCode = partnerCode.trim();
             subscriber.deviceInfo = {
@@ -294,6 +317,7 @@ router.post('/login', async (req, res) => {
             };
             await subscriber.save();
 
+            // Use the active subscriber for login
             subscriber = activeSubscriber;
             usingCustomMac = true;
             console.log(`Login with custom MAC ${customMacAddress} from device ${deviceMac}`);
@@ -308,7 +332,7 @@ router.post('/login', async (req, res) => {
             if (existingSubscriber && existingSubscriber.partnerCode !== partnerCode.trim()) {
                 console.log(`MAC ${deviceMac} switching from partner code ${existingSubscriber.partnerCode} to ${partnerCode}`);
 
-                // 🔧 FIXED: Check new partner code's upline before allowing switch
+                // Check new partner code's upline before allowing switch
                 const newUplinerCheck = await checkUplinerStatus(partnerCode);
                 if (!newUplinerCheck.isAllowed) {
                     return res.status(403).json({
@@ -318,6 +342,7 @@ router.post('/login', async (req, res) => {
                     });
                 }
 
+                // Reset subscriber for new partner code
                 existingSubscriber.resellerId = reseller._id;
                 existingSubscriber.partnerCode = partnerCode.trim();
                 existingSubscriber.status = 'Fresh';
@@ -347,6 +372,7 @@ router.post('/login', async (req, res) => {
             if (existingSubscriber && existingSubscriber.partnerCode === partnerCode.trim()) {
                 subscriber = existingSubscriber;
 
+                // Clean expired packages
                 const { hadChanges } = await removeExpiredPackages(subscriber);
                 if (hadChanges) {
                     console.log('Cleaned expired packages from device MAC:', deviceMac);
@@ -416,6 +442,7 @@ router.post('/login', async (req, res) => {
                     });
                 }
 
+                // Update device info
                 subscriber.deviceInfo = {
                     ...subscriber.deviceInfo,
                     lastIPAddress: req.ip || req.connection.remoteAddress,
@@ -459,8 +486,10 @@ router.post('/login', async (req, res) => {
         // ========================================
         // PROCEED WITH LOGIN - BUILD RESPONSE
         // ========================================
+
+        // 🔧 UPDATED: Populate with new structure
         await subscriber.populate({
-            path: 'packages',
+            path: 'packages.packageId',
             select: 'name cost duration channels',
             populate: {
                 path: 'channels',
@@ -476,22 +505,32 @@ router.post('/login', async (req, res) => {
 
         if (subscriber.packages && subscriber.packages.length > 0) {
             subscriber.packages.forEach(pkg => {
+                // 🔧 UPDATED: Access packageId subdocument
+                const packageData = pkg.packageId;
+
+                if (!packageData) {
+                    console.warn('Package has no packageId data:', pkg);
+                    return;
+                }
+
                 packagesList.push({
-                    id: pkg._id,
-                    name: pkg.name,
-                    cost: pkg.cost,
-                    duration: pkg.duration,
-                    channelCount: pkg.channels?.length || 0
+                    id: packageData._id,
+                    name: packageData.name,
+                    cost: packageData.cost,
+                    duration: packageData.duration,
+                    channelCount: packageData.channels?.length || 0,
+                    expiryDate: pkg.expiryDate,
+                    addedAt: pkg.addedAt
                 });
 
-                if (pkg.channels && Array.isArray(pkg.channels)) {
-                    pkg.channels.forEach(channel => {
+                if (packageData.channels && Array.isArray(packageData.channels)) {
+                    packageData.channels.forEach(channel => {
                         if (channel._id) {
                             const channelId = channel._id.toString();
                             if (channelMap.has(channelId)) {
                                 const existing = channelMap.get(channelId);
-                                if (!existing.packageNames.includes(pkg.name)) {
-                                    existing.packageNames.push(pkg.name);
+                                if (!existing.packageNames.includes(packageData.name)) {
+                                    existing.packageNames.push(packageData.name);
                                 }
                             } else {
                                 channelMap.set(channelId, {
@@ -502,7 +541,7 @@ router.post('/login', async (req, res) => {
                                     url: channel.url,
                                     genre: channel.genre,
                                     language: channel.language,
-                                    packageNames: [pkg.name]
+                                    packageNames: [packageData.name]
                                 });
                             }
                         }
@@ -527,6 +566,7 @@ router.post('/login', async (req, res) => {
             { expiresIn: '30d' }
         );
 
+        // Response format kept exactly the same as before
         res.json({
             success: true,
             data: {
@@ -564,14 +604,13 @@ router.post('/login', async (req, res) => {
 });
 
 /**
- * 🔧 FIXED: Check subscription status
- * Uses partnerCode to check upline status
+ * 🔧 UPDATED: Check subscription status
  */
 router.get('/check-status', authenticateToken, async (req, res) => {
     try {
         let subscriber = await Subscriber.findById(req.user.id)
             .select('subscriberName status expiryDate macAddress deviceInfo packages createdAt partnerCode')
-            .populate('packages', 'name duration');
+            .populate('packages.packageId', 'name duration');
 
         if (!subscriber) {
             return res.status(404).json({
@@ -581,7 +620,7 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             });
         }
 
-        // 🔧 FIXED: Check upline status using partnerCode
+        // Check upline status using partnerCode
         if (subscriber.partnerCode) {
             const uplinerCheck = await checkUplinerStatus(subscriber.partnerCode);
 
@@ -599,11 +638,13 @@ router.get('/check-status', authenticateToken, async (req, res) => {
             }
         }
 
+        // Clean expired packages
         const { hadChanges } = await removeExpiredPackages(subscriber);
         if (hadChanges) {
             console.log('Check-status: Cleaned expired packages from subscriber', subscriber.subscriberName);
         }
 
+        // Reload subscriber after potential changes
         subscriber = await Subscriber.findById(req.user.id)
             .select('subscriberName status expiryDate macAddress deviceInfo packages partnerCode')
             .lean();
@@ -694,13 +735,13 @@ router.get('/check-status', authenticateToken, async (req, res) => {
 });
 
 /**
- * Refresh channels route
+ * 🔧 UPDATED: Refresh channels route
  */
 router.get('/refresh-channels', authenticateToken, async (req, res) => {
     try {
         const subscriber = await Subscriber.findById(req.user.id)
             .populate({
-                path: 'packages',
+                path: 'packages.packageId',
                 select: 'name cost duration channels',
                 populate: {
                     path: 'channels',
@@ -727,22 +768,32 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
 
         if (subscriber.packages && subscriber.packages.length > 0) {
             subscriber.packages.forEach(pkg => {
+                // 🔧 UPDATED: Access packageId subdocument
+                const packageData = pkg.packageId;
+
+                if (!packageData) {
+                    console.warn('Package has no packageId data:', pkg);
+                    return;
+                }
+
                 packagesList.push({
-                    id: pkg._id,
-                    name: pkg.name,
-                    cost: pkg.cost,
-                    duration: pkg.duration,
-                    channelCount: pkg.channels?.length || 0
+                    id: packageData._id,
+                    name: packageData.name,
+                    cost: packageData.cost,
+                    duration: packageData.duration,
+                    channelCount: packageData.channels?.length || 0,
+                    expiryDate: pkg.expiryDate,
+                    addedAt: pkg.addedAt
                 });
 
-                if (pkg.channels && Array.isArray(pkg.channels)) {
-                    pkg.channels.forEach(channel => {
+                if (packageData.channels && Array.isArray(packageData.channels)) {
+                    packageData.channels.forEach(channel => {
                         if (channel._id) {
                             const channelId = channel._id.toString();
                             if (channelMap.has(channelId)) {
                                 const existing = channelMap.get(channelId);
-                                if (!existing.packageNames.includes(pkg.name)) {
-                                    existing.packageNames.push(pkg.name);
+                                if (!existing.packageNames.includes(packageData.name)) {
+                                    existing.packageNames.push(packageData.name);
                                 }
                             } else {
                                 channelMap.set(channelId, {
@@ -753,7 +804,7 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
                                     url: channel.url,
                                     genre: channel.genre,
                                     language: channel.language,
-                                    packageNames: [pkg.name]
+                                    packageNames: [packageData.name]
                                 });
                             }
                         }
@@ -764,6 +815,7 @@ router.get('/refresh-channels', authenticateToken, async (req, res) => {
 
         const channels = buildChannelResponse(channelMap);
 
+        // Response format kept exactly the same as before
         res.json({
             success: true,
             data: {
@@ -897,8 +949,8 @@ router.get('/profile', authenticateToken, async (req, res) => {
     try {
         const subscriber = await Subscriber.findById(req.user.id)
             .populate('primaryPackageId', 'name cost duration')
-            .populate('packages', 'name')
-            .select('subscriberName macAddress status expiryDate lastLocation deviceInfo partnerCode');
+            .populate('packages.packageId', 'name')
+            .select('subscriberName macAddress status expiryDate lastLocation deviceInfo partnerCode packages');
 
         res.json({
             success: true,
@@ -937,10 +989,14 @@ router.get('/movies', authenticateToken, async (req, res) => {
         if (genre) filter.genre = genre;
         if (language) filter.language = language;
 
+        // Note: Ott model needs to be imported
         const movies = await Ott.find(filter)
             .populate('genre', 'name')
             .populate('language', 'name')
             .sort({ createdAt: -1 });
+
+        // For now, return empty array if Ott model not available
+        // const movies = [];
 
         const groupedByGenre = movies.reduce((acc, movie) => {
             const genreName = movie.genre?.name || 'Uncategorized';
@@ -1028,9 +1084,12 @@ router.get('/series', authenticateToken, async (req, res) => {
 // Get single OTT content by ID
 router.get('/ott/:id', authenticateToken, async (req, res) => {
     try {
+        // Note: Ott model needs to be imported
         const content = await Ott.findById(req.params.id)
             .populate('genre', 'name')
             .populate('language', 'name');
+
+        // const content = null;
 
         if (!content) {
             return res.status(404).json({
