@@ -193,6 +193,28 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
+        // ✅ BALANCE MANAGEMENT - Deduct from admin (tracking purposes)
+        // Admin typically has unlimited balance, but we track the allocation
+        if (initialBalance > 0) {
+            // Check if admin has sufficient balance (only if admin balance is being tracked)
+            if (currentUser.balance !== undefined && currentUser.balance < initialBalance) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Insufficient balance. You need ₹${initialBalance} but have ₹${currentUser.balance}`,
+                    data: {
+                        currentBalance: currentUser.balance,
+                        requiredAmount: initialBalance
+                    }
+                });
+            }
+
+            // Deduct from admin balance (if tracked)
+            if (currentUser.balance !== undefined) {
+                currentUser.balance -= initialBalance;
+                await currentUser.save();
+            }
+        }
+
         // Create distributor
         const distributor = new User({
             name: name.trim(),
@@ -203,7 +225,7 @@ router.post('/', authenticateToken, async (req, res) => {
             status: status || 'Active',
             balance: initialBalance,
             packages: packages || [],
-            validityDate: validityDate || null  // ✅ Validity support
+            validityDate: validityDate || null
         });
 
         await distributor.save();
@@ -213,8 +235,11 @@ router.post('/', authenticateToken, async (req, res) => {
 
         res.status(201).json({
             success: true,
-            message: 'Distributor created successfully',
-            data: { distributor: distributor.toJSON() }
+            message: `Distributor created successfully${initialBalance > 0 ? `. ₹${initialBalance} allocated.` : ''}`,
+            data: {
+                distributor: distributor.toJSON(),
+                adminNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {
@@ -237,6 +262,7 @@ router.post('/', authenticateToken, async (req, res) => {
 // Update distributor (FULL CASCADE)
 router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
     try {
+        const currentUser = await User.findById(req.user.id);
         const { name, email, password, phone, status, balance, packages, validityDate } = req.body;
 
         // Validation - Required fields
@@ -274,15 +300,49 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             }
         }
 
-        // Validate balance if provided
+        // ✅ BALANCE MANAGEMENT - Handle balance changes
         if (balance !== undefined && balance !== null && balance !== '') {
+            const oldBalance = distributor.balance;
             const numBalance = parseFloat(balance);
+
             if (isNaN(numBalance) || numBalance < 10000) {
                 return res.status(400).json({
                     success: false,
                     message: 'Balance amount cannot be less than ₹10,000'
                 });
             }
+
+            const balanceDifference = numBalance - oldBalance;
+
+            if (balanceDifference > 0) {
+                // Balance is being increased - deduct from admin
+                if (currentUser.balance !== undefined) {
+                    if (currentUser.balance < balanceDifference) {
+                        return res.status(400).json({
+                            success: false,
+                            message: `Insufficient balance. You need ₹${balanceDifference} more but have ₹${currentUser.balance}`,
+                            data: {
+                                currentBalance: currentUser.balance,
+                                requiredAmount: balanceDifference,
+                                oldDistributorBalance: oldBalance,
+                                newDistributorBalance: numBalance
+                            }
+                        });
+                    }
+
+                    // Deduct from admin
+                    currentUser.balance -= balanceDifference;
+                    await currentUser.save();
+                }
+
+            } else if (balanceDifference < 0) {
+                // Balance is being decreased - return to admin (if tracked)
+                if (currentUser.balance !== undefined) {
+                    currentUser.balance += Math.abs(balanceDifference);
+                    await currentUser.save();
+                }
+            }
+
             distributor.balance = numBalance;
         }
 
@@ -309,7 +369,7 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
             const oldStatus = distributor.status;
             distributor.status = status;
 
-            // 🎯 MANUAL CASCADE: Inactivate ALL RESSELLERS + CUSTOMERS
+            // 🎯 MANUAL CASCADE: Inactivate ALL RESELLERS + CUSTOMERS
             if (status === 'Inactive' && oldStatus === 'Active') {
                 console.log(`🎯 MANUAL CASCADE: Inactivating resellers + customers for distributor ${distributor.name}`);
 
@@ -328,7 +388,7 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
                 if (resellerIds.length > 0) {
                     const customersUpdated = await Subscriber.updateMany(
                         { resellerId: { $in: resellerIds } },
-                        { status: 'Inactive' }  // ✅ Customer app login sees this!
+                        { status: 'Inactive' }
                     );
                     console.log(`📉 Inactivated ${customersUpdated.modifiedCount} customers`);
                 }
@@ -356,7 +416,10 @@ router.put('/:id', authenticateToken, authorize('admin'), async (req, res) => {
         res.json({
             success: true,
             message: 'Distributor updated successfully',
-            data: { distributor: distributor.toJSON() }
+            data: {
+                distributor: distributor.toJSON(),
+                adminNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {
@@ -417,11 +480,20 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             );
         }
 
+        // ✅ BALANCE MANAGEMENT - Return distributor's balance to admin (if tracked)
+        if (distributor.balance > 0 && currentUser.balance !== undefined) {
+            currentUser.balance += distributor.balance;
+            await currentUser.save();
+        }
+
         await distributor.deleteOne();
 
         res.json({
             success: true,
-            message: 'Distributor deleted successfully'
+            message: `Distributor deleted successfully${distributor.balance > 0 ? `. ₹${distributor.balance} returned to admin balance.` : ''}`,
+            data: {
+                adminNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {

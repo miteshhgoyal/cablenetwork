@@ -3,6 +3,7 @@ import { authenticateToken, authorize } from '../middlewares/auth.js';
 import User from '../models/User.js';
 import Package from '../models/Package.js';
 import Subscriber from '../models/Subscriber.js';
+import Capping from '../models/Capping.js';
 
 const router = express.Router();
 
@@ -13,7 +14,6 @@ router.get('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Only admin and distributor can access resellers
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
                 success: false,
@@ -23,13 +23,10 @@ router.get('/', authenticateToken, async (req, res) => {
 
         let query = { role: 'reseller' };
 
-        // Role-based filtering
         if (currentUser.role === 'distributor') {
-            // Distributor sees only their resellers
             query.createdBy = userId;
         }
 
-        // Add search filter
         if (search) {
             query.$or = [
                 { name: { $regex: search, $options: 'i' } },
@@ -39,7 +36,6 @@ router.get('/', authenticateToken, async (req, res) => {
             ];
         }
 
-        // Add status filter
         if (status) {
             query.status = status;
         }
@@ -50,7 +46,6 @@ router.get('/', authenticateToken, async (req, res) => {
             .select('-password')
             .sort({ createdAt: -1 });
 
-        // ✅ Check validity for all resellers and cascade to customers
         for (let reseller of resellers) {
             await reseller.checkValidityStatus();
         }
@@ -111,10 +106,8 @@ router.get('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // ✅ Check validity status + cascade to customers
         await reseller.checkValidityStatus();
 
-        // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy._id.toString() !== userId) {
             return res.status(403).json({
@@ -143,7 +136,6 @@ router.post('/', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Only admin and distributor can create resellers
         if (currentUser.role === 'reseller') {
             return res.status(403).json({
                 success: false,
@@ -151,7 +143,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if distributor is Active
         if (currentUser.role === 'distributor' && currentUser.status !== 'Active') {
             return res.status(403).json({
                 success: false,
@@ -172,7 +163,6 @@ router.post('/', authenticateToken, async (req, res) => {
             validityDate
         } = req.body;
 
-        // Validation - Required fields
         if (!name || !email || !password || !phone) {
             return res.status(400).json({
                 success: false,
@@ -187,7 +177,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // ✅ Validate validityDate
         if (validityDate) {
             const validity = new Date(validityDate);
             if (isNaN(validity.getTime()) || validity <= new Date()) {
@@ -198,7 +187,6 @@ router.post('/', authenticateToken, async (req, res) => {
             }
         }
 
-        // Check email uniqueness
         const existingUser = await User.findOne({ email: email.toLowerCase() });
         if (existingUser) {
             return res.status(400).json({
@@ -207,7 +195,6 @@ router.post('/', authenticateToken, async (req, res) => {
             });
         }
 
-        // Validate packages if provided
         if (packages && packages.length > 0) {
             const validPackages = await Package.find({ _id: { $in: packages } });
             if (validPackages.length !== packages.length) {
@@ -216,6 +203,38 @@ router.post('/', authenticateToken, async (req, res) => {
                     message: 'One or more invalid packages'
                 });
             }
+        }
+
+        // ✅ BALANCE MANAGEMENT - Check if balance is being assigned
+        const resellerBalance = balance || 0;
+
+        if (resellerBalance > 0) {
+            // Get capping settings
+            const cappingSettings = await Capping.getSettings();
+            const cappingAmount = currentUser.role === 'distributor'
+                ? cappingSettings.distributorCapping
+                : cappingSettings.resellerCapping;
+
+            // Calculate balance after deduction
+            const balanceAfterDeduction = currentUser.balance - resellerBalance;
+
+            // Check if balance would go below capping
+            if (balanceAfterDeduction < cappingAmount) {
+                return res.status(400).json({
+                    success: false,
+                    message: `Insufficient balance. You need ₹${resellerBalance} but your available balance after capping (₹${cappingAmount}) is ₹${currentUser.balance - cappingAmount}`,
+                    data: {
+                        currentBalance: currentUser.balance,
+                        cappingAmount: cappingAmount,
+                        availableBalance: currentUser.balance - cappingAmount,
+                        requiredAmount: resellerBalance
+                    }
+                });
+            }
+
+            // Deduct balance from creator
+            currentUser.balance -= resellerBalance;
+            await currentUser.save();
         }
 
         // Create reseller
@@ -229,25 +248,26 @@ router.post('/', authenticateToken, async (req, res) => {
             partnerCode: partnerCode || '',
             packages: packages || [],
             status: status || 'Active',
-            balance: balance || 0,
+            balance: resellerBalance,
             validityDate: validityDate || null,
             createdBy: userId
         });
 
         await reseller.save();
 
-        // Populate fields before sending response
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
 
-        // Remove password from response
         const resellerObj = reseller.toObject();
         delete resellerObj.password;
 
         res.status(201).json({
             success: true,
-            message: 'Reseller created successfully',
-            data: { reseller: resellerObj }
+            message: `Reseller created successfully${resellerBalance > 0 ? `. ₹${resellerBalance} deducted from your balance.` : ''}`,
+            data: {
+                reseller: resellerObj,
+                creatorNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {
@@ -265,7 +285,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
         const userId = req.user.id;
         const currentUser = await User.findById(userId);
 
-        // Find reseller
         const reseller = await User.findOne({
             _id: req.params.id,
             role: 'reseller'
@@ -278,7 +297,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
             return res.status(403).json({
@@ -300,7 +318,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             validityDate
         } = req.body;
 
-        // Validation
         if (email && email !== reseller.email) {
             const existingUser = await User.findOne({
                 email: email.toLowerCase(),
@@ -315,7 +332,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             reseller.email = email.toLowerCase();
         }
 
-        // ✅ Validate validityDate if provided
         if (validityDate !== undefined) {
             if (validityDate === null || validityDate === '') {
                 reseller.validityDate = null;
@@ -331,7 +347,6 @@ router.put('/:id', authenticateToken, async (req, res) => {
             }
         }
 
-        // Validate packages if provided
         if (packages) {
             const validPackages = await Package.find({ _id: { $in: packages } });
             if (validPackages.length !== packages.length) {
@@ -343,22 +358,60 @@ router.put('/:id', authenticateToken, async (req, res) => {
             reseller.packages = packages;
         }
 
-        // Update fields
+        // ✅ BALANCE MANAGEMENT - Handle balance changes
+        if (balance !== undefined) {
+            const oldBalance = reseller.balance;
+            const newBalance = Number(balance);
+            const balanceDifference = newBalance - oldBalance;
+
+            if (balanceDifference > 0) {
+                // Balance is being increased - deduct from creator
+                const cappingSettings = await Capping.getSettings();
+                const cappingAmount = currentUser.role === 'distributor'
+                    ? cappingSettings.distributorCapping
+                    : cappingSettings.resellerCapping;
+
+                const balanceAfterDeduction = currentUser.balance - balanceDifference;
+
+                if (balanceAfterDeduction < cappingAmount) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Insufficient balance. You need ₹${balanceDifference} more but your available balance after capping (₹${cappingAmount}) is ₹${currentUser.balance - cappingAmount}`,
+                        data: {
+                            currentBalance: currentUser.balance,
+                            cappingAmount: cappingAmount,
+                            availableBalance: currentUser.balance - cappingAmount,
+                            requiredAmount: balanceDifference,
+                            oldResellerBalance: oldBalance,
+                            newResellerBalance: newBalance
+                        }
+                    });
+                }
+
+                // Deduct from creator, add to reseller
+                currentUser.balance -= balanceDifference;
+                await currentUser.save();
+
+            } else if (balanceDifference < 0) {
+                // Balance is being decreased - return to creator
+                currentUser.balance += Math.abs(balanceDifference);
+                await currentUser.save();
+            }
+
+            reseller.balance = newBalance;
+        }
+
+        // Update other fields
         if (name) reseller.name = name;
         if (password) reseller.password = password;
         if (phone) reseller.phone = phone;
         if (subscriberLimit !== undefined) reseller.subscriberLimit = subscriberLimit;
         if (partnerCode !== undefined) reseller.partnerCode = partnerCode;
         if (status) reseller.status = status;
-        if (balance !== undefined) reseller.balance = balance;
 
-        // Save reseller
         await reseller.save();
-
-        // Check validity after update (this will cascade to customers if needed)
         await reseller.checkValidityStatus();
 
-        // Populate and return
         await reseller.populate('packages', 'name cost duration');
         await reseller.populate('createdBy', 'name email status');
 
@@ -368,7 +421,10 @@ router.put('/:id', authenticateToken, async (req, res) => {
         res.json({
             success: true,
             message: 'Reseller updated successfully',
-            data: { reseller: resellerObj }
+            data: {
+                reseller: resellerObj,
+                creatorNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {
@@ -398,7 +454,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check access permissions
         if (currentUser.role === 'distributor' &&
             reseller.createdBy.toString() !== userId) {
             return res.status(403).json({
@@ -407,7 +462,6 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
-        // Check if reseller has active subscribers
         const subscriberCount = await Subscriber.countDocuments({
             createdBy: req.params.id
         });
@@ -419,11 +473,20 @@ router.delete('/:id', authenticateToken, async (req, res) => {
             });
         }
 
+        // ✅ OPTIONAL: Return reseller's balance to creator on deletion
+        if (reseller.balance > 0) {
+            currentUser.balance += reseller.balance;
+            await currentUser.save();
+        }
+
         await User.deleteOne({ _id: req.params.id });
 
         res.json({
             success: true,
-            message: 'Reseller deleted successfully'
+            message: `Reseller deleted successfully${reseller.balance > 0 ? `. ₹${reseller.balance} returned to your balance.` : ''}`,
+            data: {
+                creatorNewBalance: currentUser.balance
+            }
         });
 
     } catch (error) {
